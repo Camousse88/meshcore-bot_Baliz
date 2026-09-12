@@ -1181,7 +1181,7 @@ class BotDataViewer:
             llm_context_total_tokens = 0
             try:
                 minimal_bot = _MinimalBot(self.config, self.logger, getattr(self, 'db_manager', None))
-                llm_cmd = LlmCommand(minimal_bot)
+                llm_cmd = LlmCommand(minimal_bot).service
                 llm_context = llm_cmd._inject_current_time_into_prompt(llm_cmd.system_prompt)
                 llm_context_breakdown = llm_cmd._cached_context_breakdown
                 if llm_context_breakdown:
