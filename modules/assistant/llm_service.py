@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-LLM command for the MeshCore Bot.
+Conversation and Wiki service for the MeshCore Bot.
 Sends a short prompt to a local llama.cpp OpenAI-compatible endpoint.
 """
 

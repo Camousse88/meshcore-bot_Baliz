@@ -50,11 +50,11 @@ async def run(args):
             "Bot": {"bot_name": "Baliz-Test", "command_prefix": ""},
             "Channels": {"monitor_channels": "test", "respond_to_dms": "true"},
             "Keywords": {}, "Path_Command": {},
-            "Ask_Command": {"enabled": "true", "aliases": "baliz", "route_timeout_seconds": "180"},
+            "Ask_Command": {"enabled": "true", "aliases": "baliz", "route_timeout_seconds": str(min(300, args.timeout * 2 + 15))},
             "Mesh_Command": {"enabled": "true"},
             "Llm_Command": {
                 "enabled": "true", "endpoint": args.endpoint, "model": args.model,
-                "timeout_seconds": "90", "max_tokens": "200", "cpu_temp_threshold": "0",
+                "timeout_seconds": str(args.timeout), "max_tokens": "200", "cpu_temp_threshold": "0",
                 "context_window_seconds": "0", "wiki_rag_enabled": "true",
                 "wiki_rag_index_path": str(args.wiki_index or index), "wiki_refresh_interval_seconds": "0",
                 "context_include_weather": "false", "context_include_commands": "false",
@@ -114,5 +114,7 @@ if __name__ == "__main__":
     parser.add_argument("--live", action="store_true", help="Use the configured LLM for mesh/Wiki/conversation")
     parser.add_argument("--endpoint", default="http://127.0.0.1:11434/v1/chat/completions")
     parser.add_argument("--model", default="gemma3:4b")
+    parser.add_argument("--timeout", type=int, choices=range(1, 301), metavar="SECONDS", default=180,
+                        help="Per-call model timeout, 1-300 seconds; CPU-only models may need a cold start")
     parser.add_argument("--wiki-index", type=Path)
     raise SystemExit(asyncio.run(run(parser.parse_args())))
