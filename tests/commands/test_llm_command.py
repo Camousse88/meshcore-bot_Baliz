@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 import requests
 
+from modules.assistant.llm_service import LlmService
 from modules.commands.llm_command import LlmCommand
 from tests.conftest import mock_message
 
@@ -112,7 +113,7 @@ class TestLlmCommand:
             ]
         }
 
-        with patch("modules.commands.llm_command.requests.post", return_value=mock_response) as post_mock:
+        with patch("modules.assistant.llm_service.requests.post", return_value=mock_response) as post_mock:
             result = await cmd.execute(msg)
 
         assert result is True
@@ -134,20 +135,17 @@ class TestLlmCommand:
             matches=(match,),
             best_score=12.0,
         )
-        cmd.wiki_rag = Mock()
-        cmd.wiki_rag.retrieve.return_value = result
-        cmd.llm_db_query_enabled = True
-        cmd._get_sender_position = Mock()
-        cmd._extract_sql = Mock()
+        cmd.service.wiki_rag = Mock()
+        cmd.service.wiki_rag.retrieve.return_value = result
         response = Mock(status_code=200)
         response.json.return_value = {"choices": [{"message": {"content": "Use centre and ABC-124."}}]}
 
-        with patch("modules.commands.llm_command.requests.post", return_value=response) as post_mock:
+        with patch("modules.assistant.llm_service.requests.post", return_value=response) as post_mock:
             assert await cmd.execute(mock_message(content="llm show channel", is_dm=True)) is True
 
-        cmd._extract_sql.assert_not_called()
-        cmd.wiki_rag.ensure_fresh.assert_called_once_with()
-        cmd.wiki_rag.retrieve.assert_called_once_with("show channel")
+        assert not hasattr(cmd.service, "_execute_sql")
+        cmd.service.wiki_rag.ensure_fresh.assert_called_once_with()
+        cmd.service.wiki_rag.retrieve.assert_called_once_with("show channel")
         payload = post_mock.call_args.kwargs["json"]
         assert payload["temperature"] == 0.0
         assert "WIKI_REFERENCE_DATA_BEGIN" in payload["messages"][0]["content"]
@@ -160,7 +158,7 @@ class TestLlmCommand:
         cmd = LlmCommand(command_mock_bot)
         msg = mock_message(content="llm hello", is_dm=True)
 
-        with patch("modules.commands.llm_command.requests.post", side_effect=requests.RequestException("boom")):
+        with patch("modules.assistant.llm_service.requests.post", side_effect=requests.RequestException("boom")):
             result = await cmd.execute(msg)
 
         assert result is True
@@ -183,17 +181,17 @@ class TestLlmCommand:
         self._enable_llm(command_mock_bot)
         command_mock_bot.config.set("Llm_Command", "context_window_seconds", "0")
         cmd = LlmCommand(command_mock_bot)
-        cmd._store_context("Alice", "hello", "hi")
-        assert cmd._get_context_history("Alice") == []
+        cmd.service._store_context("Alice", "hello", "hi")
+        assert cmd.service._get_context_history("Alice") == []
 
     def test_context_stored_after_successful_exchange(self, command_mock_bot):
         """After a successful LLM call, context is stored for the sender."""
         self._enable_llm(command_mock_bot)
         command_mock_bot.config.set("Bot", "command_prefix", "")
         cmd = LlmCommand(command_mock_bot)
-        cmd.context_window_seconds = 600
-        cmd._store_context("Alice", "what is LoRa?", "LoRa is a long-range radio tech.")
-        history = cmd._get_context_history("Alice")
+        cmd.service.context_window_seconds = 600
+        cmd.service._store_context("Alice", "what is LoRa?", "LoRa is a long-range radio tech.")
+        history = cmd.service._get_context_history("Alice")
         assert len(history) == 2
         assert history[0] == {"role": "user", "content": "what is LoRa?"}
         assert history[1] == {"role": "assistant", "content": "LoRa is a long-range radio tech."}
@@ -206,7 +204,7 @@ class TestLlmCommand:
             {"role": "user", "content": "what is mesh?"},
             {"role": "assistant", "content": "A mesh is a network."},
         ]
-        payload = cmd._build_payload("tell me more", history)
+        payload = cmd.service._build_payload("tell me more", history)
         messages = payload["messages"]
         assert messages[0]["role"] == "system"
         assert messages[1] == {"role": "user", "content": "what is mesh?"}
@@ -221,11 +219,11 @@ class TestLlmCommand:
         command_mock_bot.config.set("Llm_Command", "context_window_seconds", "60")
         cmd = LlmCommand(command_mock_bot)
         old_ts = time.time() - 120
-        cmd._context["Bob"] = [
+        cmd.service._context["Bob"] = [
             {"role": "user", "content": "old question", "ts": old_ts},
             {"role": "assistant", "content": "old answer", "ts": old_ts},
         ]
-        history = cmd._get_context_history("Bob")
+        history = cmd.service._get_context_history("Bob")
         assert history == []
 
     def test_context_max_turns_limits_history(self, command_mock_bot):
@@ -235,14 +233,14 @@ class TestLlmCommand:
         self._enable_llm(command_mock_bot)
         command_mock_bot.config.set("Llm_Command", "context_max_turns", "2")
         cmd = LlmCommand(command_mock_bot)
-        cmd.context_window_seconds = 600
+        cmd.service.context_window_seconds = 600
         now = time.time()
         entries = []
         for i in range(6):
             entries.append({"role": "user", "content": f"q{i}", "ts": now})
             entries.append({"role": "assistant", "content": f"a{i}", "ts": now})
-        cmd._context["Carol"] = entries
-        history = cmd._get_context_history("Carol")
+        cmd.service._context["Carol"] = entries
+        history = cmd.service._get_context_history("Carol")
         assert len(history) == 4  # 2 turns * 2 messages
         assert history[0]["content"] == "q4"
         assert history[-1]["content"] == "a5"
@@ -253,16 +251,16 @@ class TestLlmCommand:
         self._enable_llm(command_mock_bot)
         command_mock_bot.config.set("Bot", "command_prefix", "")
         cmd = LlmCommand(command_mock_bot)
-        cmd.context_window_seconds = 600
+        cmd.service.context_window_seconds = 600
         # Seed some history for this user
-        cmd._store_context("TestUser", "what is LoRa?", "LoRa is a long-range radio.")
+        cmd.service._store_context("TestUser", "what is LoRa?", "LoRa is a long-range radio.")
         msg = mock_message(content="llm tell me more", sender_id="TestUser", is_dm=True)
 
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.json.return_value = {"choices": [{"message": {"content": "LoRa uses chirp spread spectrum."}}]}
 
-        with patch("modules.commands.llm_command.requests.post", return_value=mock_response) as post_mock:
+        with patch("modules.assistant.llm_service.requests.post", return_value=mock_response) as post_mock:
             await cmd.execute(msg)
 
         payload_sent = post_mock.call_args[1]["json"]
@@ -275,7 +273,7 @@ class TestLlmCommand:
         self._enable_llm(command_mock_bot)
         command_mock_bot.config.set("Bot", "command_prefix", "")
         cmd = LlmCommand(command_mock_bot)
-        cmd.context_window_seconds = 600
+        cmd.service.context_window_seconds = 600
         msg = mock_message(content="llm what is APRS?", sender_id="TestUser", is_dm=True)
 
         mock_response = Mock()
@@ -284,10 +282,10 @@ class TestLlmCommand:
             "choices": [{"message": {"content": "APRS is Automatic Packet Reporting System."}}]
         }
 
-        with patch("modules.commands.llm_command.requests.post", return_value=mock_response):
+        with patch("modules.assistant.llm_service.requests.post", return_value=mock_response):
             await cmd.execute(msg)
 
-        history = cmd._get_context_history("TestUser")
+        history = cmd.service._get_context_history("TestUser")
         assert any(e["content"] == "what is APRS?" for e in history)
         assert any("APRS" in e["content"] for e in history if e["role"] == "assistant")
 
@@ -299,10 +297,10 @@ class TestLlmCommand:
         cmd = LlmCommand(command_mock_bot)
         msg = mock_message(content="llm hello", sender_id="TestUser", is_dm=True)
 
-        with patch("modules.commands.llm_command.requests.post", side_effect=requests.RequestException("boom")):
+        with patch("modules.assistant.llm_service.requests.post", side_effect=requests.RequestException("boom")):
             await cmd.execute(msg)
 
-        assert cmd._get_context_history("TestUser") == []
+        assert cmd.service._get_context_history("TestUser") == []
 
     # ── Pagination tests ──────────────────────────────────────────────────────
 
@@ -312,7 +310,7 @@ class TestLlmCommand:
         command_mock_bot.config.set("Llm_Command", "pagination_enabled", "false")
         cmd = LlmCommand(command_mock_bot)
         content = "This is a test response that could be split but won't be."
-        pages = cmd._split_response_into_pages(content)
+        pages = cmd.service._split_response_into_pages(content)
         assert len(pages) == 1
         assert pages[0] == content
 
@@ -324,7 +322,7 @@ class TestLlmCommand:
         command_mock_bot.config.set("Llm_Command", "page_count", "3")
         cmd = LlmCommand(command_mock_bot)
         content = "This is a very long response that should be split into multiple pages based on the character limit we have configured for pagination."
-        pages = cmd._split_response_into_pages(content)
+        pages = cmd.service._split_response_into_pages(content)
         assert len(pages) > 1
         for page in pages:
             assert len(page) <= 50
@@ -338,7 +336,7 @@ class TestLlmCommand:
         cmd = LlmCommand(command_mock_bot)
         # Very long content that would need more than 2 pages
         content = "This is an extremely long response with many words that would normally require multiple pages to display properly and completely."
-        pages = cmd._split_response_into_pages(content)
+        pages = cmd.service._split_response_into_pages(content)
         assert len(pages) <= 2
         assert len(pages) == 2  # Should use both pages
         # Last page should indicate truncation
@@ -352,7 +350,7 @@ class TestLlmCommand:
         command_mock_bot.config.set("Llm_Command", "page_count", "5")
         cmd = LlmCommand(command_mock_bot)
         content = "Hello world this is a test of the pagination system that should be split into multiple pages"
-        pages = cmd._split_response_into_pages(content)
+        pages = cmd.service._split_response_into_pages(content)
         for page in pages:
             # Each page should contain complete words (no mid-word splits)
             # and respect the page limit
@@ -365,7 +363,7 @@ class TestLlmCommand:
         command_mock_bot.config.set("Llm_Command", "chars_per_page", "100")
         cmd = LlmCommand(command_mock_bot)
         content = "Short response"
-        pages = cmd._split_response_into_pages(content)
+        pages = cmd.service._split_response_into_pages(content)
         assert len(pages) == 1
         assert pages[0] == content
 
@@ -394,7 +392,7 @@ class TestLlmCommand:
             ]
         }
 
-        with patch("modules.commands.llm_command.requests.post", return_value=mock_response):
+        with patch("modules.assistant.llm_service.requests.post", return_value=mock_response):
             result = await cmd.execute(msg)
 
         assert result is True
@@ -412,21 +410,21 @@ class TestLlmCommand:
         """CPU temperature threshold should default to 60.0°C."""
         self._enable_llm(command_mock_bot)
         cmd = LlmCommand(command_mock_bot)
-        assert cmd.cpu_temp_threshold == 60.0
+        assert cmd.service.cpu_temp_threshold == 60.0
 
     def test_cpu_temp_threshold_custom_value(self, command_mock_bot):
         """CPU temperature threshold can be configured."""
         self._enable_llm(command_mock_bot)
         command_mock_bot.config.set("Llm_Command", "cpu_temp_threshold", "55.0")
         cmd = LlmCommand(command_mock_bot)
-        assert cmd.cpu_temp_threshold == 55.0
+        assert cmd.service.cpu_temp_threshold == 55.0
 
     def test_cpu_temp_threshold_disabled_with_zero(self, command_mock_bot):
         """CPU temperature threshold can be disabled by setting to 0."""
         self._enable_llm(command_mock_bot)
         command_mock_bot.config.set("Llm_Command", "cpu_temp_threshold", "0")
         cmd = LlmCommand(command_mock_bot)
-        assert cmd.cpu_temp_threshold == 0.0
+        assert cmd.service.cpu_temp_threshold == 0.0
 
     def test_can_execute_blocked_when_cpu_temp_exceeds_threshold(self, command_mock_bot):
         """can_execute should return True when CPU temperature exceeds threshold (check moved to execute)."""
@@ -435,7 +433,7 @@ class TestLlmCommand:
         cmd = LlmCommand(command_mock_bot)
         msg = mock_message(content="llm hello", is_dm=True)
 
-        with patch("modules.commands.llm_command.get_cpu_temperature", return_value=65.0):
+        with patch("modules.assistant.llm_service.get_cpu_temperature", return_value=65.0):
             assert cmd.can_execute(msg) is True
 
     def test_can_execute_allowed_when_cpu_temp_below_threshold(self, command_mock_bot):
@@ -445,7 +443,7 @@ class TestLlmCommand:
         cmd = LlmCommand(command_mock_bot)
         msg = mock_message(content="llm hello", is_dm=True)
 
-        with patch("modules.commands.llm_command.get_cpu_temperature", return_value=55.0):
+        with patch("modules.assistant.llm_service.get_cpu_temperature", return_value=55.0):
             assert cmd.can_execute(msg) is True
 
     def test_can_execute_allowed_when_cpu_temp_equals_threshold(self, command_mock_bot):
@@ -455,7 +453,7 @@ class TestLlmCommand:
         cmd = LlmCommand(command_mock_bot)
         msg = mock_message(content="llm hello", is_dm=True)
 
-        with patch("modules.commands.llm_command.get_cpu_temperature", return_value=60.0):
+        with patch("modules.assistant.llm_service.get_cpu_temperature", return_value=60.0):
             assert cmd.can_execute(msg) is True
 
     def test_can_execute_allowed_when_cpu_temp_reading_fails(self, command_mock_bot):
@@ -465,7 +463,7 @@ class TestLlmCommand:
         cmd = LlmCommand(command_mock_bot)
         msg = mock_message(content="llm hello", is_dm=True)
 
-        with patch("modules.commands.llm_command.get_cpu_temperature", return_value=None):
+        with patch("modules.assistant.llm_service.get_cpu_temperature", return_value=None):
             assert cmd.can_execute(msg) is True
 
     def test_can_execute_allowed_when_threshold_disabled(self, command_mock_bot):
@@ -475,7 +473,7 @@ class TestLlmCommand:
         cmd = LlmCommand(command_mock_bot)
         msg = mock_message(content="llm hello", is_dm=True)
 
-        with patch("modules.commands.llm_command.get_cpu_temperature", return_value=80.0):
+        with patch("modules.assistant.llm_service.get_cpu_temperature", return_value=80.0):
             # Even with high temperature, should be allowed when threshold is disabled
             assert cmd.can_execute(msg) is True
 
@@ -487,7 +485,7 @@ class TestLlmCommand:
         cmd = LlmCommand(command_mock_bot)
         msg = mock_message(content="llm hello", is_dm=True)
 
-        with patch("modules.commands.llm_command.get_cpu_temperature", return_value=65.0):
+        with patch("modules.assistant.llm_service.get_cpu_temperature", return_value=65.0):
             result = await cmd.execute(msg)
             assert result is True
             assert command_mock_bot.command_manager.send_response.call_args[0][1] == "trop chaud:"
@@ -500,7 +498,7 @@ class TestLlmCommand:
         cmd = LlmCommand(command_mock_bot)
         msg = mock_message(content="llm hello", is_dm=True)
 
-        with patch("modules.commands.llm_command.get_cpu_temperature", return_value=60.0):
+        with patch("modules.assistant.llm_service.get_cpu_temperature", return_value=60.0):
             result = await cmd.execute(msg)
             assert result is True
             assert command_mock_bot.command_manager.send_response.call_args[0][1] == "trop chaud:"
@@ -525,7 +523,7 @@ class TestLlmCommand:
         cmd = LlmCommand(command_mock_bot)
 
         history = [{"role": "assistant", "content": "unrelated history"}]
-        payload = cmd._build_payload(prompt="comment activer debug radio", history=history)
+        payload = cmd.service._build_payload(prompt="comment activer debug radio", history=history)
         system_messages = [m["content"] for m in payload["messages"] if m["role"] == "system"]
         assert len(system_messages) == 1
         assert "WIKI_REFERENCE_DATA_BEGIN" in system_messages[0]
@@ -551,7 +549,7 @@ class TestLlmCommand:
         command_mock_bot.config.set("Llm_Command", "wiki_rag_index_path", str(index_file))
         cmd = LlmCommand(command_mock_bot)
 
-        payload = cmd._build_payload(prompt="comment activer debug radio")
+        payload = cmd.service._build_payload(prompt="comment activer debug radio")
         system_messages = [m["content"] for m in payload["messages"] if m["role"] == "system"]
         assert all("WIKI_REFERENCE_DATA_BEGIN" not in msg for msg in system_messages)
 
@@ -559,14 +557,14 @@ class TestLlmCommand:
         source = "Use #centre with Device_ID and ABC-123."
         response = "Use centre with devic_id and ABC-123."
 
-        repaired = LlmCommand._repair_wiki_literals(response, source)
+        repaired = LlmService._repair_wiki_literals(response, source)
 
         assert repaired == "Use #centre with Device_ID and ABC-123."
 
     @pytest.mark.parametrize("response", ["ABC-124", "868.300", "SF8", "node42"])
     def test_repair_wiki_literals_preserves_numeric_values(self, response):
         source = "ABC-123 868.500 SF7 node43"
-        assert LlmCommand._repair_wiki_literals(response, source) == response
+        assert LlmService._repair_wiki_literals(response, source) == response
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("retrieval_fails", [False, True])
@@ -574,15 +572,15 @@ class TestLlmCommand:
         self._enable_llm(command_mock_bot)
         command_mock_bot.config.set("Bot", "command_prefix", "")
         cmd = LlmCommand(command_mock_bot)
-        cmd.wiki_rag = Mock()
-        cmd.wiki_rag.retrieve.return_value = None
+        cmd.service.wiki_rag = Mock()
+        cmd.service.wiki_rag.retrieve.return_value = None
         if retrieval_fails:
-            cmd.wiki_rag.retrieve.side_effect = OSError("index unavailable")
-        cmd._inject_current_time_into_prompt = Mock(return_value="normal network context")
+            cmd.service.wiki_rag.retrieve.side_effect = OSError("index unavailable")
+        cmd.service._inject_current_time_into_prompt = Mock(return_value="normal network context")
         response = Mock(status_code=200)
         response.json.return_value = {"choices": [{"message": {"content": "Network answer"}}]}
-        with patch("modules.commands.llm_command.requests.post", return_value=response) as post_mock:
+        with patch("modules.assistant.llm_service.requests.post", return_value=response) as post_mock:
             assert await cmd.execute(mock_message(content="llm network status", is_dm=True)) is True
         payload = post_mock.call_args.kwargs["json"]
         assert payload["messages"][0]["content"] == "normal network context"
-        assert payload["temperature"] == cmd.temperature
+        assert payload["temperature"] == cmd.service.temperature
