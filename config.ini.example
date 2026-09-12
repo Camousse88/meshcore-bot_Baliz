@@ -1609,7 +1609,23 @@ enabled = true
 [Aqi_Command]
 enabled = true
 # channels =
+[Ask_Command]
+# Assistant entry: aliases are additive; ask remains available.
+enabled = true
+aliases = baliz
+enabled_routes = test,path,mesh,wiki,llm
+route_timeout_seconds = 120
+max_pages = 4
+
+[Mesh_Command]
+# Natural-language questions over locally observed network data (formerly ask).
+enabled = true
+public_enabled = true
+# channels =
+
 [Llm_Command]
+# Direct llm access can be hidden while the service stays enabled for ask.
+public_enabled = true
 # AI chat command (primary keyword: llm; aliases: ia, ai, chat)
 # Connects to a local llama.cpp OpenAI-compatible endpoint for short mesh replies.
 enabled = false

@@ -61,6 +61,7 @@ nav:
     - Check-in API: checkin-api.md
     - Path Command: path-command-config.md
     - Universal Wiki.js RAG: wiki-rag.md
+    - Baliz assistant: baliz-assistant.md
     - Config validation: config-validation.md
   - Web Viewer: web-viewer.md
   - Command Reference:

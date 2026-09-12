@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Ask command - Text-to-SQL agent for the MeshCore Bot.
+Network data service extracted from the original Ask command.
 Generates a SQL query from a natural language question and executes it.
 """
 

@@ -6,6 +6,13 @@ semantic versioning.
 
 ## [Unreleased]
 
+### Baliz assistant
+- Turn `ask` into a configurable assistant router (alias `baliz`); extract network SQL into `mesh` (`query`/`sql`).
+- Share LLM services without adding routing to `llm_command.py`; isolate Wiki, network and conversation.
+- Preserve RF metadata and capability permissions; send captured answers through UTF-8-aware pagination.
+- See `docs/baliz-assistant.md` for settings migration and LXC 109 validation.
+
+
 ### Added
 
 - Localized proactive weather messages (daily forecasts, rain nowcasts, weather
