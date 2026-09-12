@@ -123,3 +123,33 @@ une base réseau fictive, un index documentaire connu et, si demandé, Ollama.
 Il capture toutes les réponses et n'initialise aucun companion radio.
 Les tests RF utilisent des messages de test ; ils ne remplacent pas une recette
 ultérieure avec de vrais paquets reçus.
+
+## Résultats du 12 septembre 2026
+
+Sur le LXC 109, code de l'architecture `a22b23f`, lanceur final `32b0587` :
+
+- 96 tests ciblés réussis (1,46 s).
+- Suite complète : 4 733 réussis, 21 échecs, 12 ignorés et 7 désélectionnés (163,02 s).
+- Les 21 échecs ont été reproduits sur le commit de base `7a6286d`, avec exactement
+  les mêmes identifiants : aucun nouvel échec. Ils concernent le Web Viewer
+  (`TestApiMeshEdgesEvidence`, `TestMultibyteMeshAggregateCache`).
+- Ruff et mypy réussis sur Debian ; MkDocs strict et contrôle des logs réussis localement.
+- Six scénarios du lanceur réussis, dont trois utilisant réellement Ollama
+  `gemma3:4b` et l'index Wiki du banc. Le scénario mesh retrouve les deux répéteurs
+  de sa base fictive. Le scénario path vérifie le cas sans données de chemin.
+- Première tentative SQL : timeout à 90 s. Nouvelle tentative réussie avec
+  `--timeout 300`, adapté au modèle tournant sur CPU. Le délai est configurable,
+  et ne change aucun réglage de production.
+
+Commande du lanceur, en remplaçant l'adresse par celle du serveur du banc :
+
+```sh
+.venv/bin/python scripts/baliz_assistant_smoke.py --live --timeout 300 \
+  --endpoint http://OLLAMA_HOST:11434/v1/chat/completions --model gemma3:4b \
+  --wiki-index /var/lib/baliz-test/wiki/pages.jsonl
+```
+
+Les rapports sont conservés dans `/var/lib/baliz-test/reports/assistant-*`.
+Le conteneur 103 n'a pas été modifié et aucun service radio n'a été démarré.
+Une recette RF réelle et la validation humaine des formulations du modèle
+restent nécessaires avant le passage en production.
