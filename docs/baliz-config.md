@@ -2,14 +2,16 @@
 
 `config.ini.baliz` reprend les valeurs du fichier actif
 `/etc/meshcore-bot/config.ini` du LXC 103, relevées le 13 septembre 2026,
-et les adapte aux commandes de la branche `baliz`.
+et les adapte aux commandes de la branche `baliz`. Les valeurs ont été
+revérifiées dans la console Proxmox du 103 via Safari le même jour, après
+le redémarrage du service à 21:37:48 CEST.
 Ce profil est propre au fork Baliz. Il ne remplace pas `config.ini.example`.
 
 ## Identité et fonctionnement conservés
 
 - Nom `[BOT] Baliz`, français, fuseau `Europe/Paris` et coordonnées de Morlaix.
 - Canaux surveillés : `#bzh-bot`, `Aar29`, `#bretagne` ; réponses aux DM et
-  limite de 10 sauts conservées. Ce sont les noms des canaux déjà présents
+  limite de 7 sauts conservées. Ce sont les noms des canaux déjà présents
   sur le companion : le profil ne crée pas les canaux et ne fournit pas leurs clés.
 - Prompt système LLM intégral, sans reformulation, modèle `gemma3:4b`, endpoint
   `http://192.168.0.104:11434/v1/chat/completions`, budget de 100 tokens et
@@ -17,6 +19,8 @@ Ce profil est propre au fork Baliz. Il ne remplace pas `config.ini.example`.
   contacts et météo conservés, ainsi que le seuil thermique de 85 °C.
 - Port série par identifiant USB, chemins de données et de logs, limites de
   débit, réglages Web, horloge et états activés/désactivés des services conservés.
+  Le rayon du tableau de synchronisation d'horloge est de 5 sauts
+  (`Clock_Sync_Admin.dashboard_hop_radius`).
 
 ## Adaptation au routeur
 
@@ -74,7 +78,7 @@ n'était absente. La reconstruction des 77 sections a été comparée à la sour
 avant les adaptations ci-dessus, avec les empreintes SHA-256 suivantes :
 
 ```text
-Configuration : b9a931285678b22301223c9c525a0f8142272965d0cfffed309aa80a68452f1f
+Configuration : df40dea26bb1ee71aa790775b0ae9eaa5d74eed3a778ffd12538946d4dd5f84f
 Llm_Command   : fee73c8cda24e083f71cb4df29fbf9862f6cd0e47e1cfbbf2d948bc9d01f2bb5
 ```
 
