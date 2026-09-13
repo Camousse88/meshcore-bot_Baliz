@@ -41,6 +41,10 @@ configurable. En cas de formulation ambiguë, utiliser une route explicite.
 
 ## Configuration et migration
 
+Le [profil de configuration Baliz issu du LXC 103](baliz-config.md) conserve
+l'identité et les réglages de production, sans le contournement de scope local.
+Il est fourni dans `config.ini.baliz`, avec les adaptations au routeur documentées.
+
 ```ini
 [Ask_Command]
 enabled = true
