@@ -503,7 +503,8 @@ class TestLlmCommand:
             assert result is True
             assert command_mock_bot.command_manager.send_response.call_args[0][1] == "trop chaud:"
 
-    def test_build_payload_injects_wiki_rag_context_when_enabled(self, command_mock_bot, tmp_path):
+    @pytest.mark.parametrize("section", ["Llm_Command", "Rag_Service"])
+    def test_build_payload_injects_wiki_rag_context_when_enabled(self, command_mock_bot, tmp_path, section):
         self._enable_llm(command_mock_bot)
         index_file = tmp_path / "wiki_pages.jsonl"
         index_file.write_text(
@@ -518,8 +519,11 @@ class TestLlmCommand:
             + "\n",
             encoding="utf-8",
         )
-        command_mock_bot.config.set("Llm_Command", "wiki_rag_enabled", "true")
-        command_mock_bot.config.set("Llm_Command", "wiki_rag_index_path", str(index_file))
+        if not command_mock_bot.config.has_section(section):
+            command_mock_bot.config.add_section(section)
+        enabled_key = "enabled" if section == "Rag_Service" else "wiki_rag_enabled"
+        command_mock_bot.config.set(section, enabled_key, "true")
+        command_mock_bot.config.set(section, "wiki_rag_index_path", str(index_file))
         cmd = LlmCommand(command_mock_bot)
 
         history = [{"role": "assistant", "content": "unrelated history"}]

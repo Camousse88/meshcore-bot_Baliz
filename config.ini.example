@@ -1669,8 +1669,15 @@ context_include_system_metrics = false
 # Cache TTL for injected context (seconds)
 context_cache_seconds = 60
 
+# Conversation history window (seconds) and max turns to retain
+# context_window_seconds = 600
+# context_max_turns = 5
+
+# Weather location for LLM context (used when context_include_weather = true)
+# context_weather_location = Paris, France
 # Optional local Wiki.js lexical RAG (no embeddings / no vector DB)
-wiki_rag_enabled = false
+[Rag_Service]
+enabled = false
 # Base URL of any Wiki.js instance (no site-specific URL is built into the bot)
 wiki_site_url =
 # Optional locale passed to Wiki.js pages.list (empty = all visible locales)
@@ -1702,12 +1709,6 @@ wiki_rag_relative_score = 0.55
 wiki_rag_stopwords =
 wiki_rag_aliases =
 
-# Conversation history window (seconds) and max turns to retain
-# context_window_seconds = 600
-# context_max_turns = 5
-
-# Weather location for LLM context (used when context_include_weather = true)
-# context_weather_location = Paris, France
 [Advert_Command]
 enabled = true
 # channels =
