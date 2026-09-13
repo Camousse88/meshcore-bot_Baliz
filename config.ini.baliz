@@ -427,7 +427,8 @@ context_max_turns = 5
 cpu_temp_threshold = 85
 public_enabled = true
 # Wiki.js public source collection and local lexical retrieval.
-wiki_rag_enabled = true
+[Rag_Service]
+enabled = true
 wiki_site_url = https://wiki.meshcore.bzh
 # Wiki.js stores these French pages under locale en.
 wiki_locale = en

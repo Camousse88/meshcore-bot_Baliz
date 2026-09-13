@@ -36,6 +36,9 @@ choix et ne les annonce pas comme routes actives. Pour les utiliser derrière
 ## Wiki MeshCore Bretagne
 
 Le RAG est un ajout au profil du 103 : sa configuration source n'en contient pas.
+Les paramètres documentaires sont regroupés dans `[Rag_Service]`
+(`enabled = true`), tandis que le modèle et le prompt restent dans `[Llm_Command]`.
+Ce profil exige la séparation de configuration `refactor/rag-service-config`.
 Le profil utilise le collecteur universel de la branche `baliz`, sans embeddings
 ni base vectorielle, avec `https://wiki.meshcore.bzh` et la route `wiki`.
 La locale Wiki.js est **`en`**, bien que les textes soient français : une requête
