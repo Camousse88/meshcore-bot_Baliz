@@ -60,7 +60,7 @@ public_enabled = true
 [Llm_Command]
 enabled = true
 public_enabled = true
-# Conserver ici endpoint, model, timeout_seconds et les options de contexte/RAG.
+# Conserver ici endpoint, model, timeout_seconds et les options de contexte.
 ```
 
 - Ajouter `aliases = baliz` dans `Ask_Command`. Retirer cet alias de
@@ -76,6 +76,7 @@ public_enabled = true
 - `enabled` active la capacité. `public_enabled = false` masque seulement
   l'accès direct de `llm` ou `mesh`, sans empêcher `ask` de l'utiliser.
 - La route `wiki` exige `Llm_Command.enabled` et la configuration RAG existante.
+  Les réglages documentaires se trouvent dans `[Rag_Service]`.
   Le RAG reste désactivé par défaut : configurer sa source avant utilisation.
 - Les paramètres apparaissent dans l'éditeur des plugins. Les alias utilisent
   l'éditeur de mots-clés déjà existant.

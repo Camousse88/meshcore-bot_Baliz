@@ -20,6 +20,7 @@ from ..solar_conditions import get_moon, get_sun
 from ..utils import geocode_city_sync, get_cpu_temperature, get_cpu_usage, get_ram_usage
 from ..wiki_rag import LocalWikiRag, WikiJsSource
 from .llm_client import post_chat
+from .rag_config import read_rag_config
 
 
 class LlmService:
@@ -159,79 +160,82 @@ class LlmService:
         self.context_cache_seconds = self.get_config_value(
             "Llm_Command", "context_cache_seconds", fallback=60, value_type="int"
         )
-        self.wiki_rag_enabled = self.get_config_value(
-            "Llm_Command", "wiki_rag_enabled", fallback=False, value_type="bool"
+
+        def get_rag_config(key, **kwargs):
+            return read_rag_config(bot.config, self.get_config_value, key, **kwargs)
+
+        self.wiki_rag_enabled = get_rag_config(
+            "wiki_rag_enabled", fallback=False, value_type="bool"
         )
-        self.wiki_rag_index_path = self.get_config_value(
-            "Llm_Command",
+        self.wiki_rag_index_path = get_rag_config(
             "wiki_rag_index_path",
             fallback="data/wiki_rag/wiki_pages.jsonl",
             value_type="str",
         )
         self.wiki_rag_max_chunks = max(
-            1, min(8, self.get_config_value("Llm_Command", "wiki_rag_max_chunks", fallback=2, value_type="int"))
+            1, min(8, get_rag_config("wiki_rag_max_chunks", fallback=2, value_type="int"))
         )
         self.wiki_rag_chunk_chars = max(
             120,
             min(
                 4000,
-                self.get_config_value("Llm_Command", "wiki_rag_chunk_chars", fallback=1400, value_type="int"),
+                get_rag_config("wiki_rag_chunk_chars", fallback=1400, value_type="int"),
             ),
         )
         self.wiki_rag_max_context_chars = max(
             300,
             min(
                 12000,
-                self.get_config_value("Llm_Command", "wiki_rag_max_context_chars", fallback=2400, value_type="int"),
+                get_rag_config("wiki_rag_max_context_chars", fallback=2400, value_type="int"),
             ),
         )
         self.wiki_rag_min_term_len = max(
             2,
             min(
                 8,
-                self.get_config_value("Llm_Command", "wiki_rag_min_term_len", fallback=3, value_type="int"),
+                get_rag_config("wiki_rag_min_term_len", fallback=3, value_type="int"),
             ),
         )
         self.wiki_rag_min_score = max(
             0.0,
-            self.get_config_value("Llm_Command", "wiki_rag_min_score", fallback=6.0, value_type="float"),
+            get_rag_config("wiki_rag_min_score", fallback=6.0, value_type="float"),
         )
         self.wiki_rag_relative_score = max(
             0.0,
             min(
                 1.0,
-                self.get_config_value("Llm_Command", "wiki_rag_relative_score", fallback=0.55, value_type="float"),
+                get_rag_config("wiki_rag_relative_score", fallback=0.55, value_type="float"),
             ),
         )
-        self.wiki_site_url = self.get_config_value(
-            "Llm_Command", "wiki_site_url", fallback="", value_type="str"
+        self.wiki_site_url = get_rag_config(
+            "wiki_site_url", fallback="", value_type="str"
         ).strip()
-        self.wiki_locale = self.get_config_value("Llm_Command", "wiki_locale", fallback="", value_type="str").strip()
-        configured_wiki_api_key = self.get_config_value(
-            "Llm_Command", "wiki_api_key", fallback="", value_type="str"
+        self.wiki_locale = get_rag_config("wiki_locale", fallback="", value_type="str").strip()
+        configured_wiki_api_key = get_rag_config(
+            "wiki_api_key", fallback="", value_type="str"
         ).strip()
         self.wiki_api_key = os.getenv("MESHCORE_WIKI_API_KEY", "").strip() or configured_wiki_api_key
         self.wiki_refresh_interval_seconds = max(
             0,
-            self.get_config_value("Llm_Command", "wiki_refresh_interval_seconds", fallback=86400, value_type="int"),
+            get_rag_config("wiki_refresh_interval_seconds", fallback=86400, value_type="int"),
         )
-        self.wiki_verify_ssl = self.get_config_value("Llm_Command", "wiki_verify_ssl", fallback=True, value_type="bool")
+        self.wiki_verify_ssl = get_rag_config("wiki_verify_ssl", fallback=True, value_type="bool")
         self.wiki_allowed_paths = tuple(
             item.strip()
-            for item in self.get_config_value("Llm_Command", "wiki_allowed_paths", fallback="", value_type="str").split(
+            for item in get_rag_config("wiki_allowed_paths", fallback="", value_type="str").split(
                 ","
             )
             if item.strip()
         )
         wiki_stopwords = tuple(
             item.strip()
-            for item in self.get_config_value("Llm_Command", "wiki_rag_stopwords", fallback="", value_type="str").split(
+            for item in get_rag_config("wiki_rag_stopwords", fallback="", value_type="str").split(
                 ","
             )
             if item.strip()
         )
         wiki_aliases: dict[str, str] = {}
-        for item in self.get_config_value("Llm_Command", "wiki_rag_aliases", fallback="", value_type="str").split(","):
+        for item in get_rag_config("wiki_rag_aliases", fallback="", value_type="str").split(","):
             if "=" in item:
                 source_alias, target_alias = item.split("=", 1)
                 if source_alias.strip() and target_alias.strip():

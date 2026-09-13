@@ -6,10 +6,11 @@ vector database, and it contains no built-in wiki address or site-specific path.
 
 ## Configuration
 
-Enable it in `[Llm_Command]`:
+Enable it in `[Rag_Service]`:
 
 ```ini
-wiki_rag_enabled = true
+[Rag_Service]
+enabled = true
 wiki_site_url = https://wiki.example.org
 wiki_locale = en
 wiki_refresh_interval_seconds = 86400
@@ -25,6 +26,18 @@ wiki_rag_relative_score = 0.55
 wiki_rag_stopwords =
 wiki_rag_aliases =
 ```
+
+The RAG settings belong to this shared configuration section; endpoint, model,
+conversation prompt and history stay in `[Llm_Command]`. This does not create a
+public `rag` command or a background service plugin. The `wiki` assistant route
+uses this configuration and still needs the LLM for synthesis.
+
+For migration, move every `wiki_*` setting from `[Llm_Command]` into
+`[Rag_Service]` and rename `wiki_rag_enabled` to `enabled`. Old settings remain
+readable when the corresponding new key is absent. New values take precedence,
+including explicit `false` and empty strings. `MESHCORE_WIKI_API_KEY` retains
+precedence over the configured API key. Remove old keys after migration to avoid
+ambiguity. Merely adding the example's `enabled = false` explicitly disables RAG.
 
 `wiki_site_url` accepts any absolute HTTP or HTTPS Wiki.js base URL.
 `wiki_allowed_paths` is mandatory for automatic collection. Each value includes an
