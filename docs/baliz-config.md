@@ -25,7 +25,7 @@ Ce profil est propre au fork Baliz. Il ne remplace pas `config.ini.example`.
 ## Adaptation au routeur
 
 `[Ask_Command]` active `ask` avec l'alias `baliz`, quatre messages maximum par
-réponse et un délai global de 120 secondes. Les routes initiales sont `mesh,llm`.
+réponse et un délai global de 120 secondes. Les routes actives sont `mesh,wiki,llm`.
 `[Mesh_Command]` active l'interrogation réseau/SQL et son accès direct.
 L'accès direct `llm` reste disponible (`public_enabled = true`).
 
@@ -33,12 +33,39 @@ L'accès direct `llm` reste disponible (`public_enabled = true`).
 choix et ne les annonce pas comme routes actives. Pour les utiliser derrière
 `baliz`, activer leurs sections et ajouter `test,path` à `enabled_routes`.
 
-Le fichier source ne contient aucune configuration Wiki.js/RAG. Le profil
-explicite donc `wiki_rag_enabled = false` et n'active pas la route `wiki`.
-Pour l'activer, configurer la source documentaire et les paramètres RAG de
-`[Llm_Command]`, puis ajouter `wiki` à `enabled_routes`.
-Le comportement fourni par d'anciens correctifs locaux du 103 n'est pas
-reproduit par une copie de configuration.
+## Wiki MeshCore Bretagne
+
+Le RAG est un ajout au profil du 103 : sa configuration source n'en contient pas.
+Le profil utilise le collecteur universel de la branche `baliz`, sans embeddings
+ni base vectorielle, avec `https://wiki.meshcore.bzh` et la route `wiki`.
+La locale Wiki.js est **`en`**, bien que les textes soient français : une requête
+avec `fr` ne renvoie aucune page sur cette instance.
+
+Le corpus public comprend `configuration`, `démarrer` et `ressources`, avec leurs
+descendants. La collecte réelle a réussi : **12 pages, 117 sections**.
+`materiel` est temporairement exclu : ses trois sources renvoient HTTP 403 en mode
+invité, ce qui fait échouer la collecte complète. Pour l'inclure, autoriser
+`read:pages` et `read:source` sur ces chemins pour Guest, ou fournir une clé via
+`MESHCORE_WIKI_API_KEY`, puis ajouter `materiel` à `wiki_allowed_paths` et vérifier
+la collecte. Aucune clé n'est enregistrée dans le profil.
+
+L'index `data/wiki_rag/meshcore_bzh_wiki_pages.jsonl` est rafraîchi à la demande
+lorsqu'il manque ou dépasse 24 heures. TLS reste vérifié. Le moteur sélectionne
+au plus deux extraits de 1 400 caractères, pour un contexte total de 2 400
+caractères, avec les seuils de pertinence natifs (`6` et `0.55`). Les réponses Wiki
+utilisent le contexte documentaire isolé ; le prompt général Baliz est conservé.
+
+Pour préconstruire l'index depuis le répertoire de travail du bot, avec son Python :
+
+```bash
+python scripts/wikijs_rag_collect.py \
+  --base-url https://wiki.meshcore.bzh --locale en \
+  --allow-prefix configuration --allow-prefix démarrer --allow-prefix ressources \
+  --output data/wiki_rag/meshcore_bzh_wiki_pages.jsonl
+```
+
+Le service doit pouvoir écrire dans ce répertoire. Préconstruire l'index évite
+que la première question attende la collecte. Voir [le fonctionnement du RAG](wiki-rag.md).
 
 ## Réglages exclus
 
