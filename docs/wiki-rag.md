@@ -214,3 +214,7 @@ values and commands, conditions, save/check steps and explicit adaptation of exa
 values. Existing radio pagination still limits delivery; this token budget does not
 guarantee that an entire procedure fits one response. Conflicting source instructions
 must be reported, not silently corrected. Larger contexts may increase model latency.
+
+Optional HTML `details` explanations are omitted in procedure contexts unless
+they contain recognized caution/condition vocabulary. Main steps and code blocks
+remain intact. This compaction is conservative for French/English documentation.

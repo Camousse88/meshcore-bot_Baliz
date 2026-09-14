@@ -12,6 +12,14 @@ from modules.commands.llm_command import LlmCommand
 from tests.conftest import mock_message
 
 
+@pytest.fixture(autouse=True)
+def stable_cpu_temperature():
+    # Model/network tests must not depend on host load. Dedicated thermal tests
+    # below override this mock with their own threshold scenarios.
+    with patch("modules.assistant.llm_service.get_cpu_temperature", return_value=40.0):
+        yield
+
+
 class TestLlmCommand:
     """Tests for LlmCommand."""
 

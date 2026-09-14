@@ -826,6 +826,18 @@ class LocalWikiRag:
         return bool(subject) and subject <= topic
 
     @staticmethod
+    def _procedure_content(content: str) -> str:
+        """Omit optional collapsed explanations, but retain cautions/conditions."""
+        def compact(match):
+            text = match.group(0)
+            if re.search(r'(?i)warning|important|attention|prerequis|prerequisite|'
+                         r'\bif\b|\bsi\b|must|require|adapt|avant|before', text):
+                return text
+            return ''
+        return re.sub(r'<details\b[^>]*>.*?</details>', compact, content,
+                      flags=re.IGNORECASE | re.DOTALL).strip()
+
+    @staticmethod
     def _procedural_section(section: WikiRagSection) -> bool:
         heading = _normalize_search(section.section_title)
         return bool(re.search(r'^\s*\d+[.)]', heading) or re.search(
@@ -937,10 +949,11 @@ class LocalWikiRag:
                 content_budget = min(self.max_chars_per_chunk, content_budget)
             if content_budget < 80:
                 break
-            if procedure and len(section.content) > content_budget:
+            content = self._procedure_content(section.content) if procedure else section.content
+            if procedure and len(content) > content_budget:
                 # Never provide half a step with its save command or warning missing.
                 break
-            block = prefix + _clip_context(section.content, content_budget)
+            block = prefix + _clip_context(content, content_budget)
             parts.append(block)
             included.append(match)
             remaining -= len(block) + 2
