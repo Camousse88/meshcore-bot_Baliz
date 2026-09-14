@@ -414,3 +414,11 @@ def test_definition_does_not_expand_setup_steps(tmp_path):
     result = LocalWikiRag(procedure_corpus(tmp_path)).retrieve('what is printer configuration')
     assert result is not None
     assert len(result.matches) <= 2
+
+
+def test_procedure_compaction_keeps_conditions_and_commands():
+    body = '```text\nctl save\n```\n<details><summary>Explanation</summary>Repeated prose.</details>'
+    compact = LocalWikiRag._procedure_content(body)
+    assert compact == '```text\nctl save\n```'
+    warning = '<details><summary>Warning</summary>Unplug only after saving.</details>'
+    assert LocalWikiRag._procedure_content(warning) == warning
