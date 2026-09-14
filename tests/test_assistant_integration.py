@@ -136,7 +136,7 @@ async def test_general_fallback_with_no_wiki(command_mock_bot):
 async def test_general_disabled_prevents_wiki_probe_fallback(command_mock_bot):
     commands, sent = setup_bot(command_mock_bot, enabled_routes="wiki")
     with patch("modules.assistant.llm_client.requests.post") as post:
-        await commands["ask"].execute(mock_message(content="baliz bonjour"))
+        await commands["ask"].execute(mock_message(content="baliz LoRa spreading factor"))
     post.assert_not_called()
     assert "Aucune source" in sent[0][1]
 
@@ -249,3 +249,26 @@ async def test_target_cooldown_applies_across_direct_and_routed_access(command_m
     await commands["ask"].execute(mock_message(content="baliz mesh contacts"))
     commands["mesh"].service.answer.assert_not_called()
     assert "non autorisée" in sent[0][1]
+
+
+@pytest.mark.parametrize("question", ["bonjour, qui es-tu ?", "raconte une blague courte"])
+async def test_conversation_ignores_spurious_wiki_match(command_mock_bot, question):
+    commands, sent = setup_bot(command_mock_bot)
+    service = commands["llm"].service
+    service.wiki_rag = Mock()
+    service.wiki_rag.retrieve.side_effect = AssertionError("Conversation must not query Wiki")
+    service._inject_current_time_into_prompt = Mock(return_value="Tu es Baliz, réponds en français.")
+    with patch("modules.assistant.llm_client.requests.post", return_value=model_reply("Je suis Baliz.")) as post:
+        await commands["ask"].execute(mock_message(content="baliz " + question))
+    service.wiki_rag.retrieve.assert_not_called()
+    service.wiki_rag.ensure_fresh.assert_not_called()
+    assert "WIKI_REFERENCE_DATA_BEGIN" not in str(post.call_args.kwargs["json"])
+    assert sent[0][1] == "Je suis Baliz."
+
+
+async def test_disabled_conversation_does_not_escape_through_wiki(command_mock_bot):
+    commands, sent = setup_bot(command_mock_bot, enabled_routes="wiki")
+    commands["llm"].service.answer = AsyncMock()
+    await commands["ask"].execute(mock_message(content="baliz raconte une blague courte"))
+    commands["llm"].service.answer.assert_not_called()
+    assert "llm est désactivée" in sent[0][1]

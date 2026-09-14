@@ -27,9 +27,17 @@ formulations françaises et anglaises. Il n'utilise pas de classification LLM.
    `ask test`, `ask path`) ou aide.
 2. Réception du message courant vers `test`.
 3. Chemin du message courant vers `path`.
-4. Intention documentaire explicite vers le Wiki.
-5. Question sur les observations réseau vers `mesh`.
-6. Recherche Wiki ; en l'absence de correspondance, conversation générale.
+4. Salutations, présentation et demandes créatives (blague, histoire, poème,
+   chanson) vers `llm`, sans recherche Wiki.
+5. Intention documentaire explicite vers le Wiki.
+6. Question sur les observations réseau vers `mesh`.
+7. Recherche Wiki pour les autres formulations ; en l'absence de correspondance,
+   conversation générale.
+
+Une salutation devant une question technique ne change pas sa destination :
+`bonjour, combien de répéteurs actifs ?` reste une demande réseau. Une route
+explicite conserve toujours la priorité. Si `llm` est désactivé, une demande
+conversationnelle est refusée au lieu de contourner ce réglage par le Wiki.
 
 Une demande documentaire explicite sans source donne « Aucune source pertinente ».
 Elle ne se transforme pas en requête réseau ou en réponse inventée par le modèle.
