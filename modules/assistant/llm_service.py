@@ -164,6 +164,12 @@ class LlmService:
         def get_rag_config(key, **kwargs):
             return read_rag_config(bot.config, self.get_config_value, key, **kwargs)
 
+        self.wiki_response_max_tokens = max(80, min(1000, get_rag_config(
+            "wiki_response_max_tokens", fallback=384, value_type="int")))
+        self.wiki_procedure_max_sections = get_rag_config(
+            "wiki_procedure_max_sections", fallback=6, value_type="int")
+        self.wiki_procedure_max_context_chars = get_rag_config(
+            "wiki_procedure_max_context_chars", fallback=6000, value_type="int")
         self.wiki_rag_enabled = get_rag_config(
             "wiki_rag_enabled", fallback=False, value_type="bool"
         )
@@ -277,6 +283,8 @@ class LlmService:
             self.wiki_rag = LocalWikiRag(
                 self.wiki_rag_index_path,
                 max_chunks=self.wiki_rag_max_chunks,
+                procedure_max_sections=self.wiki_procedure_max_sections,
+                procedure_max_context_chars=self.wiki_procedure_max_context_chars,
                 max_chars_per_chunk=self.wiki_rag_chunk_chars,
                 max_context_chars=self.wiki_rag_max_context_chars,
                 min_term_len=self.wiki_rag_min_term_len,
@@ -978,7 +986,12 @@ class LlmService:
                     "say that the wiki excerpts do not contain the answer. Reproduce commands, identifiers, "
                     "numbers, units, URLs, paths, punctuation and hashtags exactly as written. Do not invent "
                     "or silently correct technical literals. Keep the answer concise for a low-bandwidth "
-                    "mesh network.\n\n"
+                    "mesh network. For setup or configuration questions, prioritize concrete parameter "
+                    "values and exact commands over introductory prose or links. Preserve prerequisites, "
+                    "warnings, documented step order, save and verification steps. Clearly identify "
+                    "example values that must be adapted; ask for missing user-specific values rather "
+                    "than choosing them. Never present partial excerpts as a complete procedure. "
+                    "If the sources conflict, state the conflict instead of resolving it yourself.\n\n"
                     f"{rag_context}"
                 )
                 messages = [
@@ -996,7 +1009,7 @@ class LlmService:
 
         payload: dict[str, Any] = {
             "messages": messages,
-            "max_tokens": self.max_tokens,
+            "max_tokens": self.wiki_response_max_tokens if rag_active else self.max_tokens,
             "temperature": 0.0 if rag_active else self.temperature,
             "top_p": self.top_p,
         }

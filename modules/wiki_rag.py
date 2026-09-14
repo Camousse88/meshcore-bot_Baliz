@@ -631,6 +631,8 @@ class LocalWikiRag:
         index_path: str,
         *,
         max_chunks: int = 2,
+        procedure_max_sections: int = 6,
+        procedure_max_context_chars: int = 6000,
         max_chars_per_chunk: int = 1400,
         max_context_chars: int = 2400,
         min_term_len: int = 3,
@@ -644,6 +646,8 @@ class LocalWikiRag:
     ) -> None:
         self.index_path = Path(index_path)
         self.max_chunks = max(1, min(8, int(max_chunks)))
+        self.procedure_max_sections = max(1, min(12, int(procedure_max_sections)))
+        self.procedure_max_context_chars = max(300, min(12000, int(procedure_max_context_chars)))
         self.max_chars_per_chunk = max(120, min(4000, int(max_chars_per_chunk)))
         self.max_context_chars = max(300, min(12000, int(max_context_chars)))
         self.min_term_len = max(2, min(12, int(min_term_len)))
@@ -800,6 +804,35 @@ class LocalWikiRag:
         # Keep locales/sites separate, including externally managed corpora.
         return section.source_url, section.locale, section.path
 
+    def _procedure_page(self, query: str, terms: list[str], sections: list[WikiRagMatch], primary):
+        """Expand only a broad setup question about an unambiguous page topic.
+
+        Specific parameter questions and definitions keep lexical retrieval.
+        This vocabulary describes intents, never devices or regional settings.
+        """
+        normalized = _normalize_search(query)
+        if not re.search(r"\b(configur\w*|install\w*|parametr\w*|setup|set up)\b", normalized):
+            return False
+        if re.search(r"\b(pourquoi|why|definition|what is|qu.est.ce)\b", normalized):
+            return False
+        if primary is None:
+            return False
+        page = next(m.section for m in sections if self._page_key(m.section) == primary)
+        topic = set(self._tokenize(page.page_title + ' ' + page.path.replace('/', ' ')))
+        topic |= {t[:-1] for t in topic if t.endswith('s')}
+        intent = {'bonjour', 'salut', 'hello', 'please', 'svp', 'comment', 'how', 'faire', 'do'}
+        subject = {t for t in terms if t not in intent and not re.fullmatch(
+            r'configur\w*|install\w*|parametr\w*|setup', t)}
+        return bool(subject) and subject <= topic
+
+    @staticmethod
+    def _procedural_section(section: WikiRagSection) -> bool:
+        heading = _normalize_search(section.section_title)
+        return bool(re.search(r'^\s*\d+[.)]', heading) or re.search(
+            r'(?im)^\s*>.*(?:important|warning|attention|prerequis)', section.content) or re.search(
+            r'\b(prerequis|prerequisites?|requirements?|parametres?|settings?|verification|'
+            r'verify|checks?|avertissement|warnings?|sauvegard\w*|save)\b', heading))
+
     def retrieve(self, query: str) -> WikiRagResult | None:
         query_terms = self._tokenize(query)
         if not query_terms:
@@ -840,17 +873,40 @@ class LocalWikiRag:
                 self._page_key(match.section) != primary,
                 -match.score, match.section.section_index, match.section.path,
             ))
+        procedure = self._procedure_page(query, query_terms, scored, primary)
+        if procedure:
+            # Page relevance was established above. Numbered steps and their
+            # prerequisites may legitimately share none of the query's words.
+            procedural = [m for m in scored if self._page_key(m.section) == primary
+                          and self._procedural_section(m.section)]
+            if procedural:
+                scored = sorted(procedural, key=lambda m: m.section.section_index)
+            else:
+                procedure = False
+        if not procedure and primary is not None:
+            page = next(m.section for m in scored if self._page_key(m.section) == primary)
+            topic = set(self._tokenize(page.page_title + ' ' + page.path.replace('/', ' ')))
+            topic |= {t[:-1] for t in topic if t.endswith('s')}
+            specific = {t for t in query_terms if t not in topic
+                        and t not in {'bonjour', 'salut', 'hello', 'comment', 'how', 'please', 'svp'}
+                        and not re.fullmatch(r'configur\w*|install\w*|parametr\w*|setup', t)}
+            focused = [m for m in scored if self._page_key(m.section) == primary
+                       and specific & set(self._tokenize(m.section.section_title + ' ' + m.section.content))
+                       and m.score >= self.min_score]
+            if specific and focused:
+                scored = focused
+                threshold = max(self.min_score, max(m.score for m in focused) * self.relative_score)
         selected: list[WikiRagMatch] = []
         seen: set[str] = set()
         for match in scored:
-            if match.score < threshold:
+            if not procedure and match.score < threshold:
                 continue
             signature = _normalize_search(match.section.content)
             if signature in seen:
                 continue
             seen.add(signature)
             selected.append(match)
-            if len(selected) >= self.max_chunks:
+            if len(selected) >= (self.procedure_max_sections if procedure else self.max_chunks):
                 break
         if not selected:
             return None
@@ -860,7 +916,8 @@ class LocalWikiRag:
         parts = [begin_marker]
         # Reserve enough room for the closing marker. Build the context to the
         # configured budget instead of truncating the final string mid-source.
-        remaining = self.max_context_chars - len(begin_marker) - len(end_marker) - 4
+        context_limit = self.procedure_max_context_chars if procedure else self.max_context_chars
+        remaining = context_limit - len(begin_marker) - len(end_marker) - 104
         included: list[WikiRagMatch] = []
         for number, match in enumerate(selected, start=1):
             section = match.section
@@ -875,8 +932,13 @@ class LocalWikiRag:
             if section.source_url:
                 metadata.append(f"url: {section.source_url}")
             prefix = "\n".join(metadata) + "\ncontent:\n"
-            content_budget = min(self.max_chars_per_chunk, remaining - len(prefix) - 2)
+            content_budget = remaining - len(prefix) - 2
+            if not procedure:
+                content_budget = min(self.max_chars_per_chunk, content_budget)
             if content_budget < 80:
+                break
+            if procedure and len(section.content) > content_budget:
+                # Never provide half a step with its save command or warning missing.
                 break
             block = prefix + _clip_context(section.content, content_budget)
             parts.append(block)
@@ -884,6 +946,8 @@ class LocalWikiRag:
             remaining -= len(block) + 2
         if not included:
             return None
+        if procedure and len(included) < len(scored):
+            parts.append("INCOMPLETE PROCEDURE: context budget omitted steps; do not claim completeness.")
         parts.append(end_marker)
         context = "\n\n".join(parts)
         return WikiRagResult(context=context, matches=tuple(included), best_score=best_score)

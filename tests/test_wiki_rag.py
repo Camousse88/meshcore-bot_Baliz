@@ -328,7 +328,7 @@ def test_page_selection_prefers_procedure_over_link_directory(tmp_path):
     ])
     result = LocalWikiRag(index).retrieve('install printer')
     assert result is not None
-    assert [m.section.path for m in result.matches] == ['guides/printer', 'guides/printer']
+    assert {m.section.path for m in result.matches} == {'guides/printer'}
     assert 'printerctl setup --device ABC_123' in result.context
     assert len(result.context) <= 2400
 
@@ -367,3 +367,50 @@ def test_page_focus_does_not_promote_irrelevant_sections(tmp_path):
     result = LocalWikiRag(index, relative_score=0.8).retrieve('install printer')
     assert len(result.matches) == 1
     assert 'warranty' not in result.context.lower()
+
+
+def procedure_corpus(tmp_path):
+    entries = [
+        ('Install printer', 'Install printer using the online configurator.'),
+        ('Prerequisites', 'Warning: connect the printer using a USB cable before setup.'),
+        ('Settings', '| Parameter | Value |\n| --- | --- |\n| Speed | 42 |'),
+        ('1. Apply', 'Run this exact command:\n```text\nprinterctl speed 42\n```'),
+        ('2. Save', 'Keep the cable connected.\n```text\nprinterctl save\n```'),
+        ('Verification', 'Check with `printerctl status`.'),
+        ('Warranty', 'The warranty expires in two years.'),
+    ]
+    return write_corpus(tmp_path, [dict(path='manual/printer', page_title='Install printer',
+        section_title=title, section_index=i, content=body) for i, (title, body) in enumerate(entries)])
+
+
+def test_broad_setup_contains_parameters_commands_save_and_check(tmp_path):
+    result = LocalWikiRag(procedure_corpus(tmp_path)).retrieve('how to install printer')
+    assert result is not None
+    for value in ('USB cable', '| Speed | 42 |', 'printerctl speed 42', 'printerctl save', 'printerctl status'):
+        assert value in result.context
+    assert 'online configurator' not in result.context
+    assert 'warranty' not in result.context.lower()
+    assert [m.section.section_index for m in result.matches] == [1, 2, 3, 4, 5]
+
+
+def test_specific_setting_does_not_expand_entire_procedure(tmp_path):
+    result = LocalWikiRag(procedure_corpus(tmp_path)).retrieve('configure printer speed')
+    assert len(result.matches) <= 2
+    assert 'printerctl speed 42' in result.context
+    assert 'printerctl save' not in result.context
+
+
+def test_procedure_budget_never_cuts_a_step(tmp_path):
+    result = LocalWikiRag(procedure_corpus(tmp_path), procedure_max_context_chars=600).retrieve('install printer')
+    assert result is not None
+    assert len(result.context) <= 600
+    assert 'INCOMPLETE PROCEDURE' in result.context
+    assert result.context.count('```') % 2 == 0
+    for match in result.matches:
+        assert match.section.content in result.context
+
+
+def test_definition_does_not_expand_setup_steps(tmp_path):
+    result = LocalWikiRag(procedure_corpus(tmp_path)).retrieve('what is printer configuration')
+    assert result is not None
+    assert len(result.matches) <= 2

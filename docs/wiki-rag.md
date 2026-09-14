@@ -189,3 +189,28 @@ un répéteur ?” now selects the repeater introduction and its first settings 
 instead of the introduction and a navigation directory. This is a retrieval
 validation, not a claim that LLM synthesis errors are fixed. No configuration
 budget changes are required.
+
+
+### Procedure-aware retrieval
+
+Broad setup questions (French/English intent vocabulary, with no device-specific
+rules) can expand an unambiguously identified page into its numbered steps,
+parameter tables, prerequisites, warnings and verification sections. The subject
+must match page metadata; a question naming an additional parameter stays targeted.
+Specific terms absent from page metadata are searched in section headings/content
+so repeated page titles do not outweigh the requested parameter.
+
+`Rag_Service` adds `wiki_procedure_max_sections = 6` and
+`wiki_procedure_max_context_chars = 6000`. These replace the ordinary excerpt
+limits only for detected broad procedures. Steps are kept complete and in source
+order; if a step cannot fit, expansion stops and the context is explicitly marked
+incomplete. No setting, equipment name or regional value is hardcoded. Detection
+is deliberately conservative and depends on useful page headings, not a semantic
+classifier. Unstructured procedures can still use ordinary lexical retrieval.
+
+`wiki_response_max_tokens = 384` controls wiki generation independently of
+conversational `Llm_Command.max_tokens`. The wiki prompt prioritizes exact technical
+values and commands, conditions, save/check steps and explicit adaptation of example
+values. Existing radio pagination still limits delivery; this token budget does not
+guarantee that an entire procedure fits one response. Conflicting source instructions
+must be reported, not silently corrected. Larger contexts may increase model latency.
