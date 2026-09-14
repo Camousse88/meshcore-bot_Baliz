@@ -306,3 +306,64 @@ def test_aliases_are_applied_to_query_and_index(tmp_path):
     rag = LocalWikiRag(str(index_file), aliases={"indicatif": "callsign"}, min_score=3)
 
     assert rag.retrieve("indicatif") is not None
+
+
+def write_corpus(tmp_path, rows):
+    index = tmp_path / 'page-ranking.jsonl'
+    index.write_text(''.join(json.dumps(row) + '\n' for row in rows), encoding='utf-8')
+    return str(index)
+
+
+def test_page_selection_prefers_procedure_over_link_directory(tmp_path):
+    index = write_corpus(tmp_path, [
+        {'path': 'guides/printer', 'page_title': 'Install printer',
+         'section_title': 'Install printer', 'section_index': 0,
+         'content': 'Install printer using this manual. Read the following steps before starting.'},
+        {'path': 'guides/printer', 'page_title': 'Install printer',
+         'section_title': '1. Install the printer', 'section_index': 1,
+         'content': 'Connect the printer to power.\n```text\nprinterctl setup --device ABC_123\n```'},
+        {'path': 'guides', 'page_title': 'Install printer',
+         'section_title': 'Install printer', 'section_index': 0,
+         'content': '- [Install printer](guides/printer)\n- [Install scanner](guides/scanner)'},
+    ])
+    result = LocalWikiRag(index).retrieve('install printer')
+    assert result is not None
+    assert [m.section.path for m in result.matches] == ['guides/printer', 'guides/printer']
+    assert 'printerctl setup --device ABC_123' in result.context
+    assert len(result.context) <= 2400
+
+
+def test_equal_page_evidence_keeps_multiple_pages(tmp_path):
+    index = write_corpus(tmp_path, [
+        {'path': 'apple', 'page_title': 'Apple storage',
+         'content': 'Apple storage needs a cool room with ventilation.'},
+        {'path': 'pear', 'page_title': 'Pear storage',
+         'content': 'Pear storage needs careful handling and a cool room.'},
+    ])
+    result = LocalWikiRag(index).retrieve('apple pear storage')
+    assert {m.section.path for m in result.matches} == {'apple', 'pear'}
+
+
+def test_procedure_with_links_is_not_a_navigation_directory(tmp_path):
+    index = write_corpus(tmp_path, [
+        {'path': 'manual', 'page_title': 'Install printer', 'content':
+         'Connect power and switch the device on.\n'
+         'Use [the setup tool](https://example.org/setup) to install the printer.\n'
+         'Then print a test page and check its alignment.'},
+    ])
+    rag = LocalWikiRag(index)
+    assert not rag._navigation_section(rag._load_sections()[0])
+    assert rag.retrieve('install printer') is not None
+    assert rag.retrieve('tiramisu recipe') is None
+
+
+def test_page_focus_does_not_promote_irrelevant_sections(tmp_path):
+    index = write_corpus(tmp_path, [
+        {'path': 'guide', 'page_title': 'Printer', 'section_title': 'Install printer',
+         'content': 'Install printer using the setup program.'},
+        {'path': 'guide', 'page_title': 'Printer', 'section_title': 'Warranty',
+         'content': 'The warranty expires after two years.'},
+    ])
+    result = LocalWikiRag(index, relative_score=0.8).retrieve('install printer')
+    assert len(result.matches) == 1
+    assert 'warranty' not in result.context.lower()

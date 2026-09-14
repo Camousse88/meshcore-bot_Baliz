@@ -775,6 +775,31 @@ class LocalWikiRag:
                 score += 5
         return score
 
+    @staticmethod
+    def _navigation_section(section: WikiRagSection) -> bool:
+        """Recognize link directories, not prose that merely cites a source."""
+        if re.search(r"^\s*(?:```|~~~)", section.content, re.MULTILINE):
+            return False
+        lines = [line.strip() for line in section.content.splitlines()
+                 if line.strip() and not line.lstrip().startswith(("#", "{."))
+                 and line.strip() not in {"---", "***"}]
+        links = sum(bool(re.match(r"^(?:[-*+]\s+)?\[[^\]]+\]\([^)]+\)\s*$", line))
+                    for line in lines)
+        return links >= 2 and links / max(1, len(lines)) >= 0.6
+
+    def _page_evidence(self, terms: list[str], section: WikiRagSection) -> float:
+        """Use metadata rather than page length or repeated body keywords."""
+        title = set(self._tokenize(section.page_title))
+        heading = set(self._tokenize(section.section_title))
+        path = set(self._tokenize(section.path.replace("/", " ")))
+        return sum(8 * (term in title) + 12 * (term in heading) + 4 * (term in path)
+                   for term in set(terms))
+
+    @staticmethod
+    def _page_key(section: WikiRagSection) -> tuple[str, str, str]:
+        # Keep locales/sites separate, including externally managed corpora.
+        return section.source_url, section.locale, section.path
+
     def retrieve(self, query: str) -> WikiRagResult | None:
         query_terms = self._tokenize(query)
         if not query_terms:
@@ -782,10 +807,17 @@ class LocalWikiRag:
         query_phrases = [f"{query_terms[index]} {query_terms[index + 1]}" for index in range(len(query_terms) - 1)]
 
         scored: list[WikiRagMatch] = []
+        pages: dict[tuple[str, str, str], float] = {}
         for section in self._load_sections():
             score = self._score(query_terms, query_phrases, section)
+            navigation = self._navigation_section(section)
+            if navigation:
+                score *= 0.25
             if score > 0:
                 scored.append(WikiRagMatch(score=score, section=section))
+                key = self._page_key(section)
+                evidence = self._page_evidence(query_terms, section)
+                pages[key] = max(pages.get(key, 0.0), evidence * (0.25 if navigation else 1.0))
         if not scored:
             return None
         scored.sort(key=lambda match: (-match.score, match.section.section_index, match.section.path))
@@ -794,6 +826,20 @@ class LocalWikiRag:
             return None
 
         threshold = max(self.min_score, best_score * self.relative_score)
+        # Focus only when metadata clearly identifies a page. Ambiguous or
+        # multi-page questions retain the global ranking. Never promote a
+        # section that fails the existing relevance thresholds.
+        page_ranking = sorted(pages.items(), key=lambda item: -item[1])
+        primary = None
+        if len(set(query_terms)) >= 2 and page_ranking[0][1] >= 12:
+            runner_up = page_ranking[1][1] if len(page_ranking) > 1 else 0
+            if page_ranking[0][1] > runner_up * 1.25:
+                primary = page_ranking[0][0]
+        if primary is not None:
+            scored.sort(key=lambda match: (
+                self._page_key(match.section) != primary,
+                -match.score, match.section.section_index, match.section.path,
+            ))
         selected: list[WikiRagMatch] = []
         seen: set[str] = set()
         for match in scored:
