@@ -122,9 +122,17 @@ URL, update time, content type and original content. At query time the retriever
    and expands configured aliases;
 3. scores exact terms and adjacent phrases, prioritizing section title, page title
    and path over repeated matches in the body;
-4. applies `wiki_rag_min_score` and `wiki_rag_relative_score`;
-5. removes duplicate sections and retains at most `wiki_rag_max_chunks`;
-6. builds a bounded reference block without cutting its closing delimiter.
+4. discounts link directories (at least two standalone links making up 60% of
+   meaningful lines) to one quarter of their score; ordinary prose with links
+   and fenced code are not classified as directories;
+5. ranks pages by their strongest title/path/section-title evidence, not by page
+   length. When the leading page has at least 12 metadata points, exceeds the
+   runner-up by more than 25%, and the query has at least two distinct search
+   terms, its relevant sections are considered first. Otherwise global section
+   ranking remains in place, allowing answers from multiple pages;
+6. applies `wiki_rag_min_score` and `wiki_rag_relative_score`;
+7. removes duplicate sections and retains at most `wiki_rag_max_chunks`;
+8. builds a bounded reference block without cutting its closing delimiter.
 
 When no section passes the thresholds, the normal LLM prompt is used. When a match
 exists, the wiki prompt is isolated from conversation history, weather, topology and
@@ -165,3 +173,19 @@ Collection is checked on demand, not on a background timer. The request that
 triggers a stale refresh waits for collection, although other event-loop work can
 continue. For large corpora, prebuild the index with the standalone collector and
 use an external schedule. Use separate index paths for separate source scopes.
+
+
+### Page selection and scope
+
+Page priority does not bypass relevance thresholds or increase the configured
+context budget. Lower-ranked pages can still fill remaining slots. This restores
+the benefit of narrowing a question to its relevant document without encoding
+site URLs, equipment names or page paths in the retriever. The heuristics use
+metadata and document structure; they are not a semantic classifier. The default
+two sections cannot guarantee coverage of every step in a long procedure.
+
+On the MeshCore Bretagne corpus used for validation, “Bonjour, comment configurer
+un répéteur ?” now selects the repeater introduction and its first settings step,
+instead of the introduction and a navigation directory. This is a retrieval
+validation, not a claim that LLM synthesis errors are fixed. No configuration
+budget changes are required.
