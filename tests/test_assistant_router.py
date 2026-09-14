@@ -14,7 +14,7 @@ from modules.assistant.router import AssistantRouter, Route
     ("Comment configurer un répéteur demain ?", Route.WIKI, "documentation"),
     ("Comment fonctionne le chemin d’un message ?", Route.WIKI, "documentation"),
     ("Quelle commande pour configurer la région ?", Route.WIKI, "documentation"),
-    ("bonjour", Route.WIKI, "wiki_probe"),
+    ("bonjour", Route.LLM, "conversation"),
     ("llm raconte une histoire", Route.LLM, "explicit"),
     ("mesh: top 5 contacts", Route.MESH, "explicit"),
     ("wiki région", Route.WIKI, "explicit"),
@@ -40,3 +40,25 @@ def test_utf8_pagination_and_disclosed_truncation():
 def test_utf8_pagination_preserves_short_answer():
     text = "#BZH: région 868 MHz — vérifier précisément."
     assert split_reply(text, 140) == [text]
+
+
+@pytest.mark.parametrize("question", [
+    "Bonjour, qui es-tu ?", "Salut, présente-toi !", "Hello, who are you?",
+    "Raconte une blague courte", "Raconte-moi une histoire de répéteurs",
+    "Écris un poème sur la radio", "Please tell me a short joke",
+    "Hello, write a story about MeshCore", "Merci !",
+])
+def test_conversation_does_not_probe_wiki(question):
+    assert AssistantRouter().decide(question).route is Route.LLM
+
+
+@pytest.mark.parametrize(("question", "route"), [
+    ("Bonjour, combien de répéteurs actifs ?", Route.MESH),
+    ("Bonjour, comment configurer un répéteur ?", Route.WIKI),
+    ("wiki raconte une blague courte", Route.WIKI),
+    ("mesh qui es-tu ?", Route.MESH),
+    ("Comment configurer la radio ?", Route.WIKI),
+    ("LoRa spreading factor", Route.WIKI),
+])
+def test_conversation_rules_preserve_technical_and_explicit_routes(question, route):
+    assert AssistantRouter().decide(question).route is route

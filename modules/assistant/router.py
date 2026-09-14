@@ -49,6 +49,26 @@ class AssistantRouter:
             r"\b(chemin|repeteurs?|passe|passe par|path|route|repeaters?|travers|hops?)\b", q
         ):
             return Decision(Route.PATH, question, "message_path")
+        # A greeting alone (or followed by an identity question) is not a
+        # documentary query. Full matching preserves "bonjour, combien de ...".
+        conversational = re.sub(r"^(?:bonjour|salut|bonsoir|hello|hi|hey)[,! .]*", "", q)
+        if re.fullmatch(
+            r"(?:bonjour|salut|bonsoir|hello|hi|hey|merci|thanks|thank you|"
+            r"qui es[- ]tu|tu es qui|presente[- ]toi|who are you|introduce yourself|"
+            r"comment vas[- ]tu|ca va|how are you)", q
+        ) or (conversational != q and re.fullmatch(
+            r"(?:qui es[- ]tu|tu es qui|presente[- ]toi|who are you|introduce yourself|"
+            r"comment vas[- ]tu|ca va|how are you)", conversational
+        )):
+            return Decision(Route.LLM, question, "conversation")
+        # Creative requests remain conversation even if they mention radio words
+        # such as "courte portee" that can accidentally match the lexical index.
+        if re.search(
+            r"^(?:(?:bonjour|salut|hello|hi)[,! ]+)?(?:s'il te plait |please )?"
+            r"(?:raconte|raconte[- ]moi|ecris|invente|compose|tell|write|make up)\b"
+            r".*\b(?:blague|histoire|poeme|chanson|joke|story|poem|song)\b", q
+        ):
+            return Decision(Route.LLM, question, "conversation")
         if re.search(r"\b(configurer|configuration|parametrer|installer|installation|configure|setup|documentation|wiki|explique|explain)\b", q) or re.search(
             r"\b(comment fonctionne|how does|what is|qu'est.ce|c'est quoi|quelle commande)\b", q
         ):
