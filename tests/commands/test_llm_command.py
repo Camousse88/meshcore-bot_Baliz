@@ -147,6 +147,8 @@ class TestLlmCommand:
         cmd.service.wiki_rag.ensure_fresh.assert_called_once_with()
         cmd.service.wiki_rag.retrieve.assert_called_once_with("show channel")
         payload = post_mock.call_args.kwargs["json"]
+        assert payload["max_tokens"] == 384
+        assert cmd.service._build_payload(prompt="hello", include_rag=False)["max_tokens"] == cmd.service.max_tokens
         assert payload["temperature"] == 0.0
         assert "WIKI_REFERENCE_DATA_BEGIN" in payload["messages"][0]["content"]
         assert command_mock_bot.command_manager.send_response.call_args[0][1] == "Use #centre and ABC-124."
@@ -524,6 +526,7 @@ class TestLlmCommand:
         enabled_key = "enabled" if section == "Rag_Service" else "wiki_rag_enabled"
         command_mock_bot.config.set(section, enabled_key, "true")
         command_mock_bot.config.set(section, "wiki_rag_index_path", str(index_file))
+        command_mock_bot.config.set(section, "wiki_response_max_tokens", "320")
         cmd = LlmCommand(command_mock_bot)
 
         history = [{"role": "assistant", "content": "unrelated history"}]
@@ -532,6 +535,7 @@ class TestLlmCommand:
         assert len(system_messages) == 1
         assert "WIKI_REFERENCE_DATA_BEGIN" in system_messages[0]
         assert "using only the Wiki.js reference data" in system_messages[0]
+        assert payload["max_tokens"] == 320
         assert all(message["content"] != "unrelated history" for message in payload["messages"])
         assert payload["temperature"] == 0.0
 
