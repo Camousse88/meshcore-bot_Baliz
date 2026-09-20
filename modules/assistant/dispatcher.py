@@ -5,6 +5,7 @@ from typing import Any
 
 from ..models import MeshMessage
 from .router import AssistantRouter, Decision, Route
+from .semantic_router import SemanticRouter
 
 HELP = "ask <question> — réseau, Wiki, réception ou chemin. Routes explicites : mesh, wiki, test, path, llm."
 
@@ -13,6 +14,7 @@ class AssistantDispatcher:
     def __init__(self, owner: Any):
         self.owner = owner
         self.router = AssistantRouter()
+        self.semantic_router = SemanticRouter(owner)
         self._rf_lock = asyncio.Lock()
 
     def _command(self, name: str) -> Any:
@@ -26,6 +28,10 @@ class AssistantDispatcher:
 
     async def answer(self, question: str, message: MeshMessage) -> str:
         decision = self.router.decide(question)
+        if decision.reason == "wiki_probe":
+            semantic_route = await self.semantic_router.decide(question, self.owner.enabled_routes)
+            if semantic_route is not None:
+                decision = Decision(semantic_route, question, "semantic")
         self.owner.logger.info("Assistant route=%s reason=%s", decision.route.value, decision.reason)
         if decision.route is Route.HELP:
             return HELP
