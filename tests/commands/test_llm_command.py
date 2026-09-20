@@ -543,6 +543,9 @@ class TestLlmCommand:
         assert len(system_messages) == 1
         assert "WIKI_REFERENCE_DATA_BEGIN" in system_messages[0]
         assert "using only the Wiki.js reference data" in system_messages[0]
+        assert "Never end with a question" in system_messages[0]
+        assert "Omit location-, device- or user-specific example values" in system_messages[0]
+        assert "at most 240 characters total" in system_messages[0]
         assert payload["max_tokens"] == 320
         assert all(message["content"] != "unrelated history" for message in payload["messages"])
         assert payload["temperature"] == 0.0
