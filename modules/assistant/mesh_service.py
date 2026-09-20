@@ -149,15 +149,23 @@ class MeshService:
                 f"POWER(SIN(RADIANS(longitude-{lon:.5f})/2),2)))"
             )
 
-        empty_result_retry = sqlite_error == "query returned no rows"
-        schema = self._live_db_schema(include_empty=not empty_result_retry)
+        ranking_question = self._is_ranking_question(question)
+        constrained_retry = bool(failed_sql and (sqlite_error == "query returned no rows" or ranking_question))
+        schema = self._live_db_schema(include_empty=not constrained_retry)
+        ranking_instruction = ""
+        if ranking_question:
+            ranking_instruction = (
+                "\nThis is a ranking question. Preserve every entity constraint from the question. "
+                "If no ranking criterion is stated, use the highest available activity or observation count. "
+                "Select the item name and the numeric metric, ORDER BY that metric DESC, and LIMIT 1. "
+                "Never return an unranked list."
+            )
         correction = ""
         if failed_sql and sqlite_error:
             empty_result_instruction = ""
-            if empty_result_retry:
+            if constrained_retry:
                 empty_result_instruction = (
-                    " The failed query used a table that produced no rows. "
-                    "Use a different table from the schema below; every listed table now contains rows."
+                    " Use a table from the schema below; every listed table now contains rows."
                 )
             correction = (
                 "\nA previous query did not produce usable data. Correct it using the authoritative schema above. "
@@ -178,7 +186,7 @@ class MeshService:
             "Prefer a relevant table with rows over an empty table. "
             "For rankings or superlatives, select the item name and the real metric used to rank it. "
             "Every query must read at least one table from the live schema; never SELECT literal data as an answer. "
-            + schema + haversine + pos_info + correction
+            + schema + haversine + pos_info + ranking_instruction + correction
         )
         payload: dict[str, Any] = {
             "messages": [
@@ -219,7 +227,12 @@ class MeshService:
         sql = sql.strip().rstrip(";")
         if not re.search(r"\bLIMIT\s+\d+", sql, re.IGNORECASE):
             sql += " LIMIT 20"
-        sql = re.sub(r"\bLIMIT\s+\d+", "LIMIT 20", sql, flags=re.IGNORECASE)
+        sql = re.sub(
+            r"\bLIMIT\s+(\d+)",
+            lambda match: f"LIMIT {min(int(match.group(1)), 20)}",
+            sql,
+            flags=re.IGNORECASE,
+        )
         sql = sql.rstrip(";")
 
         read_tables: set[str] = set()
@@ -277,8 +290,77 @@ class MeshService:
                 "wrong number of arguments",
                 "query did not read an allowed network table",
                 "query returned no rows",
+                "ranking query must",
+                "query must preserve requested entity type",
             )
         )
+
+    @staticmethod
+    def _is_ranking_question(question: str) -> bool:
+        normalized = (question or "").casefold()
+        return any(
+            marker in normalized
+            for marker in (
+                "meilleur", "meilleure", "meilleurs", "top ", "best ",
+                "plus actif", "plus active", "most active", "strongest",
+                "plus fort", "plus forte", "nearest", "closest", "plus proche",
+            )
+        )
+
+    @classmethod
+    def _question_shape_error(cls, question: str, sql: str) -> str | None:
+        requested_role = cls._requested_role(question)
+        if requested_role:
+            lowered_sql = sql.casefold()
+            role_is_implicit = requested_role == "repeater" and "repeater_contacts" in lowered_sql
+            if not role_is_implicit and not re.search(
+                rf"['\"]{re.escape(requested_role)}['\"]", lowered_sql
+            ):
+                return f"query must preserve requested entity type {requested_role}"
+        if cls._is_ranking_question(question):
+            if not re.search(r"\bORDER\s+BY\b", sql, re.IGNORECASE):
+                return "ranking query must include ORDER BY a real metric"
+            if not re.search(r"\bLIMIT\s+1\b", sql, re.IGNORECASE):
+                return "ranking query must use LIMIT 1"
+        return None
+
+    @staticmethod
+    def _requested_role(question: str) -> str | None:
+        normalized = (question or "").casefold()
+        role_markers = {
+            "repeater": ("répéteur", "repeteur", "repeater"),
+            "companion": ("companion",),
+            "roomserver": ("roomserver", "room server"),
+            "sensor": ("capteur", "sensor"),
+        }
+        for role, markers in role_markers.items():
+            if any(marker in normalized for marker in markers):
+                return role
+        return None
+
+    @classmethod
+    def _apply_requested_role_constraint(cls, question: str, sql: str) -> str:
+        """Add a missing role predicate when querying the shared contacts table."""
+        role = cls._requested_role(question)
+        if not role or "complete_contact_tracking" not in sql.casefold():
+            return sql
+        if re.search(rf"['\"]{re.escape(role)}['\"]", sql, re.IGNORECASE):
+            return sql
+
+        table = re.search(
+            r"\bFROM\s+complete_contact_tracking\b(?:\s+(?:AS\s+)?([A-Za-z_]\w*))?",
+            sql,
+            re.IGNORECASE,
+        )
+        alias = table.group(1) if table else None
+        if alias and alias.casefold() in {"where", "join", "order", "group", "limit", "having"}:
+            alias = None
+        predicate = f"{alias + '.' if alias else ''}role = '{role}'"
+        suffix = re.search(r"\b(?:GROUP\s+BY|ORDER\s+BY|LIMIT|HAVING)\b", sql, re.IGNORECASE)
+        split_at = suffix.start() if suffix else len(sql)
+        head, tail = sql[:split_at].rstrip(), sql[split_at:].lstrip()
+        connector = " AND " if re.search(r"\bWHERE\b", head, re.IGNORECASE) else " WHERE "
+        return f"{head}{connector}{predicate}" + (f" {tail}" if tail else "")
 
     def describe_tables(self) -> str:
         """Return the actual allowed network tables and columns, as Tigro's ask did."""
@@ -448,15 +530,23 @@ class MeshService:
         sql = await asyncio.to_thread(self._generate_sql, question, sender_pos)
         if not sql:
             return "Could not generate a query. Try rephrasing."
+        sql = self._apply_requested_role_constraint(question, sql)
 
         self.logger.debug(f"Mesh service generated SQL: {sql}")
 
         # Step 2: Execute
-        sql_results, sql_error = await asyncio.to_thread(self._execute_sql_detailed, sql)
-        if sql_results == "(no results)" and sql_error is None:
-            sql_error = "query returned no rows"
-        if self._is_repairable_sql_error(sql_error):
-            self.logger.info("Mesh query invalid; regenerating once from the live SQLite schema")
+        sql_results, sql_error = "(query error: invalid query)", None
+        for attempt in range(3):
+            shape_error = self._question_shape_error(question, sql)
+            if shape_error:
+                sql_results, sql_error = "(query error: invalid query shape)", shape_error
+            else:
+                sql_results, sql_error = await asyncio.to_thread(self._execute_sql_detailed, sql)
+            if sql_results == "(no results)" and sql_error is None:
+                sql_error = "query returned no rows"
+            if not self._is_repairable_sql_error(sql_error) or attempt == 2:
+                break
+            self.logger.info("Mesh query invalid; regenerating from the live SQLite schema")
             repaired_sql = await asyncio.to_thread(
                 self._generate_sql,
                 question,
@@ -464,9 +554,10 @@ class MeshService:
                 failed_sql=sql,
                 sqlite_error=sql_error,
             )
-            if repaired_sql:
-                self.logger.debug("Mesh service repaired SQL: %s", repaired_sql)
-                sql_results, sql_error = await asyncio.to_thread(self._execute_sql_detailed, repaired_sql)
+            if not repaired_sql:
+                break
+            sql = self._apply_requested_role_constraint(question, repaired_sql)
+            self.logger.debug("Mesh service repaired SQL: %s", sql)
         if sql_results.startswith(("(rejected:", "(query error:", "(no results)")):
             return "Aucune donnée disponible." if sql_results == "(no results)" else "La requête réseau n’a pas pu être exécutée."
         # Step 2b: Post-process — resolve pubkeys to names, drop verbose datetimes
