@@ -388,6 +388,9 @@ async def test_mesh_retries_empty_table_using_live_row_counts(command_mock_bot, 
     assert "complete_contact_tracking [rows=1]" in first_prompt
     repair_prompt = post.call_args_list[1].kwargs["json"]["messages"][0]["content"]
     assert "query returned no rows" in repair_prompt
+    assert "repeater_contacts [rows=0]" not in repair_prompt
+    assert "complete_contact_tracking [rows=1]" in repair_prompt
+    assert "Use a different table" in repair_prompt
 
 
 async def test_mesh_disabled_preserves_other_capabilities(command_mock_bot):

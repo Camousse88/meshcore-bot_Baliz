@@ -97,7 +97,7 @@ class MeshService:
         return None
 
 
-    def _live_db_schema(self) -> str:
+    def _live_db_schema(self, *, include_empty: bool = True) -> str:
         """Return the authoritative columns for the allowed tables in this database."""
         try:
             with self.bot.db_manager.connection() as conn:
@@ -108,7 +108,7 @@ class MeshService:
                     )
                     if row[0] in NETWORK_TABLES
                 }
-                lines = []
+                entries: list[tuple[int, str]] = []
                 for table in sorted(existing):
                     columns = []
                     for column in conn.execute(f'PRAGMA table_info("{table}")'):
@@ -117,7 +117,10 @@ class MeshService:
                         columns.append(f"{name} {declared_type}".strip())
                     if columns:
                         row_count = conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
-                        lines.append(f"- {table} [rows={row_count}]: {', '.join(columns)}")
+                        entries.append((row_count, f"- {table} [rows={row_count}]: {', '.join(columns)}"))
+                lines = [line for count, line in entries if include_empty or count > 0]
+                if not lines and entries:
+                    lines = [line for _, line in entries]
                 if lines:
                     return "Live SQLite schema (authoritative):\n" + "\n".join(lines)
         except Exception as exc:
@@ -146,12 +149,21 @@ class MeshService:
                 f"POWER(SIN(RADIANS(longitude-{lon:.5f})/2),2)))"
             )
 
-        schema = self._live_db_schema()
+        empty_result_retry = sqlite_error == "query returned no rows"
+        schema = self._live_db_schema(include_empty=not empty_result_retry)
         correction = ""
         if failed_sql and sqlite_error:
+            empty_result_instruction = ""
+            if empty_result_retry:
+                empty_result_instruction = (
+                    " The failed query used a table that produced no rows. "
+                    "Use a different table from the schema below; every listed table now contains rows."
+                )
             correction = (
                 "\nA previous query did not produce usable data. Correct it using the authoritative schema above. "
-                "Do not repeat a table or column name that SQLite rejected.\n"
+                "Do not repeat a table or column name that SQLite rejected."
+                + empty_result_instruction
+                + "\n"
                 f"FAILED_SQL_BEGIN\n{failed_sql[:1200]}\nFAILED_SQL_END\n"
                 f"SQLITE_ERROR_BEGIN\n{sqlite_error[:300]}\nSQLITE_ERROR_END\n"
             )
