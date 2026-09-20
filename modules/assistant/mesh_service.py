@@ -97,7 +97,41 @@ class MeshService:
         return None
 
 
-    def _generate_sql(self, question: str, sender_pos: tuple[float, float] | None) -> str | None:
+    def _live_db_schema(self) -> str:
+        """Return the authoritative columns for the allowed tables in this database."""
+        try:
+            with self.bot.db_manager.connection() as conn:
+                existing = {
+                    row[0]
+                    for row in conn.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                    )
+                    if row[0] in NETWORK_TABLES
+                }
+                lines = []
+                for table in sorted(existing):
+                    columns = []
+                    for column in conn.execute(f'PRAGMA table_info("{table}")'):
+                        name = column[1]
+                        declared_type = (column[2] or "").strip().upper()
+                        columns.append(f"{name} {declared_type}".strip())
+                    if columns:
+                        lines.append(f"- {table}: {', '.join(columns)}")
+                if lines:
+                    return "Live SQLite schema (authoritative):\n" + "\n".join(lines)
+        except Exception as exc:
+            self.logger.warning("Mesh live schema inspection failed: %s", exc)
+        return DB_SCHEMA
+
+
+    def _generate_sql(
+        self,
+        question: str,
+        sender_pos: tuple[float, float] | None,
+        *,
+        failed_sql: str | None = None,
+        sqlite_error: str | None = None,
+    ) -> str | None:
         """Ask the LLM to generate a SQL query for the question."""
         pos_info = ""
         haversine = ""
@@ -111,11 +145,25 @@ class MeshService:
                 f"POWER(SIN(RADIANS(longitude-{lon:.5f})/2),2)))"
             )
 
+        schema = self._live_db_schema()
+        correction = ""
+        if failed_sql and sqlite_error:
+            correction = (
+                "\nA previous query failed. Correct it using the authoritative schema above. "
+                "Do not repeat a table or column name that SQLite rejected.\n"
+                f"FAILED_SQL_BEGIN\n{failed_sql[:1200]}\nFAILED_SQL_END\n"
+                f"SQLITE_ERROR_BEGIN\n{sqlite_error[:300]}\nSQLITE_ERROR_END\n"
+            )
+
         system_prompt = (
             "You are a SQL query generator for a mesh network database. "
             "Given a question, respond with ONLY a single SQL SELECT query. "
             "No explanations, no markdown, just the SQL. "
-            "Use LIMIT 20. Read-only. " + DB_SCHEMA + haversine + pos_info
+            "Use LIMIT 20. Read-only. "
+            "The live SQLite schema below is authoritative: use only its exact table and column names. "
+            "Never infer, translate, or invent an identifier. "
+            "Every query must read at least one table from the live schema; never SELECT literal data as an answer. "
+            + schema + haversine + pos_info + correction
         )
         payload: dict[str, Any] = {
             "messages": [
@@ -148,20 +196,24 @@ class MeshService:
             return None
 
 
-    def _execute_sql(self, sql: str) -> str:
-        """Execute a read-only SQL query and return compact results."""
+    def _execute_sql_detailed(self, sql: str) -> tuple[str, str | None]:
+        """Execute read-only SQL and retain a private SQLite error for one repair attempt."""
         ok, reason = validate_readonly_sql(sql)
         if not ok:
-            return f"(rejected: {reason})"
+            return f"(rejected: {reason})", None
         sql = sql.strip().rstrip(";")
         if not re.search(r"\bLIMIT\s+\d+", sql, re.IGNORECASE):
             sql += " LIMIT 20"
         sql = re.sub(r"\bLIMIT\s+\d+", "LIMIT 20", sql, flags=re.IGNORECASE)
         sql = sql.rstrip(";")
 
+        read_tables: set[str] = set()
+
         def authorize(action, table, column, database, source):
             if action == sqlite3.SQLITE_READ and table not in NETWORK_TABLES:
                 return sqlite3.SQLITE_DENY
+            if action == sqlite3.SQLITE_READ:
+                read_tables.add(table)
             return sqlite3.SQLITE_OK
 
         try:
@@ -177,12 +229,40 @@ class MeshService:
                     conn.set_authorizer(None)
                     conn.set_progress_handler(None, 0)
                     conn.execute(f"PRAGMA query_only = {int(previous_query_only)}")
+                if not read_tables:
+                    return "(query error: unavailable or unauthorized data)", "query did not read an allowed network table"
                 if not rows:
-                    return "(no results)"
-                return "\n".join(", ".join(str(v) for v in row if v is not None) for row in rows)
+                    return "(no results)", None
+                result = "\n".join(", ".join(str(v) for v in row if v is not None) for row in rows)
+                return result, None
         except Exception as e:
-            self.logger.warning("Mesh query failed: %s", e)
-            return "(query error: unavailable or unauthorized data)"
+            self.logger.warning("Mesh query failed: %s | SQL: %s", e, sql[:500])
+            return "(query error: unavailable or unauthorized data)", str(e)
+
+
+    def _execute_sql(self, sql: str) -> str:
+        """Compatibility wrapper returning only the public query result."""
+        return self._execute_sql_detailed(sql)[0]
+
+
+    @staticmethod
+    def _is_repairable_sql_error(error: str | None) -> bool:
+        """Limit model retries to SQL construction errors, never authorization failures."""
+        if not error:
+            return False
+        lowered = error.casefold()
+        return any(
+            marker in lowered
+            for marker in (
+                "no such column",
+                "no such table",
+                "ambiguous column name",
+                "syntax error",
+                "misuse of aggregate",
+                "wrong number of arguments",
+                "query did not read an allowed network table",
+            )
+        )
 
     def describe_tables(self) -> str:
         """Return the actual allowed network tables and columns, as Tigro's ask did."""
@@ -294,6 +374,7 @@ class MeshService:
             "- ALWAYS attach a unit to every number: km for distance, hops for path length, messages for counts, days/hours/minutes for time, % for percentages, dBm for signal strength, bytes for data\n"
             "- Use node NAMES, never hex public keys or short prefixes\n"
             "- NEVER show raw coordinates (lat/lon) or raw hex keys\n"
+            "- Use only facts and values present in the query results; never add a metric, name, value, or conclusion\n"
             "- Max 10 items, no tables, no pipes\n"
             "- Total response under 500 chars\n"
             "- If the data is a single aggregate (count, total), just answer with the number and its unit"
@@ -322,6 +403,17 @@ class MeshService:
         return None
 
 
+    @staticmethod
+    def _formatted_is_grounded(formatted: str, sql_results: str) -> bool:
+        """Reject formatted answers that introduce numeric facts absent from SQL."""
+        number_pattern = r"(?<![\w])[-+]?\d+(?:[.,]\d+)?"
+
+        def numbers(text: str) -> set[str]:
+            return {match.replace(",", ".") for match in re.findall(number_pattern, text or "")}
+
+        return numbers(formatted).issubset(numbers(sql_results))
+
+
     _DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?$")
 
     async def answer(self, question: str, message: MeshMessage) -> str:
@@ -344,7 +436,19 @@ class MeshService:
         self.logger.debug(f"Mesh service generated SQL: {sql}")
 
         # Step 2: Execute
-        sql_results = await asyncio.to_thread(self._execute_sql, sql)
+        sql_results, sql_error = await asyncio.to_thread(self._execute_sql_detailed, sql)
+        if self._is_repairable_sql_error(sql_error):
+            self.logger.info("Mesh query invalid; regenerating once from the live SQLite schema")
+            repaired_sql = await asyncio.to_thread(
+                self._generate_sql,
+                question,
+                sender_pos,
+                failed_sql=sql,
+                sqlite_error=sql_error,
+            )
+            if repaired_sql:
+                self.logger.debug("Mesh service repaired SQL: %s", repaired_sql)
+                sql_results, sql_error = await asyncio.to_thread(self._execute_sql_detailed, repaired_sql)
         if sql_results.startswith(("(rejected:", "(query error:", "(no results)")):
             return "Aucune donnée disponible." if sql_results == "(no results)" else "La requête réseau n’a pas pu être exécutée."
         # Step 2b: Post-process — resolve pubkeys to names, drop verbose datetimes
@@ -355,6 +459,9 @@ class MeshService:
 
         # Step 3: Format with LLM followup
         formatted = await asyncio.to_thread(self._format_followup, question, sql_results)
+        if formatted and not self._formatted_is_grounded(formatted, sql_results):
+            self.logger.warning("Mesh formatted answer introduced values absent from SQL; using raw results")
+            formatted = None
         if not formatted:
             formatted = sql_results
 

@@ -273,6 +273,54 @@ async def test_mesh_real_sqlite_query_and_readonly_rejection(command_mock_bot, t
     assert service._execute_sql("SELECT COUNT(*) FROM complete_contact_tracking") == "2"
 
 
+async def test_mesh_uses_live_schema_and_repairs_invalid_generated_column(command_mock_bot, tmp_path):
+    commands, sent = setup_bot(command_mock_bot)
+    database = tmp_path / "mesh.db"
+    with sqlite3.connect(database) as conn:
+        conn.execute(
+            "CREATE TABLE complete_contact_tracking "
+            "(name TEXT, public_key TEXT, role TEXT, last_heard TEXT, snr REAL)"
+        )
+        conn.execute(
+            "INSERT INTO complete_contact_tracking VALUES "
+            "('Alpha', ?, 'repeater', '2026-09-20 10:00:00', 9.5)",
+            ("a" * 64,),
+        )
+
+    @contextmanager
+    def connection():
+        conn = sqlite3.connect(database)
+        try:
+            yield conn
+        finally:
+            conn.close()
+
+    command_mock_bot.db_manager.connection = connection
+    replies = [
+        model_reply(
+            "SELECT c.name, c.snr FROM complete_contact_tracking c "
+            "WHERE c.role = 'repeater' ORDER BY c.last_seen DESC LIMIT 1"
+        ),
+        model_reply(
+            "SELECT c.name, c.snr FROM complete_contact_tracking c "
+            "WHERE c.role = 'repeater' ORDER BY c.last_heard DESC LIMIT 1"
+        ),
+        model_reply("Alpha: 9.5 dB"),
+    ]
+    with patch("modules.assistant.llm_client.requests.post", side_effect=replies) as post:
+        await commands["ask"].execute(mock_message(content="baliz quel est le meilleur répéteur ?"))
+
+    assert sent[0][1] == "Alpha: 9.5 dB"
+    assert post.call_count == 3
+    first_schema = post.call_args_list[0].kwargs["json"]["messages"][0]["content"]
+    assert "Live SQLite schema (authoritative)" in first_schema
+    assert "last_heard TEXT" in first_schema
+    assert "last_seen" not in first_schema
+    repair_prompt = post.call_args_list[1].kwargs["json"]["messages"][0]["content"]
+    assert "no such column: c.last_seen" in repair_prompt
+    assert "FAILED_SQL_BEGIN" in repair_prompt
+
+
 def test_settings_have_no_trigger_collision(command_mock_bot):
     commands, _ = setup_bot(command_mock_bot)
     for trigger, expected in [("ask", "ask"), ("baliz", "ask"), ("mesh", "mesh"), ("query", "mesh"), ("sql", "mesh"), ("llm", "llm")]:
@@ -294,6 +342,17 @@ def test_mesh_restricts_tables_and_restores_connection(command_mock_bot):
     assert conn.execute("PRAGMA query_only").fetchone()[0] == 0
     conn.execute("INSERT INTO private_tokens VALUES ('still-writable')")
     conn.close()
+
+
+def test_mesh_rejects_literal_only_queries_and_ungrounded_formatted_values(command_mock_bot):
+    commands, _ = setup_bot(command_mock_bot)
+    service = commands["mesh"].service
+    result, error = service._execute_sql_detailed("SELECT 'Invented repeater', 1200")
+    assert result.startswith("(query error:")
+    assert error == "query did not read an allowed network table"
+    assert service._is_repairable_sql_error(error)
+    assert service._formatted_is_grounded("Alpha: 9.5 dB", "Alpha, 9.5")
+    assert not service._formatted_is_grounded("Alpha: 9.5 dB, 20 km", "Alpha, 9.5")
 
 
 async def test_mesh_disabled_preserves_other_capabilities(command_mock_bot):
