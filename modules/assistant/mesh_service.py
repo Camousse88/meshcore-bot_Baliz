@@ -116,7 +116,8 @@ class MeshService:
                         declared_type = (column[2] or "").strip().upper()
                         columns.append(f"{name} {declared_type}".strip())
                     if columns:
-                        lines.append(f"- {table}: {', '.join(columns)}")
+                        row_count = conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+                        lines.append(f"- {table} [rows={row_count}]: {', '.join(columns)}")
                 if lines:
                     return "Live SQLite schema (authoritative):\n" + "\n".join(lines)
         except Exception as exc:
@@ -149,7 +150,7 @@ class MeshService:
         correction = ""
         if failed_sql and sqlite_error:
             correction = (
-                "\nA previous query failed. Correct it using the authoritative schema above. "
+                "\nA previous query did not produce usable data. Correct it using the authoritative schema above. "
                 "Do not repeat a table or column name that SQLite rejected.\n"
                 f"FAILED_SQL_BEGIN\n{failed_sql[:1200]}\nFAILED_SQL_END\n"
                 f"SQLITE_ERROR_BEGIN\n{sqlite_error[:300]}\nSQLITE_ERROR_END\n"
@@ -162,6 +163,8 @@ class MeshService:
             "Use LIMIT 20. Read-only. "
             "The live SQLite schema below is authoritative: use only its exact table and column names. "
             "Never infer, translate, or invent an identifier. "
+            "Prefer a relevant table with rows over an empty table. "
+            "For rankings or superlatives, select the item name and the real metric used to rank it. "
             "Every query must read at least one table from the live schema; never SELECT literal data as an answer. "
             + schema + haversine + pos_info + correction
         )
@@ -261,6 +264,7 @@ class MeshService:
                 "misuse of aggregate",
                 "wrong number of arguments",
                 "query did not read an allowed network table",
+                "query returned no rows",
             )
         )
 
@@ -437,6 +441,8 @@ class MeshService:
 
         # Step 2: Execute
         sql_results, sql_error = await asyncio.to_thread(self._execute_sql_detailed, sql)
+        if sql_results == "(no results)" and sql_error is None:
+            sql_error = "query returned no rows"
         if self._is_repairable_sql_error(sql_error):
             self.logger.info("Mesh query invalid; regenerating once from the live SQLite schema")
             repaired_sql = await asyncio.to_thread(

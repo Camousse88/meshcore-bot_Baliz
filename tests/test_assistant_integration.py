@@ -314,6 +314,7 @@ async def test_mesh_uses_live_schema_and_repairs_invalid_generated_column(comman
     assert post.call_count == 3
     first_schema = post.call_args_list[0].kwargs["json"]["messages"][0]["content"]
     assert "Live SQLite schema (authoritative)" in first_schema
+    assert "complete_contact_tracking [rows=1]" in first_schema
     assert "last_heard TEXT" in first_schema
     assert "last_seen" not in first_schema
     repair_prompt = post.call_args_list[1].kwargs["json"]["messages"][0]["content"]
@@ -353,6 +354,40 @@ def test_mesh_rejects_literal_only_queries_and_ungrounded_formatted_values(comma
     assert service._is_repairable_sql_error(error)
     assert service._formatted_is_grounded("Alpha: 9.5 dB", "Alpha, 9.5")
     assert not service._formatted_is_grounded("Alpha: 9.5 dB, 20 km", "Alpha, 9.5")
+
+
+async def test_mesh_retries_empty_table_using_live_row_counts(command_mock_bot, tmp_path):
+    commands, sent = setup_bot(command_mock_bot)
+    database = tmp_path / "mesh.db"
+    with sqlite3.connect(database) as conn:
+        conn.execute("CREATE TABLE repeater_contacts (name TEXT, is_active INTEGER, purge_count INTEGER)")
+        conn.execute("CREATE TABLE complete_contact_tracking (name TEXT, role TEXT, advert_count INTEGER)")
+        conn.execute("INSERT INTO complete_contact_tracking VALUES ('Alpha', 'repeater', 12)")
+
+    @contextmanager
+    def connection():
+        conn = sqlite3.connect(database)
+        try:
+            yield conn
+        finally:
+            conn.close()
+
+    command_mock_bot.db_manager.connection = connection
+    replies = [
+        model_reply("SELECT name, purge_count FROM repeater_contacts WHERE is_active = 1 ORDER BY purge_count DESC LIMIT 1"),
+        model_reply("SELECT name, advert_count FROM complete_contact_tracking WHERE role = 'repeater' ORDER BY advert_count DESC LIMIT 1"),
+        model_reply("Alpha: 12 annonces"),
+    ]
+    with patch("modules.assistant.llm_client.requests.post", side_effect=replies) as post:
+        await commands["ask"].execute(mock_message(content="baliz quel est le meilleur répéteur ?"))
+
+    assert sent[0][1] == "Alpha: 12 annonces"
+    assert post.call_count == 3
+    first_prompt = post.call_args_list[0].kwargs["json"]["messages"][0]["content"]
+    assert "repeater_contacts [rows=0]" in first_prompt
+    assert "complete_contact_tracking [rows=1]" in first_prompt
+    repair_prompt = post.call_args_list[1].kwargs["json"]["messages"][0]["content"]
+    assert "query returned no rows" in repair_prompt
 
 
 async def test_mesh_disabled_preserves_other_capabilities(command_mock_bot):
