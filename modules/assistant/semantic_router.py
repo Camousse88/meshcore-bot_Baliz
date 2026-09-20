@@ -33,10 +33,10 @@ class SemanticRouter:
         self.timeout_seconds = max(
             1.0,
             min(
-                30.0,
+                15.0,
                 read(
-                    "Ask_Command",
-                    "semantic_routing_timeout_seconds",
+                    "Llm_Command",
+                    "timeout_seconds",
                     fallback=15.0,
                     value_type="float",
                 ),
