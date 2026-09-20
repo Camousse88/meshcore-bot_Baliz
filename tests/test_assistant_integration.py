@@ -271,6 +271,7 @@ async def test_mesh_real_sqlite_query_and_readonly_rejection(command_mock_bot, t
     assert post.call_count == 2
     assert service._execute_sql("DELETE FROM complete_contact_tracking").startswith("(rejected:")
     assert service._execute_sql("SELECT COUNT(*) FROM complete_contact_tracking") == "2"
+    assert service._execute_sql("SELECT name FROM complete_contact_tracking ORDER BY name DESC LIMIT 1") == "Bravo"
 
 
 async def test_mesh_uses_live_schema_and_repairs_invalid_generated_column(command_mock_bot, tmp_path):
@@ -354,6 +355,14 @@ def test_mesh_rejects_literal_only_queries_and_ungrounded_formatted_values(comma
     assert service._is_repairable_sql_error(error)
     assert service._formatted_is_grounded("Alpha: 9.5 dB", "Alpha, 9.5")
     assert not service._formatted_is_grounded("Alpha: 9.5 dB, 20 km", "Alpha, 9.5")
+    assert service._question_shape_error("quel est le meilleur répéteur ?", "SELECT name FROM complete_contact_tracking LIMIT 20")
+    assert service._question_shape_error("quel est le meilleur répéteur ?", "SELECT name FROM complete_contact_tracking ORDER BY advert_count DESC LIMIT 1")
+    assert service._question_shape_error("quel est le meilleur répéteur ?", "SELECT name FROM complete_contact_tracking WHERE role = 'repeater' ORDER BY advert_count DESC LIMIT 1") is None
+    constrained = service._apply_requested_role_constraint(
+        "quel est le meilleur répéteur ?",
+        "SELECT name FROM complete_contact_tracking ORDER BY advert_count DESC LIMIT 1",
+    )
+    assert "WHERE role = 'repeater' ORDER BY advert_count DESC LIMIT 1" in constrained
 
 
 async def test_mesh_retries_empty_table_using_live_row_counts(command_mock_bot, tmp_path):
