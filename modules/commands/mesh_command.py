@@ -36,6 +36,5 @@ class MeshCommand(BaseCommand):
         if not question or question.lower() in {"help", "?", "h"}:
             return await self.send_response(message, f"Usage: {self._command_prefix}mesh <question sur le réseau>")
         if question.lower() in {"tables", "schema", "db"}:
-            from ..assistant.mesh_service import DB_SCHEMA
-            return await send_answer(self, message, DB_SCHEMA, max_pages=8)
+            return await send_answer(self, message, await self.service.answer(question, message), max_pages=8)
         return await send_answer(self, message, await self.service.answer(question, message))

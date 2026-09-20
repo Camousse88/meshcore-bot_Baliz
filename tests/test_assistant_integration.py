@@ -66,6 +66,77 @@ async def test_baliz_alias_routes_network_to_mesh_only(command_mock_bot):
     assert len(sent) == 1 and sent[0][1] == "4 répéteurs actifs"
 
 
+async def test_ambiguous_question_uses_semantic_router(command_mock_bot):
+    commands, sent = setup_bot(command_mock_bot)
+    commands["mesh"].service.answer = AsyncMock(return_value="Ouessant via Alpha")
+    with patch(
+        "modules.assistant.semantic_router.post_chat",
+        return_value=model_reply("mesh"),
+    ) as classify:
+        await commands["ask"].execute(mock_message(content="baliz qui peut relayer vers Ouessant ?"))
+    classify.assert_called_once()
+    commands["mesh"].service.answer.assert_awaited_once()
+    assert sent[0][1] == "Ouessant via Alpha"
+
+
+async def test_explicit_route_does_not_call_semantic_router(command_mock_bot):
+    commands, _ = setup_bot(command_mock_bot)
+    commands["mesh"].service.answer = AsyncMock(return_value="ok")
+    with patch("modules.assistant.semantic_router.post_chat") as classify:
+        await commands["ask"].execute(mock_message(content="baliz mesh contacts"))
+    classify.assert_not_called()
+
+
+async def test_semantic_router_failure_keeps_safe_wiki_probe(command_mock_bot):
+    commands, sent = setup_bot(command_mock_bot)
+    commands["llm"].service.answer = AsyncMock(return_value="réponse Wiki")
+    with patch(
+        "modules.assistant.semantic_router.post_chat",
+        return_value=model_reply("not-a-route"),
+    ):
+        await commands["ask"].execute(mock_message(content="baliz modulation LoRa avancée"))
+    assert commands["llm"].service.answer.call_args.kwargs["mode"] == "auto"
+    assert sent[0][1] == "réponse Wiki"
+
+
+async def test_semantic_router_cannot_trigger_rf_tools(command_mock_bot):
+    commands, sent = setup_bot(command_mock_bot)
+    commands["llm"].service.answer = AsyncMock(return_value="réponse Wiki")
+    commands["path"].execute = AsyncMock()
+    with patch(
+        "modules.assistant.semantic_router.post_chat",
+        return_value=model_reply("path"),
+    ):
+        await commands["ask"].execute(mock_message(content="baliz qui peut relayer vers Ouessant ?"))
+    commands["path"].execute.assert_not_called()
+    assert commands["llm"].service.answer.call_args.kwargs["mode"] == "auto"
+    assert sent[0][1] == "réponse Wiki"
+
+
+async def test_ask_tables_restores_tigro_database_introspection(command_mock_bot, tmp_path):
+    commands, sent = setup_bot(command_mock_bot)
+    database = tmp_path / "mesh.db"
+    with sqlite3.connect(database) as conn:
+        conn.execute("CREATE TABLE complete_contact_tracking (name TEXT, public_key TEXT)")
+        conn.execute("CREATE TABLE repeater_contacts (name TEXT, public_key TEXT)")
+        conn.execute("CREATE TABLE path_stats (path_length INTEGER, hops INTEGER)")
+
+    @contextmanager
+    def connection():
+        conn = sqlite3.connect(database)
+        try:
+            yield conn
+        finally:
+            conn.close()
+
+    command_mock_bot.db_manager.connection = connection
+    await commands["ask"].execute(mock_message(content="baliz tables"))
+    response = "\n".join(text for _, text in sent)
+    assert "complete_contact_tracking:" in response
+    assert "repeater_contacts:" in response
+    assert "path_stats:" in response
+
+
 async def test_direct_commands_and_services_are_independently_enabled(command_mock_bot):
     commands, sent = setup_bot(command_mock_bot)
     command = commands["llm"]

@@ -25,6 +25,9 @@ Tables:
 - mesh_connections: from_prefix, to_prefix, from_public_key, to_public_key, observation_count, last_seen, geographic_distance
 - neighbor_links: self_public_key, neighbor_public_key, last_snr, best_snr, last_status, last_seen
 - daily_stats: date, public_key, advert_count
+- repeater_contacts: public_key, name, device_type, last_seen, latitude, longitude, city, country, is_active
+- unique_advert_packets: date, public_key, packet_hash, first_seen
+- path_stats: timestamp, sender_id, channel, path_length, path_string, hops
 
 Notes:
 - last_heard is a datetime string (ISO format)
@@ -37,6 +40,12 @@ Notes:
 - ALWAYS resolve public_key to name: JOIN complete_contact_tracking c ON c.public_key = <table>.public_key and SELECT c.name. Truncate names to 15 chars: SUBSTR(c.name, 1, 15) AS name. Never SELECT a raw public_key or prefix as the primary identifier.
 - When selecting a distance, alias it with its unit, e.g. ROUND(<haversine>,1) AS distance_km
 """
+
+NETWORK_TABLES = {
+    "complete_contact_tracking", "message_stats", "observed_paths",
+    "mesh_connections", "neighbor_links", "daily_stats", "repeater_contacts",
+    "unique_advert_packets", "path_stats",
+}
 
 
 class MeshService:
@@ -150,12 +159,8 @@ class MeshService:
         sql = re.sub(r"\bLIMIT\s+\d+", "LIMIT 20", sql, flags=re.IGNORECASE)
         sql = sql.rstrip(";")
 
-        allowed_tables = {
-            "complete_contact_tracking", "message_stats", "observed_paths",
-            "mesh_connections", "neighbor_links", "daily_stats",
-        }
         def authorize(action, table, column, database, source):
-            if action == sqlite3.SQLITE_READ and table not in allowed_tables:
+            if action == sqlite3.SQLITE_READ and table not in NETWORK_TABLES:
                 return sqlite3.SQLITE_DENY
             return sqlite3.SQLITE_OK
 
@@ -178,6 +183,25 @@ class MeshService:
         except Exception as e:
             self.logger.warning("Mesh query failed: %s", e)
             return "(query error: unavailable or unauthorized data)"
+
+    def describe_tables(self) -> str:
+        """Return the actual allowed network tables and columns, as Tigro's ask did."""
+        try:
+            with self.bot.db_manager.connection() as conn:
+                rows = conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+                ).fetchall()
+                lines = []
+                for row in rows:
+                    table = row[0]
+                    if table not in NETWORK_TABLES:
+                        continue
+                    columns = [column[1] for column in conn.execute(f'PRAGMA table_info("{table}")')]
+                    lines.append(f"{table}: {', '.join(columns)}")
+                return "\n".join(lines) if lines else "(no tables found)"
+        except Exception as exc:
+            self.logger.warning("Mesh table description failed: %s", exc)
+            return "(table list unavailable)"
 
 
     def _question_asks_for_datetime(self, question: str) -> bool:
@@ -301,6 +325,10 @@ class MeshService:
     _DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?$")
 
     async def answer(self, question: str, message: MeshMessage) -> str:
+        if question.strip().casefold() in {
+            "tables", "table", "schema", "db", "base de données", "base de donnees", "database"
+        }:
+            return await asyncio.to_thread(self.describe_tables)
         threshold = self.get_config_value("Llm_Command", "cpu_temp_threshold", fallback=60.0, value_type="float")
         temperature = get_cpu_temperature() if threshold > 0 else None
         if temperature is not None and temperature >= threshold:

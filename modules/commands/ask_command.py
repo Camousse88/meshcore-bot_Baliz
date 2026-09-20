@@ -19,6 +19,8 @@ class AskCommand(BaseCommand):
          "default": "test,path,mesh,wiki,llm", "help": "Allowed capabilities: test,path,mesh,wiki,llm."},
         {"key": "route_timeout_seconds", "label": "Processing timeout", "type": "int",
          "default": 120, "min": 1, "max": 300, "unit": "seconds"},
+        {"key": "semantic_routing_enabled", "label": "LLM routing for ambiguous questions", "type": "bool",
+         "default": True, "help": "Use the configured LLM only when deterministic routing is inconclusive."},
         {"key": "max_pages", "label": "Maximum reply pages", "type": "int",
          "default": 4, "min": 1, "max": 8},
     ]

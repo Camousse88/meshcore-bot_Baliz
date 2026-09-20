@@ -17,6 +17,7 @@ from modules.assistant.router import AssistantRouter, Route
     ("bonjour", Route.LLM, "conversation"),
     ("llm raconte une histoire", Route.LLM, "explicit"),
     ("mesh: top 5 contacts", Route.MESH, "explicit"),
+    ("tables", Route.MESH, "mesh_schema"),
     ("wiki région", Route.WIKI, "explicit"),
     ("path", Route.PATH, "explicit"),
     ("aide", Route.HELP, "help"),
@@ -28,6 +29,16 @@ def test_route_contract(question, route, reason):
 
 def test_unknown_command_is_not_executable():
     assert AssistantRouter().decide("advert flood").route is Route.WIKI
+
+
+@pytest.mark.parametrize("question", [
+    "top 10 expéditeurs sur 30 jours",
+    "quel est le chemin le plus long observé",
+    "quels pays sont représentés dans le mesh",
+    "liste les paquets entendus aujourd'hui",
+])
+def test_tigro_network_question_forms_route_to_mesh(question):
+    assert AssistantRouter().decide(question).route is Route.MESH
 
 
 def test_utf8_pagination_and_disclosed_truncation():

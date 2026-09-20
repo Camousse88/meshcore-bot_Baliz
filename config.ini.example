@@ -1619,6 +1619,8 @@ enabled = true
 aliases = baliz
 enabled_routes = test,path,mesh,wiki,llm
 route_timeout_seconds = 120
+# Use the LLM only when the deterministic router cannot classify the question.
+semantic_routing_enabled = true
 max_pages = 4
 
 [Mesh_Command]
