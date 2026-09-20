@@ -22,7 +22,7 @@ class AskCommand(BaseCommand):
         {"key": "semantic_routing_enabled", "label": "LLM routing for ambiguous questions", "type": "bool",
          "default": True, "help": "Use the configured LLM only when deterministic routing is inconclusive."},
         {"key": "semantic_routing_timeout_seconds", "label": "LLM routing timeout", "type": "float",
-         "default": 8.0, "min": 1.0, "max": 30.0, "unit": "seconds"},
+         "default": 15.0, "min": 1.0, "max": 30.0, "unit": "seconds"},
         {"key": "max_pages", "label": "Maximum reply pages", "type": "int",
          "default": 4, "min": 1, "max": 8},
     ]

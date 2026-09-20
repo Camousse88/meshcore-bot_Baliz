@@ -37,7 +37,7 @@ class SemanticRouter:
                 read(
                     "Ask_Command",
                     "semantic_routing_timeout_seconds",
-                    fallback=8.0,
+                    fallback=15.0,
                     value_type="float",
                 ),
             ),
