@@ -99,6 +99,20 @@ async def test_semantic_router_failure_keeps_safe_wiki_probe(command_mock_bot):
     assert sent[0][1] == "réponse Wiki"
 
 
+async def test_semantic_router_cannot_trigger_rf_tools(command_mock_bot):
+    commands, sent = setup_bot(command_mock_bot)
+    commands["llm"].service.answer = AsyncMock(return_value="réponse Wiki")
+    commands["path"].execute = AsyncMock()
+    with patch(
+        "modules.assistant.semantic_router.post_chat",
+        return_value=model_reply("path"),
+    ):
+        await commands["ask"].execute(mock_message(content="baliz qui peut relayer vers Ouessant ?"))
+    commands["path"].execute.assert_not_called()
+    assert commands["llm"].service.answer.call_args.kwargs["mode"] == "auto"
+    assert sent[0][1] == "réponse Wiki"
+
+
 async def test_ask_tables_restores_tigro_database_introspection(command_mock_bot, tmp_path):
     commands, sent = setup_bot(command_mock_bot)
     database = tmp_path / "mesh.db"
