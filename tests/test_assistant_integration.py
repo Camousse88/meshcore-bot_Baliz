@@ -99,8 +99,23 @@ async def test_semantic_router_failure_keeps_safe_wiki_probe(command_mock_bot):
     assert sent[0][1] == "réponse Wiki"
 
 
-async def test_ask_tables_restores_tigro_database_introspection(command_mock_bot):
+async def test_ask_tables_restores_tigro_database_introspection(command_mock_bot, tmp_path):
     commands, sent = setup_bot(command_mock_bot)
+    database = tmp_path / "mesh.db"
+    with sqlite3.connect(database) as conn:
+        conn.execute("CREATE TABLE complete_contact_tracking (name TEXT, public_key TEXT)")
+        conn.execute("CREATE TABLE repeater_contacts (name TEXT, public_key TEXT)")
+        conn.execute("CREATE TABLE path_stats (path_length INTEGER, hops INTEGER)")
+
+    @contextmanager
+    def connection():
+        conn = sqlite3.connect(database)
+        try:
+            yield conn
+        finally:
+            conn.close()
+
+    command_mock_bot.db_manager.connection = connection
     await commands["ask"].execute(mock_message(content="baliz tables"))
     response = "\n".join(text for _, text in sent)
     assert "complete_contact_tracking:" in response
