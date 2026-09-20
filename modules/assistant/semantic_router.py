@@ -73,8 +73,20 @@ class SemanticRouter:
                 self.logger.warning("Semantic router returned HTTP %s", response.status_code)
                 return None
             text = response.json()["choices"][0]["message"]["content"].strip().casefold()
-            match = re.fullmatch(r"[\s`*]*(mesh|wiki|llm)[\s`*.!]*", text)
-            return self._ROUTES.get(match.group(1)) if match else None
+            match = re.fullmatch(
+                r"[\s`*]*(mesh|network|database|sql|path|paths|wiki|docs|documentation|llm|chat|general)[\s`*.!]*",
+                text,
+            )
+            if not match:
+                return None
+            token = match.group(1)
+            route = {
+                "network": "mesh", "database": "mesh", "sql": "mesh",
+                "path": "mesh", "paths": "mesh",
+                "docs": "wiki", "documentation": "wiki",
+                "chat": "llm", "general": "llm",
+            }.get(token, token)
+            return self._ROUTES[route]
         except (requests.RequestException, KeyError, IndexError, TypeError, ValueError) as exc:
             self.logger.warning("Semantic router unavailable: %s", exc)
             return None

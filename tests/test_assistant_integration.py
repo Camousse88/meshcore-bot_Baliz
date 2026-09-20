@@ -71,7 +71,7 @@ async def test_ambiguous_question_uses_semantic_router(command_mock_bot):
     commands["mesh"].service.answer = AsyncMock(return_value="Ouessant via Alpha")
     with patch(
         "modules.assistant.semantic_router.post_chat",
-        return_value=model_reply("mesh"),
+        return_value=model_reply("paths"),
     ) as classify:
         await commands["ask"].execute(mock_message(content="baliz qui peut relayer vers Ouessant ?"))
     classify.assert_called_once()
