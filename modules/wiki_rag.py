@@ -818,7 +818,7 @@ class LocalWikiRag:
         # in fenced ``text`` blocks by Wiki.js.
         pipe_rows = sum("|" in line for line in lines)
         separator = any(
-            "|" in line and re.fullmatch(r"[-:| ]{5,}", line)
+            "|" in line and re.fullmatch(r"[-:|\s]{5,}", line)
             for line in lines
         )
         return pipe_rows >= 2 and separator
