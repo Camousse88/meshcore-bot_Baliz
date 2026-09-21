@@ -821,7 +821,8 @@ class LocalWikiRag:
             "|" in line and re.fullmatch(r"[-:|\s]{5,}", line)
             for line in lines
         )
-        return pipe_rows >= 2 and separator
+        tabular_rows = sum(line.count("|") >= 2 for line in lines)
+        return pipe_rows >= 2 and (separator or tabular_rows >= 3)
 
     @staticmethod
     def _diagram_section(section: WikiRagSection) -> bool:
