@@ -438,6 +438,23 @@ def test_action_question_prefers_instructions_over_region_diagram(tmp_path):
     assert 'flowchart' not in result.context
 
 
+def test_add_question_prefers_device_command_procedure_over_exact_ui_heading(tmp_path):
+    index = write_corpus(tmp_path, [
+        {'path': 'configuration/Compagnons', 'page_title': 'Configurer un Companion',
+         'section_title': 'Ajouter les régions',
+         'content': 'Réglages puis Network Settings puis Région par défaut.'},
+        {'path': 'configuration/Répéteurs', 'page_title': 'Configurer un Répéteur',
+         'section_title': 'Configurer les régions',
+         'content': ('Utilisez les commandes documentées :\n```text\n'
+                     'region def eu fr fr-bre fr-29|fr bzh|* europe\n'
+                     'region default fr\nregion save\n```')},
+    ])
+    result = LocalWikiRag(index).retrieve('comment ajouter les régions à un répéteur')
+    assert result is not None
+    assert result.matches[0].section.path == 'configuration/Répéteurs'
+    assert 'region def eu fr fr-bre fr-29|fr bzh|* europe' in result.context
+
+
 def test_ascii_flowchart_in_text_fence_is_treated_as_diagram(tmp_path):
     index = write_corpus(tmp_path, [
         {'path': 'concepts/regions', 'page_title': 'Regions', 'section_title': 'Côté Répéteur',

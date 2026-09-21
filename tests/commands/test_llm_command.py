@@ -625,6 +625,22 @@ class TestLlmCommand:
             "donne-moi les régions pour un Companion", result
         ) == "Régions documentées : europe, eu, fr, bzh, fr-bre, fr-29."
 
+    def test_operational_wiki_question_returns_documented_commands_verbatim(self):
+        section = Mock(
+            content=(
+                "Utilisez les commandes suivantes :\n```text\n"
+                "region def eu fr fr-bre fr-29|fr bzh|* europe\n"
+                "region default fr\nregion save\n```"
+            ),
+        )
+        result = Mock(matches=[Mock(section=section)])
+        assert LlmService._wiki_command_answer(
+            "comment ajouter les régions à un répéteur ?", result
+        ) == (
+            "Commandes : region def eu fr fr-bre fr-29|fr bzh|* europe ; "
+            "region default fr ; region save."
+        )
+
     @pytest.mark.parametrize("response", ["ABC-124", "868.300", "SF8", "node42"])
     def test_repair_wiki_literals_preserves_numeric_values(self, response):
         source = "ABC-123 868.500 SF7 node43"

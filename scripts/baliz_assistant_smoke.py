@@ -114,6 +114,10 @@ async def run(args):
                 passed = passed and len(output) <= 2 and not any(
                     marker in text for marker in ("```", "||", "▼", "**")
                 )
+            if "ajouter les régions à un répéteur" in question:
+                passed = passed and all(command in text for command in (
+                    "region def", "region default", "region save",
+                ))
             report.append({"question": question, "route": ask.dispatcher.router.decide(question.split(" ", 1)[1]).route.value,
                            "passed": passed, "answer": text, "pages": len(output)})
         print(json.dumps({"radio_started": False, "live_llm": args.live, "results": report}, ensure_ascii=False, indent=2))

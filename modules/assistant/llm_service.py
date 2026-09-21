@@ -1204,6 +1204,22 @@ class LlmService:
                 return f"{label}s documentées : {', '.join(values)}."
         return None
 
+    @staticmethod
+    def _wiki_command_answer(prompt: str, wiki_result: Any) -> str | None:
+        """Copy documented command sequences for an operational question."""
+        normalized = " ".join(prompt.casefold().split())
+        if not re.search(
+            r"\b(?:comment|how|ajout\w*|add\w*|configur\w*|parametr\w*|setup|set)\b",
+            normalized,
+        ):
+            return None
+        for match in wiki_result.matches:
+            blocks = LocalWikiRag._fenced_command_blocks(match.section)
+            if blocks:
+                commands = max(blocks, key=len)
+                return "Commandes : " + " ; ".join(commands) + "."
+        return None
+
 
     def _clean_ai_response(self, content: str, max_length: int) -> str:
         cleaned = content or ""
@@ -1325,6 +1341,9 @@ class LlmService:
             return "Aucune source pertinente trouvée dans le Wiki."
 
         if wiki_result:
+            command_answer = self._wiki_command_answer(prompt, wiki_result)
+            if command_answer:
+                return command_answer
             supported_values = self._wiki_supported_values_answer(prompt, wiki_result)
             if supported_values:
                 return supported_values

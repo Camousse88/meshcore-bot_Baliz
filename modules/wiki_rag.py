@@ -788,11 +788,13 @@ class LocalWikiRag:
         # a conceptual diagram headed "Regions" can outrank the section that
         # actually explains how to add one.
         action_families = (
-            (r"\b(?:ajout\w*|add\w*|associ\w*|assign\w*)\b",),
+            # A manual may call the same operation "add", "configure" or
+            # "set". They express one setup/mutation intent and must compete
+            # on the device and the usable evidence, not the exact verb.
+            (r"\b(?:ajout\w*|add\w*|associ\w*|assign\w*|configur\w*|parametr\w*|setup|set)\b",),
             (r"\b(?:retir\w*|supprim\w*|remove\w*|delet\w*)\b",),
             (r"\b(?:activ\w*|enable\w*)\b",),
             (r"\b(?:desactiv\w*|disable\w*)\b",),
-            (r"\b(?:configur\w*|parametr\w*|setup|set)\b",),
             (r"\b(?:install\w*)\b",),
         )
         query_norm = " ".join(query_terms)
@@ -820,6 +822,10 @@ class LocalWikiRag:
             if re.search(pattern, query_norm):
                 score += 12 if re.search(pattern, section_title_norm) else 0
                 score += 7 if re.search(pattern, section_norm) else -6
+                if self._fenced_command_blocks(section):
+                    # Operational questions benefit more from executable
+                    # commands than conceptual prose or UI navigation.
+                    score += 16
         return score
 
     @staticmethod
@@ -886,6 +892,32 @@ class LocalWikiRag:
             if 2 <= len(values) <= 20 and len(values) / max(1, len(lines)) >= 0.6:
                 lists.append(values)
         return lists
+
+    @staticmethod
+    def _fenced_command_blocks(section: WikiRagSection) -> list[list[str]]:
+        """Return compact, coherent command blocks from fenced Wiki content."""
+        commands: list[list[str]] = []
+        content = section.content.replace("\\n", "\n")
+        for block in re.findall(
+            r"(?ms)^\s*(?:```|~~~)[^\n]*\n(.*?)^\s*(?:```|~~~)\s*$",
+            content,
+        ):
+            lines = [line.strip() for line in block.splitlines() if line.strip()]
+            if not 2 <= len(lines) <= 12:
+                continue
+            if any(len(line) > 160 or re.search(r"(?:-->|<--|\|\||[▼▲▶◀])", line) for line in lines):
+                continue
+            tokens = [re.findall(r"\S+", line) for line in lines]
+            if any(len(parts) < 2 for parts in tokens):
+                continue
+            # A command sequence normally shares the executable or namespace
+            # (for example: region def/default/save). Requiring that common
+            # prefix rejects menus, prose, value lists and ASCII diagrams.
+            prefixes = [parts[0].casefold() for parts in tokens]
+            if len(set(prefixes)) != 1 or not re.fullmatch(r"[\w./:+-]+", prefixes[0]):
+                continue
+            commands.append(lines)
+        return commands
 
     @classmethod
     def _structured_values_section(cls, section: WikiRagSection) -> bool:
