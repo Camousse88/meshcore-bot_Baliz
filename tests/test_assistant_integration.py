@@ -303,7 +303,6 @@ async def test_mesh_repairs_count_question_that_returns_entity_list(command_mock
     replies = [
         model_reply("SELECT name FROM repeater_contacts LIMIT 20"),
         model_reply("SELECT COUNT(*) FROM repeater_contacts"),
-        model_reply("3 répéteurs"),
     ]
     with patch("modules.assistant.llm_client.requests.post", side_effect=replies) as post:
         await commands["ask"].execute(
@@ -311,7 +310,7 @@ async def test_mesh_repairs_count_question_that_returns_entity_list(command_mock
         )
 
     assert len(sent) == 1 and sent[0][1] == "3 répéteurs"
-    assert post.call_count == 3
+    assert post.call_count == 2
     repair_prompt = post.call_args_list[1].kwargs["json"]["messages"][0]["content"]
     assert "counting query must use COUNT" in repair_prompt
 
@@ -331,6 +330,9 @@ def test_mesh_count_question_requires_count_aggregate(command_mock_bot):
         "combien de répéteurs ?",
         "SELECT COUNT(*) FROM repeater_contacts",
     ) is None
+    assert service._format_single_count("combien de répéteurs ?", "1") == "1 répéteur"
+    assert service._format_single_count("combien de répéteurs ?", "3") == "3 répéteurs"
+    assert service._format_single_count("how many repeaters?", "2") == "2 repeaters"
 
 
 async def test_mesh_uses_live_schema_and_repairs_invalid_generated_column(command_mock_bot, tmp_path):
