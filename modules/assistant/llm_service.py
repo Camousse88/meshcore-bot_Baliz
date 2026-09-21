@@ -1156,6 +1156,38 @@ class LlmService:
         )]
         return " ".join(part for part in kept if part).strip()
 
+    @staticmethod
+    def _wiki_supported_values_answer(prompt: str, wiki_result: Any) -> str | None:
+        """Render a requested value list directly from a selected Wiki table."""
+        normalized = " ".join(prompt.casefold().split())
+        if not re.search(
+            r"\b(?:donne|liste|quels?|quelles?|list|show|values?|options?|supported)\b",
+            normalized,
+        ):
+            return None
+        for match in wiki_result.matches:
+            rows: list[list[str]] = []
+            for raw_line in match.section.content.splitlines():
+                line = raw_line.strip()
+                if line.count("|") < 2 or re.fullmatch(r"[-:|\s]+", line):
+                    continue
+                cells = [cell.strip() for cell in line.strip("|").split("|")]
+                if len(cells) >= 2 and cells[0]:
+                    rows.append(cells)
+            if len(rows) < 3:
+                continue
+            label = re.sub(r"[*_`]", "", rows[0][0]).strip().rstrip("sS") or "Valeur"
+            values: list[str] = []
+            for row in rows[1:]:
+                value = re.sub(r"[*_`]", "", row[0]).strip()
+                if not value or len(value) > 32 or value.casefold() == label.casefold():
+                    continue
+                if value not in values:
+                    values.append(value)
+            if len(values) >= 2:
+                return f"{label}s documentées : {', '.join(values)}."
+        return None
+
 
     def _clean_ai_response(self, content: str, max_length: int) -> str:
         cleaned = content or ""
@@ -1275,6 +1307,11 @@ class LlmService:
 
         if mode == "wiki" and wiki_result is None:
             return "Aucune source pertinente trouvée dans le Wiki."
+
+        if wiki_result:
+            supported_values = self._wiki_supported_values_answer(prompt, wiki_result)
+            if supported_values:
+                return supported_values
 
         user_key = self._user_key(message)
         history = self._get_context_history(user_key) if user_key else []

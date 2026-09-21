@@ -601,6 +601,16 @@ class TestLlmCommand:
             response, "quelle région pour mon département ?"
         ) == response
 
+    def test_supported_values_are_rendered_directly_from_wiki_table(self):
+        section = Mock(content=(
+            "| Région | Signification |\n| --- | --- |\n"
+            "| eu | Europe |\n| fr | France |\n| fr-bre | Bretagne |"
+        ))
+        result = Mock(matches=[Mock(section=section)])
+        assert LlmService._wiki_supported_values_answer(
+            "donne-moi les régions disponibles", result
+        ) == "Régions documentées : eu, fr, fr-bre."
+
     @pytest.mark.parametrize("response", ["ABC-124", "868.300", "SF8", "node42"])
     def test_repair_wiki_literals_preserves_numeric_values(self, response):
         source = "ABC-123 868.500 SF7 node43"
