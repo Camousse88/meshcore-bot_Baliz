@@ -450,3 +450,16 @@ def test_ascii_flowchart_in_text_fence_is_treated_as_diagram(tmp_path):
     assert result is not None
     assert 'Ajouter une région' in result.context
     assert 'Région connue ?' not in result.context
+
+
+def test_supported_values_request_prefers_table_over_flowchart(tmp_path):
+    index = write_corpus(tmp_path, [
+        {'path': 'manual/regions', 'page_title': 'Regions', 'section_title': 'Fonctionnement',
+         'content': '```text\nMessage\n  ▼\nRégion connue ?\n / \\\nOui Non\n```'},
+        {'path': 'manual/regions', 'page_title': 'Regions', 'section_title': 'Valeurs',
+         'content': '| Région | Usage |\n| --- | --- |\n| eu | Europe |\n| fr | France |'},
+    ])
+    result = LocalWikiRag(index).retrieve('donne la liste des régions')
+    assert result is not None
+    assert result.matches[0].section.section_title == 'Valeurs'
+    assert '| eu | Europe |' in result.context

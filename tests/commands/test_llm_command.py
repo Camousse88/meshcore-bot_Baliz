@@ -589,6 +589,18 @@ class TestLlmCommand:
             "Régions set region fr Paramètre: Valeur region: fr"
         )
 
+    def test_wiki_response_removes_unrequested_local_example(self):
+        response = "Ouvrez Network Settings. Adaptez fr-29 à votre département."
+        assert LlmService._remove_unrequested_local_examples(response, "ajouter une région") == (
+            "Ouvrez Network Settings."
+        )
+
+    def test_wiki_response_keeps_requested_local_example(self):
+        response = "Adaptez fr-29 à votre département."
+        assert LlmService._remove_unrequested_local_examples(
+            response, "quelle région pour mon département ?"
+        ) == response
+
     @pytest.mark.parametrize("response", ["ABC-124", "868.300", "SF8", "node42"])
     def test_repair_wiki_literals_preserves_numeric_values(self, response):
         source = "ABC-123 868.500 SF7 node43"

@@ -790,6 +790,9 @@ class LocalWikiRag:
         )
         query_norm = " ".join(query_terms)
         section_norm = " ".join((section_title_norm, page_title_norm, content_norm))
+        if re.search(r"\b(?:donne|liste|quels?|quelles?|list|show|values?|options?|supported)\b", query_norm):
+            if self._markdown_table_section(section):
+                score += 16
         for (pattern,) in action_families:
             if re.search(pattern, query_norm):
                 score += 12 if re.search(pattern, section_title_norm) else 0
@@ -807,6 +810,13 @@ class LocalWikiRag:
         links = sum(bool(re.match(r"^(?:[-*+]\s+)?\[[^\]]+\]\([^)]+\)\s*$", line))
                     for line in lines)
         return links >= 2 and links / max(1, len(lines)) >= 0.6
+
+    @staticmethod
+    def _markdown_table_section(section: WikiRagSection) -> bool:
+        lines = [line.strip() for line in section.content.splitlines() if line.strip()]
+        pipe_rows = sum(line.startswith("|") and line.endswith("|") for line in lines)
+        separator = any(re.fullmatch(r"\|?(?:\s*:?-{3,}:?\s*\|)+\s*", line) for line in lines)
+        return pipe_rows >= 2 and separator
 
     @staticmethod
     def _diagram_section(section: WikiRagSection) -> bool:
@@ -902,21 +912,28 @@ class LocalWikiRag:
             return None
         query_phrases = [f"{query_terms[index]} {query_terms[index + 1]}" for index in range(len(query_terms) - 1)]
 
+        query_norm = _normalize_search(query)
+        requests_values = bool(re.search(
+            r"\b(?:donne|liste|quels?|quelles?|list|show|values?|options?|supported)\b",
+            query_norm,
+        ))
+        requests_diagram = bool(re.search(r"\b(?:diagramme|schema|tableau|diagram|schema|table)\b", query_norm))
         scored: list[WikiRagMatch] = []
         pages: dict[tuple[str, str, str], float] = {}
         for section in self._load_sections():
             score = self._score(query_terms, query_phrases, section)
             navigation = self._navigation_section(section)
             diagram = self._diagram_section(section)
+            useful_table = requests_values and self._markdown_table_section(section)
             if navigation:
                 score *= 0.25
-            if diagram and not re.search(r"\b(diagramme|schema|tableau|diagram|schema|table)\b", _normalize_search(query)):
+            if diagram and not requests_diagram and not useful_table:
                 score *= 0.15
             if score > 0:
                 scored.append(WikiRagMatch(score=score, section=section))
                 key = self._page_key(section)
                 evidence = self._page_evidence(query_terms, section)
-                penalty = 0.25 if navigation else (0.15 if diagram else 1.0)
+                penalty = 0.25 if navigation else (0.15 if diagram and not useful_table else 1.0)
                 pages[key] = max(pages.get(key, 0.0), evidence * penalty)
         if not scored:
             return None

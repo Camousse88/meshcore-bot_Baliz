@@ -1138,6 +1138,24 @@ class LlmService:
             output.append(line)
         return " ".join(" ".join(output).split()).strip()
 
+    @staticmethod
+    def _remove_unrequested_local_examples(response: str, prompt: str) -> str:
+        """Drop location-specific adaptation advice unless location was asked for."""
+        geography = r"(?:departement|département|region|région|ville|localite|localité|country|county|city)"
+        if re.search(
+            rf"\b(?:(?:mon|ma|mes|notre|my|our)\s+{geography}|(?:pour|dans|in|for)\s+(?:le|la|the|my|mon|ma)?\s*{geography})\b",
+            prompt,
+            flags=re.IGNORECASE,
+        ) or re.search(r"#?[a-z]{2,8}-\d{1,3}\b", prompt, flags=re.IGNORECASE):
+            return response
+        sentences = re.split(r"(?<=[.!?])\s+", response)
+        kept = [sentence for sentence in sentences if not re.search(
+            rf"\b(?:adaptez?|remplacez?|choisissez?|replace|adapt|choose)\b.*\b(?:votre|your)\s+{geography}\b",
+            sentence,
+            flags=re.IGNORECASE,
+        )]
+        return " ".join(part for part in kept if part).strip()
+
 
     def _clean_ai_response(self, content: str, max_length: int) -> str:
         cleaned = content or ""
@@ -1305,6 +1323,7 @@ class LlmService:
             selected_source = "\n".join(match.section.content for match in wiki_result.matches)
             content = self._repair_wiki_literals(content, selected_source)
             content = self._plain_text_wiki_response(content)
+            content = self._remove_unrequested_local_examples(content, prompt)
 
         # Clean the response first
         if self.pagination_enabled:
