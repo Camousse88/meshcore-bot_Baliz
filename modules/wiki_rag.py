@@ -822,7 +822,7 @@ class LocalWikiRag:
             for line in lines
         )
         tabular_rows = sum(line.count("|") >= 2 for line in lines)
-        return pipe_rows >= 2 and (separator or tabular_rows >= 3)
+        return separator or tabular_rows >= 3 or pipe_rows >= 4
 
     @staticmethod
     def _diagram_section(section: WikiRagSection) -> bool:
