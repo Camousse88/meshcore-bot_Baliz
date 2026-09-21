@@ -239,7 +239,7 @@ mesh_connections_retention_days = 7
 neighbor_observations_retention_days = 365
 
 [Path_Command]
-enabled = false
+enabled = true
 require_path_bytes_greater_or_equal_to = 0
 require_path_bytes_failure_response = 
 enable_p_shortcut = true
@@ -454,7 +454,7 @@ enabled = true
 enabled = false
 
 [Test_Command]
-enabled = false
+enabled = true
 require_path_bytes_greater_or_equal_to = 0
 require_path_bytes_failure_response = 
 
@@ -658,7 +658,7 @@ enabled = false
 [Ask_Command]
 enabled = true
 aliases = baliz
-enabled_routes = mesh,wiki,llm
+enabled_routes = test,path,mesh,wiki,llm
 route_timeout_seconds = 120
 max_pages = 4
 

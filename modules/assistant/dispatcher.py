@@ -85,4 +85,8 @@ class AssistantDispatcher:
                 return f"L'outil {name} est désactivé, limité ou non autorisé ici."
             command.record_execution(message.sender_id or None)
             await command.execute(cloned)
-            return "\n".join(cloned.capture_sink) or f"Aucune donnée disponible pour {name}."
+            if cloned.capture_sink:
+                return "\n".join(cloned.capture_sink)
+            if name == "path":
+                return "Ce message ne contient pas de chemin radio exploitable."
+            return "Ce message ne contient pas de mesure radio exploitable."

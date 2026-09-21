@@ -231,6 +231,13 @@ async def test_rf_adapter_preserves_message_metadata_and_captures_output(command
     assert original.capture_sink is None and original.content == f"baliz {route}"
 
 
+async def test_path_adapter_explains_missing_message_path(command_mock_bot):
+    commands, sent = setup_bot(command_mock_bot)
+    commands["path"].execute = AsyncMock(return_value=True)
+    await commands["ask"].execute(mock_message(content="baliz donne-moi le chemin"))
+    assert sent[0][1] == "Ce message ne contient pas de chemin radio exploitable."
+
+
 async def test_actual_test_command_uses_received_snr(command_mock_bot):
     commands, sent = setup_bot(command_mock_bot)
     command_mock_bot.config.remove_option("Keywords", "test")
