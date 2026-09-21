@@ -808,9 +808,11 @@ class LocalWikiRag:
             # as diagrams, and prefer the section whose heading names the
             # requested subject.
             score += 14
-            subjects = page_title_terms | section_title_terms | path_terms
-            subjects |= {term.rstrip("s") for term in subjects}
-            query_subjects = set(query_terms) | {term.rstrip("s") for term in query_terms}
+            subjects = {
+                term.rstrip("s")
+                for term in page_title_terms | section_title_terms | path_terms
+            }
+            query_subjects = {term.rstrip("s") for term in query_terms}
             # Reward each metadata subject. A device-qualified request such as
             # "regions for a Companion" must outrank a generic Regions page.
             score += min(20, 10 * len(subjects & query_subjects))
