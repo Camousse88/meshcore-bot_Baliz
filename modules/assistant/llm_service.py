@@ -1169,7 +1169,7 @@ class LlmService:
             rows: list[list[str]] = []
             for raw_line in match.section.content.splitlines():
                 line = raw_line.strip()
-                if line.count("|") < 2 or re.fullmatch(r"[-:|\s]+", line):
+                if "|" not in line or re.fullmatch(r"[-:|\s]+", line):
                     continue
                 cells = [cell.strip() for cell in line.strip("|").split("|")]
                 if len(cells) >= 2 and cells[0]:
