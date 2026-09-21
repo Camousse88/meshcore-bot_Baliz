@@ -1166,6 +1166,20 @@ class LlmService:
         ):
             return None
         for match in wiki_result.matches:
+            fenced_lists = LocalWikiRag._fenced_value_lists(match.section)
+            if fenced_lists:
+                values = max(fenced_lists, key=len)
+                title_words = re.findall(r"[\w-]+", match.section.section_title, flags=re.UNICODE)
+                ignored = {
+                    "add", "ajout", "ajoute", "ajoutez", "allowed", "available",
+                    "disponible", "disponibles", "les", "des", "the", "values", "valeurs",
+                    "supported", "suivante", "suivantes",
+                }
+                label = next(
+                    (word for word in reversed(title_words) if word.casefold() not in ignored),
+                    "Valeurs",
+                )
+                return f"{label.capitalize()} documentées : {', '.join(values)}."
             rows: list[list[str]] = []
             for raw_line in match.section.content.replace("\\n", "\n").splitlines():
                 line = raw_line.strip().lstrip(">").strip()

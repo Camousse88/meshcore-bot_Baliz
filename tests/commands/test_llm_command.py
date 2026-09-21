@@ -611,6 +611,20 @@ class TestLlmCommand:
             "donne-moi les régions disponibles", result
         ) == "Régions documentées : eu, fr, fr-bre."
 
+    def test_supported_values_are_rendered_from_fenced_value_list(self):
+        section = Mock(
+            section_title="Ajoutez les régions",
+            content=(
+                "Dans les réglages :\n```text\nNetwork Settings\nRégion par défaut\n```\n"
+                "Ajoutez les régions suivantes :\n"
+                "```text\neurope\neu\nfr\nbzh\nfr-bre\nfr-29\n```"
+            ),
+        )
+        result = Mock(matches=[Mock(section=section)])
+        assert LlmService._wiki_supported_values_answer(
+            "donne-moi les régions pour un Companion", result
+        ) == "Régions documentées : europe, eu, fr, bzh, fr-bre, fr-29."
+
     @pytest.mark.parametrize("response", ["ABC-124", "868.300", "SF8", "node42"])
     def test_repair_wiki_literals_preserves_numeric_values(self, response):
         source = "ABC-123 868.500 SF7 node43"

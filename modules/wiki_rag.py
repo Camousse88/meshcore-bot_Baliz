@@ -739,7 +739,14 @@ class LocalWikiRag:
         self.logger.info("Loaded Wiki.js RAG index: sections=%d path=%s", len(sections), self.index_path)
         return sections
 
-    def _score(self, query_terms: list[str], query_phrases: list[str], section: WikiRagSection) -> float:
+    def _score(
+        self,
+        query_terms: list[str],
+        query_phrases: list[str],
+        section: WikiRagSection,
+        *,
+        requests_values: bool = False,
+    ) -> float:
         content_norm = _normalize_search(section.content)
         content_tokens = self._tokenize(section.content)
         content_counts = Counter(content_tokens)
@@ -795,6 +802,17 @@ class LocalWikiRag:
             query_subjects = set(query_terms) | {term.rstrip("s") for term in query_terms}
             if table_subjects & query_subjects:
                 score += 16
+        if requests_values and self._structured_values_section(section):
+            # Lists of allowed values are often stored in fenced ``text``
+            # blocks rather than Markdown tables. Treat them as evidence, not
+            # as diagrams, and prefer the section whose heading names the
+            # requested subject.
+            score += 14
+            subjects = page_title_terms | section_title_terms | path_terms
+            subjects |= {term.rstrip("s") for term in subjects}
+            query_subjects = set(query_terms) | {term.rstrip("s") for term in query_terms}
+            if subjects & query_subjects:
+                score += 10
         for (pattern,) in action_families:
             if re.search(pattern, query_norm):
                 score += 12 if re.search(pattern, section_title_norm) else 0
@@ -844,6 +862,31 @@ class LocalWikiRag:
         )
         tabular_rows = sum(line.count("|") >= 2 for line in lines)
         return separator or tabular_rows >= 3 or pipe_rows >= 4
+
+    @staticmethod
+    def _fenced_value_lists(section: WikiRagSection) -> list[list[str]]:
+        """Return compact value lists without confusing UI paths for values."""
+        lists: list[list[str]] = []
+        content = section.content.replace("\\n", "\n")
+        for block in re.findall(
+            r"(?ms)^\s*(?:```|~~~)[^\n]*\n(.*?)^\s*(?:```|~~~)\s*$",
+            content,
+        ):
+            values: list[str] = []
+            lines = [line.strip() for line in block.splitlines() if line.strip()]
+            for line in lines:
+                # Configuration values and identifiers are compact. Arrows,
+                # prose, commands and tree branches are deliberately rejected.
+                if re.fullmatch(r"[#@]?[\w][\w./%:+-]{0,31}", line, flags=re.UNICODE):
+                    if line not in values:
+                        values.append(line)
+            if 2 <= len(values) <= 20 and len(values) / max(1, len(lines)) >= 0.6:
+                lists.append(values)
+        return lists
+
+    @classmethod
+    def _structured_values_section(cls, section: WikiRagSection) -> bool:
+        return cls._markdown_table_section(section) or bool(cls._fenced_value_lists(section))
 
     @staticmethod
     def _diagram_section(section: WikiRagSection) -> bool:
@@ -948,10 +991,15 @@ class LocalWikiRag:
         scored: list[WikiRagMatch] = []
         pages: dict[tuple[str, str, str], float] = {}
         for section in self._load_sections():
-            score = self._score(query_terms, query_phrases, section)
+            score = self._score(
+                query_terms,
+                query_phrases,
+                section,
+                requests_values=requests_values,
+            )
             navigation = self._navigation_section(section)
             diagram = self._diagram_section(section)
-            useful_table = requests_values and self._markdown_table_section(section)
+            useful_table = requests_values and self._structured_values_section(section)
             if navigation:
                 score *= 0.25
             if diagram and not requests_diagram and not useful_table:

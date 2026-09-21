@@ -463,3 +463,19 @@ def test_supported_values_request_prefers_table_over_flowchart(tmp_path):
     assert result is not None
     assert result.matches[0].section.section_title == 'Valeurs'
     assert '| eu | Europe |' in result.context
+
+
+def test_supported_values_request_prefers_fenced_list_over_concept(tmp_path):
+    index = write_corpus(tmp_path, [
+        {'path': 'manual/companion', 'page_title': 'Configurer un Companion',
+         'section_title': 'Ajoutez les régions',
+         'content': ('Dans les réglages :\n```text\nNetwork Settings\nRégion par défaut\n```\n'
+                     'Ajoutez les régions suivantes :\n```text\neurope\neu\nfr\nbzh\nfr-bre\nfr-29\n```')},
+        {'path': 'manual/regions', 'page_title': 'Comprendre les régions',
+         'section_title': 'Companion et Répéteur : qui fait quoi ?',
+         'content': 'Le Companion envoie et le Répéteur relaie selon les régions.'},
+    ])
+    result = LocalWikiRag(index).retrieve('donne moi les régions pour un Companion')
+    assert result is not None
+    assert result.matches[0].section.section_title == 'Ajoutez les régions'
+    assert 'fr-bre' in result.context
