@@ -1168,7 +1168,7 @@ class LlmService:
         for match in wiki_result.matches:
             rows: list[list[str]] = []
             for raw_line in match.section.content.splitlines():
-                line = raw_line.strip()
+                line = raw_line.strip().lstrip(">").strip()
                 if "|" not in line or re.fullmatch(r"[-:|\s]+", line):
                     continue
                 cells = [cell.strip() for cell in line.strip("|").split("|")]
@@ -1177,6 +1177,8 @@ class LlmService:
             if len(rows) < 3:
                 continue
             label = re.sub(r"[*_`]", "", rows[0][0]).strip().rstrip("sS") or "Valeur"
+            if label.casefold() not in normalized:
+                continue
             values: list[str] = []
             for row in rows[1:]:
                 value = re.sub(r"[*_`]", "", row[0]).strip()

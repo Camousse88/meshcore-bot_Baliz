@@ -954,7 +954,7 @@ class LocalWikiRag:
         # section that fails the existing relevance thresholds.
         page_ranking = sorted(pages.items(), key=lambda item: -item[1])
         primary = None
-        if len(set(query_terms)) >= 2 and page_ranking[0][1] >= 12:
+        if not requests_values and len(set(query_terms)) >= 2 and page_ranking[0][1] >= 12:
             runner_up = page_ranking[1][1] if len(page_ranking) > 1 else 0
             if page_ranking[0][1] > runner_up * 1.25:
                 primary = page_ranking[0][0]
