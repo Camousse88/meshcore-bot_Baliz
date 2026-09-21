@@ -87,6 +87,13 @@ async def run(args):
             questions += ["baliz mesh combien de répéteurs sont dans la base ?",
                           "baliz wiki " + ("comment choisir la région radio pour un Companion ?" if args.wiki_index else "quelle est la configuration demo_region du banc de test Baliz ?"),
                           "baliz llm dis bonjour en une courte phrase"]
+            if args.wiki_index:
+                questions += [
+                    "baliz quel est le chemin entre toi et moi ?",
+                    "baliz donne moi le chemin",
+                    "baliz donne moi les régions pour un Companion",
+                    "baliz comment ajouter les régions à un répéteur ?",
+                ]
         report = []
         for number, question in enumerate(questions):
             output.clear()
@@ -103,6 +110,10 @@ async def run(args):
                 passed = passed and "2" in text
             if "reçois" in question:
                 passed = passed and "7.5" in text
+            if "régions" in question:
+                passed = passed and len(output) <= 2 and not any(
+                    marker in text for marker in ("```", "||", "▼", "**")
+                )
             report.append({"question": question, "route": ask.dispatcher.router.decide(question.split(" ", 1)[1]).route.value,
                            "passed": passed, "answer": text, "pages": len(output)})
         print(json.dumps({"radio_started": False, "live_llm": args.live, "results": report}, ensure_ascii=False, indent=2))
