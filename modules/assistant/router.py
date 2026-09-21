@@ -47,9 +47,19 @@ class AssistantRouter:
             return Decision(Route.MESH, question, "mesh_schema")
         if re.search(r"\b(comment tu me recois|tu me recois|me re[cç]ois|how (?:do|can) you hear me|my (?:snr|rssi)|mon (?:snr|rssi))\b", q):
             return Decision(Route.TEST, question, "message_reception")
-        if re.search(r"\b(mon message|my message|mon paquet|my packet)\b", q) and re.search(
-            r"\b(chemin|repeteurs?|passe|passe par|path|route|repeaters?|travers|hops?)\b", q
-        ):
+        documentary_path = re.search(
+            r"\b(comment fonctionne|explique|definition|qu'est.ce|c'est quoi|what is|how does)\b",
+            q,
+        )
+        current_message_path = (
+            re.search(r"\b(mon message|my message|mon paquet|my packet)\b", q)
+            and re.search(r"\b(chemin|repeteurs?|passe|passe par|path|route|repeaters?|travers|hops?)\b", q)
+        ) or re.search(
+            r"\b(?:donne|montre|indique|affiche|show|give)\b.*\b(?:chemin|path|route|trajet)\b|"
+            r"\b(?:chemin|path|route|trajet)\b.*\b(?:entre toi et moi|entre nous|de moi a toi|jusqu.a toi|to you)\b",
+            q,
+        )
+        if current_message_path and not documentary_path:
             return Decision(Route.PATH, question, "message_path")
         # A greeting alone (or followed by an identity question) is not a
         # documentary query. Full matching preserves "bonjour, combien de ...".
