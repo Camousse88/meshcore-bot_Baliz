@@ -814,8 +814,13 @@ class LocalWikiRag:
     @staticmethod
     def _markdown_table_section(section: WikiRagSection) -> bool:
         lines = [line.strip() for line in section.content.splitlines() if line.strip()]
-        pipe_rows = sum(line.startswith("|") and line.endswith("|") for line in lines)
-        separator = any(re.fullmatch(r"\|?(?:\s*:?-{3,}:?\s*\|)+\s*", line) for line in lines)
+        # Accept both Markdown tables and the compact tables commonly embedded
+        # in fenced ``text`` blocks by Wiki.js.
+        pipe_rows = sum("|" in line for line in lines)
+        separator = any(
+            "|" in line and re.fullmatch(r"[-:| ]{5,}", line)
+            for line in lines
+        )
         return pipe_rows >= 2 and separator
 
     @staticmethod
