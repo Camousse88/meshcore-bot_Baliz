@@ -814,6 +814,18 @@ class LocalWikiRag:
         content = section.content
         if re.search(r"(?im)^\s*```\s*(?:mermaid|graph|flowchart|sequenceDiagram)\b", content):
             return True
+        # Wiki pages also use fenced ``text`` blocks for ASCII flow charts.
+        # Judge each fenced block independently so surrounding prose cannot
+        # dilute the structural-line ratio.
+        for block in re.findall(r"(?ms)^\s*(?:```|~~~)[^\n]*\n(.*?)^\s*(?:```|~~~)\s*$", content):
+            block_lines = [line.strip() for line in block.splitlines() if line.strip()]
+            if not block_lines:
+                continue
+            structural = sum(bool(re.search(
+                r"(?:-->|<--|\|\||[▼▲▶◀]|^[|+\\/_ -]{3,}$|^\|.*\|$)", line
+            )) for line in block_lines)
+            if structural >= 2 and structural / len(block_lines) >= 0.35:
+                return True
         lines = [line.strip() for line in content.splitlines() if line.strip()]
         if not lines:
             return False

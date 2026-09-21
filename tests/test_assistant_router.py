@@ -17,6 +17,8 @@ from modules.assistant.router import AssistantRouter, Route
     ("Comment fonctionne le chemin d’un message ?", Route.WIKI, "documentation"),
     ("Explique le chemin entre deux nœuds", Route.WIKI, "documentation"),
     ("Quelle commande pour configurer la région ?", Route.WIKI, "documentation"),
+    ("Comment ajouter les régions à un répéteur ?", Route.WIKI, "configuration_documentation"),
+    ("Donne-moi les régions pour un Companion", Route.WIKI, "configuration_documentation"),
     ("bonjour", Route.LLM, "conversation"),
     ("llm raconte une histoire", Route.LLM, "explicit"),
     ("mesh: top 5 contacts", Route.MESH, "explicit"),

@@ -436,3 +436,17 @@ def test_action_question_prefers_instructions_over_region_diagram(tmp_path):
     assert result is not None
     assert result.matches[0].section.path == 'configuration/repeater'
     assert 'flowchart' not in result.context
+
+
+def test_ascii_flowchart_in_text_fence_is_treated_as_diagram(tmp_path):
+    index = write_corpus(tmp_path, [
+        {'path': 'concepts/regions', 'page_title': 'Regions', 'section_title': 'Côté Répéteur',
+         'content': 'Le répéteur filtre les régions.\n```text\nMessage reçu\n  ▼\nRégion connue ?\n / \\\nOui Non\n```'},
+        {'path': 'configuration/repeater', 'page_title': 'Repeater',
+         'section_title': 'Ajouter une région',
+         'content': 'Ajoutez la région dans les réglages du répéteur puis sauvegardez.'},
+    ])
+    result = LocalWikiRag(index).retrieve('comment ajouter une région au répéteur')
+    assert result is not None
+    assert 'Ajouter une région' in result.context
+    assert 'Région connue ?' not in result.context

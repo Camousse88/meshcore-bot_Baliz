@@ -81,6 +81,25 @@ class AssistantRouter:
             r".*\b(?:blague|histoire|poeme|chanson|joke|story|poem|song)\b", q
         ):
             return Decision(Route.LLM, question, "conversation")
+        # Configuration actions and supported-value requests are documentation
+        # questions even when they do not contain the word "configuration".
+        configuration_action = re.search(
+            r"\b(ajout\w*|add\w*|associ\w*|assign\w*|retir\w*|supprim\w*|remove\w*|"
+            r"activ\w*|desactiv\w*|enable\w*|disable\w*|modifi\w*|chang\w*)\b",
+            q,
+        )
+        configuration_target = re.search(
+            r"\b(region\w*|canal|channel|role|cle|key|parametr\w*|reglag\w*|option\w*|"
+            r"companion|repeteur|repeater|room server)\b",
+            q,
+        )
+        supported_values = re.search(
+            r"\b(donne|liste|quels?|quelles?|what|which|list|show)\b.*"
+            r"\b(region\w*|parametr\w*|reglag\w*|option\w*|valeurs?|values?)\b",
+            q,
+        )
+        if (configuration_action and configuration_target) or supported_values:
+            return Decision(Route.WIKI, question, "configuration_documentation")
         if re.search(r"\b(configurer|configuration|parametrer|installer|installation|configure|setup|documentation|wiki|explique|explain)\b", q) or re.search(
             r"\b(comment fonctionne|how does|what is|qu'est.ce|c'est quoi|quelle commande)\b", q
         ):
