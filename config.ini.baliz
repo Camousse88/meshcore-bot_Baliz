@@ -44,6 +44,8 @@ tx_delay_ms = 250
 dm_max_retries = 3
 dm_max_flood_attempts = 2
 dm_flood_after = 2
+# IANA timezone for bot operations. Europe/Paris follows daylight saving time:
+# UTC+2 (CEST) in summer and UTC+1 (CET) in winter.
 timezone = Europe/Paris
 bot_latitude = 48.578334
 bot_longitude = -3.826667
@@ -55,6 +57,8 @@ db_path = /var/lib/meshcore-bot/meshcore_bot.db
 service_restart_backoff_seconds = 300
 send_timeout_seconds = 30
 prefix_bytes = 3
+# Keep the MeshCore radio clock in protocol UTC. This option does not control
+# the timestamps displayed by the bot or Web Viewer.
 radio_clock_use_local_time = false
 local_dir_path = /var/lib/meshcore-bot/local
 
