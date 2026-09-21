@@ -525,6 +525,26 @@ class MeshService:
             self.logger.warning(f"Mesh service followup error: {e}")
         return None
 
+    @classmethod
+    def _format_single_count(cls, question: str, sql_results: str) -> str | None:
+        """Return a stable one-line answer for a single aggregate count."""
+        match = re.fullmatch(r"\s*(\d+)\s*", sql_results or "")
+        if not match or not cls._is_count_question(question):
+            return None
+        count = int(match.group(1))
+        role = cls._requested_role(question)
+        english = bool(re.search(r"\b(?:how\s+many|number\s+of)\b", question.casefold()))
+        labels = {
+            "repeater": ("repeater", "repeaters") if english else ("répéteur", "répéteurs"),
+            "companion": ("companion", "companions") if english else ("compagnon", "compagnons"),
+            "roomserver": ("room server", "room servers") if english else ("serveur de salon", "serveurs de salon"),
+            "sensor": ("sensor", "sensors") if english else ("capteur", "capteurs"),
+        }
+        if role in labels:
+            singular, plural = labels[role]
+            return f"{count} {singular if count == 1 else plural}"
+        return f"Total: {count}"
+
 
     @staticmethod
     def _formatted_is_grounded(formatted: str, sql_results: str) -> bool:
@@ -590,6 +610,10 @@ class MeshService:
         keep_dt = self._question_asks_for_datetime(question)
         sql_results = await asyncio.to_thread(self._postprocess_results, sql_results, keep_dt)
         self.logger.debug(f"Mesh service SQL results: {sql_results[:500]}")
+
+        count_answer = self._format_single_count(question, sql_results)
+        if count_answer:
+            return count_answer
 
         # Step 3: Format with LLM followup
         formatted = await asyncio.to_thread(self._format_followup, question, sql_results)
