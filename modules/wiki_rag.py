@@ -813,7 +813,7 @@ class LocalWikiRag:
 
     @staticmethod
     def _markdown_table_section(section: WikiRagSection) -> bool:
-        lines = [line.strip() for line in section.content.splitlines() if line.strip()]
+        lines = [line.strip() for line in section.content.replace("\\n", "\n").splitlines() if line.strip()]
         # Accept both Markdown tables and the compact tables commonly embedded
         # in fenced ``text`` blocks by Wiki.js.
         pipe_rows = sum("|" in line for line in lines)

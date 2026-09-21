@@ -1167,7 +1167,7 @@ class LlmService:
             return None
         for match in wiki_result.matches:
             rows: list[list[str]] = []
-            for raw_line in match.section.content.splitlines():
+            for raw_line in match.section.content.replace("\\n", "\n").splitlines():
                 line = raw_line.strip().lstrip(">").strip()
                 if "|" not in line or re.fullmatch(r"[-:|\s]+", line):
                     continue
