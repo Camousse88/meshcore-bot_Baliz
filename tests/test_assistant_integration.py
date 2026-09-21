@@ -281,6 +281,58 @@ async def test_mesh_real_sqlite_query_and_readonly_rejection(command_mock_bot, t
     assert service._execute_sql("SELECT name FROM complete_contact_tracking ORDER BY name DESC LIMIT 1") == "Bravo"
 
 
+async def test_mesh_repairs_count_question_that_returns_entity_list(command_mock_bot, tmp_path):
+    commands, sent = setup_bot(command_mock_bot)
+    database = tmp_path / "mesh.db"
+    with sqlite3.connect(database) as conn:
+        conn.execute("CREATE TABLE repeater_contacts (name TEXT)")
+        conn.executemany(
+            "INSERT INTO repeater_contacts VALUES (?)",
+            [("Alpha",), ("Bravo",), ("Charlie",)],
+        )
+
+    @contextmanager
+    def connection():
+        conn = sqlite3.connect(database)
+        try:
+            yield conn
+        finally:
+            conn.close()
+
+    command_mock_bot.db_manager.connection = connection
+    replies = [
+        model_reply("SELECT name FROM repeater_contacts LIMIT 20"),
+        model_reply("SELECT COUNT(*) FROM repeater_contacts"),
+        model_reply("3 répéteurs"),
+    ]
+    with patch("modules.assistant.llm_client.requests.post", side_effect=replies) as post:
+        await commands["ask"].execute(
+            mock_message(content="baliz combien de répéteurs sur le réseau ?")
+        )
+
+    assert len(sent) == 1 and sent[0][1] == "3 répéteurs"
+    assert post.call_count == 3
+    repair_prompt = post.call_args_list[1].kwargs["json"]["messages"][0]["content"]
+    assert "counting query must use COUNT" in repair_prompt
+
+
+def test_mesh_count_question_requires_count_aggregate(command_mock_bot):
+    commands, _ = setup_bot(command_mock_bot)
+    service = commands["mesh"].service
+
+    assert service._is_count_question("Combien de répéteurs sur le réseau ?")
+    assert service._is_count_question("Quel est le nombre de compagnons actifs ?")
+    assert service._is_count_question("How many repeaters are active?")
+    assert service._question_shape_error(
+        "combien de répéteurs ?",
+        "SELECT name FROM repeater_contacts LIMIT 20",
+    ) == "counting query must use COUNT(...) instead of returning entity rows"
+    assert service._question_shape_error(
+        "combien de répéteurs ?",
+        "SELECT COUNT(*) FROM repeater_contacts",
+    ) is None
+
+
 async def test_mesh_uses_live_schema_and_repairs_invalid_generated_column(command_mock_bot, tmp_path):
     commands, sent = setup_bot(command_mock_bot)
     database = tmp_path / "mesh.db"

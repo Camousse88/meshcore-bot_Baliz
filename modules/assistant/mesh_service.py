@@ -150,7 +150,11 @@ class MeshService:
             )
 
         ranking_question = self._is_ranking_question(question)
-        constrained_retry = bool(failed_sql and (sqlite_error == "query returned no rows" or ranking_question))
+        count_question = self._is_count_question(question)
+        constrained_retry = bool(
+            failed_sql
+            and (sqlite_error == "query returned no rows" or ranking_question or count_question)
+        )
         schema = self._live_db_schema(include_empty=not constrained_retry)
         ranking_instruction = ""
         if ranking_question:
@@ -159,6 +163,13 @@ class MeshService:
                 "If no ranking criterion is stated, use the highest available activity or observation count. "
                 "Select the item name and the numeric metric, ORDER BY that metric DESC, and LIMIT 1. "
                 "Never return an unranked list."
+            )
+        count_instruction = ""
+        if count_question:
+            count_instruction = (
+                "\nThis is a counting question. The SELECT list MUST use a COUNT(...) aggregate "
+                "and return counts, never a list of matching entity names. Use COUNT(DISTINCT ...) "
+                "when joins could duplicate the entities being counted."
             )
         correction = ""
         if failed_sql and sqlite_error:
@@ -186,7 +197,7 @@ class MeshService:
             "Prefer a relevant table with rows over an empty table. "
             "For rankings or superlatives, select the item name and the real metric used to rank it. "
             "Every query must read at least one table from the live schema; never SELECT literal data as an answer. "
-            + schema + haversine + pos_info + ranking_instruction + correction
+            + schema + haversine + pos_info + ranking_instruction + count_instruction + correction
         )
         payload: dict[str, Any] = {
             "messages": [
@@ -292,6 +303,7 @@ class MeshService:
                 "query returned no rows",
                 "ranking query must",
                 "query must preserve requested entity type",
+                "counting query must",
             )
         )
 
@@ -305,6 +317,17 @@ class MeshService:
                 "plus actif", "plus active", "most active", "strongest",
                 "plus fort", "plus forte", "nearest", "closest", "plus proche",
             )
+        )
+
+    @staticmethod
+    def _is_count_question(question: str) -> bool:
+        """Recognize requests whose answer must contain aggregate counts."""
+        normalized = " ".join((question or "").casefold().split())
+        return bool(
+            re.search(r"\bcombien\b", normalized)
+            or re.search(r"\bnombre\s+(?:de|d['’])", normalized)
+            or re.search(r"\bhow\s+many\b", normalized)
+            or re.search(r"\bnumber\s+of\b", normalized)
         )
 
     @classmethod
@@ -322,6 +345,8 @@ class MeshService:
                 return "ranking query must include ORDER BY a real metric"
             if not re.search(r"\bLIMIT\s+1\b", sql, re.IGNORECASE):
                 return "ranking query must use LIMIT 1"
+        if cls._is_count_question(question) and not re.search(r"\bCOUNT\s*\(", sql, re.IGNORECASE):
+            return "counting query must use COUNT(...) instead of returning entity rows"
         return None
 
     @staticmethod
