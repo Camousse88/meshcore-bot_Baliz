@@ -790,8 +790,10 @@ class LocalWikiRag:
         )
         query_norm = " ".join(query_terms)
         section_norm = " ".join((section_title_norm, page_title_norm, content_norm))
-        if re.search(r"\b(?:donne|liste|quels?|quelles?|list|show|values?|options?|supported)\b", query_norm):
-            if self._markdown_table_section(section):
+        if self._markdown_table_section(section):
+            table_subjects = self._table_subject_terms(section)
+            query_subjects = set(query_terms) | {term.rstrip("s") for term in query_terms}
+            if table_subjects & query_subjects:
                 score += 16
         for (pattern,) in action_families:
             if re.search(pattern, query_norm):
@@ -810,6 +812,18 @@ class LocalWikiRag:
         links = sum(bool(re.match(r"^(?:[-*+]\s+)?\[[^\]]+\]\([^)]+\)\s*$", line))
                     for line in lines)
         return links >= 2 and links / max(1, len(lines)) >= 0.6
+
+    @staticmethod
+    def _table_subject_terms(section: WikiRagSection) -> set[str]:
+        content = section.content.replace("\\n", "\n")
+        for raw_line in content.splitlines():
+            line = raw_line.strip().lstrip(">").strip().strip("|")
+            cells = [cell.strip() for cell in line.split("|")]
+            if len(cells) < 2 or re.fullmatch(r"[-:\s]+", cells[0]):
+                continue
+            terms = set(re.findall(r"[\w-]+", _normalize_search(cells[0])))
+            return terms | {term.rstrip("s") for term in terms}
+        return set()
 
     @staticmethod
     def _markdown_table_section(section: WikiRagSection) -> bool:
