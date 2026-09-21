@@ -777,6 +777,23 @@ class LocalWikiRag:
                 score += 6
             elif phrase in content_norm:
                 score += 5
+        # Action words carry more intent than the device noun. Without this,
+        # a conceptual diagram headed "Regions" can outrank the section that
+        # actually explains how to add one.
+        action_families = (
+            (r"\b(?:ajout\w*|add\w*|associ\w*|assign\w*)\b",),
+            (r"\b(?:retir\w*|supprim\w*|remove\w*|delet\w*)\b",),
+            (r"\b(?:activ\w*|enable\w*)\b",),
+            (r"\b(?:desactiv\w*|disable\w*)\b",),
+            (r"\b(?:configur\w*|parametr\w*|setup|set)\b",),
+            (r"\b(?:install\w*)\b",),
+        )
+        query_norm = " ".join(query_terms)
+        section_norm = " ".join((section_title_norm, page_title_norm, content_norm))
+        for (pattern,) in action_families:
+            if re.search(pattern, query_norm):
+                score += 12 if re.search(pattern, section_title_norm) else 0
+                score += 7 if re.search(pattern, section_norm) else -6
         return score
 
     @staticmethod
@@ -790,6 +807,20 @@ class LocalWikiRag:
         links = sum(bool(re.match(r"^(?:[-*+]\s+)?\[[^\]]+\]\([^)]+\)\s*$", line))
                     for line in lines)
         return links >= 2 and links / max(1, len(lines)) >= 0.6
+
+    @staticmethod
+    def _diagram_section(section: WikiRagSection) -> bool:
+        """Recognize diagrams and table-only schemas that are poor answer text."""
+        content = section.content
+        if re.search(r"(?im)^\s*```\s*(?:mermaid|graph|flowchart|sequenceDiagram)\b", content):
+            return True
+        lines = [line.strip() for line in content.splitlines() if line.strip()]
+        if not lines:
+            return False
+        structural = sum(bool(re.search(
+            r"(?:-->|<--|\|\||\{\{|\}\}|^\|.*\|$|^\s*[-:| ]{5,}\s*$)", line
+        )) for line in lines)
+        return structural >= 2 and structural / len(lines) >= 0.45
 
     def _page_evidence(self, terms: list[str], section: WikiRagSection) -> float:
         """Use metadata rather than page length or repeated body keywords."""
@@ -811,7 +842,11 @@ class LocalWikiRag:
         This vocabulary describes intents, never devices or regional settings.
         """
         normalized = _normalize_search(query)
-        if not re.search(r"\b(configur\w*|install\w*|parametr\w*|setup|set up)\b", normalized):
+        if not re.search(
+            r"\b(configur\w*|install\w*|parametr\w*|setup|set up|ajout\w*|add\w*|"
+            r"associ\w*|assign\w*|retir\w*|supprim\w*|remove\w*|activ\w*|enable\w*|disable\w*)\b",
+            normalized,
+        ):
             return False
         if re.search(r"\b(pourquoi|why|definition|what is|qu.est.ce)\b", normalized):
             return False
@@ -822,7 +857,8 @@ class LocalWikiRag:
         topic |= {t[:-1] for t in topic if t.endswith('s')}
         intent = {'bonjour', 'salut', 'hello', 'please', 'svp', 'comment', 'how', 'faire', 'do'}
         subject = {t for t in terms if t not in intent and not re.fullmatch(
-            r'configur\w*|install\w*|parametr\w*|setup', t)}
+            r'configur\w*|install\w*|parametr\w*|setup|ajout\w*|add\w*|associ\w*|assign\w*|'
+            r'retir\w*|supprim\w*|remove\w*|activ\w*|enable\w*|disable\w*', t)}
         return bool(subject) and subject <= topic
 
     @staticmethod
@@ -843,7 +879,10 @@ class LocalWikiRag:
         return bool(re.search(r'^\s*\d+[.)]', heading) or re.search(
             r'(?im)^\s*>.*(?:important|warning|attention|prerequis)', section.content) or re.search(
             r'\b(prerequis|prerequisites?|requirements?|parametres?|settings?|verification|'
-            r'verify|checks?|avertissement|warnings?|sauvegard\w*|save)\b', heading))
+            r'verify|checks?|avertissement|warnings?|sauvegard\w*|save|ajout\w*|add\w*|'
+            r'associ\w*|assign\w*|retir\w*|supprim\w*|remove\w*|activ\w*|enable\w*)\b', heading)
+            or (bool(re.search(r'(?m)^\s*```', section.content))
+                and not LocalWikiRag._diagram_section(section)))
 
     def retrieve(self, query: str) -> WikiRagResult | None:
         query_terms = self._tokenize(query)
@@ -856,13 +895,17 @@ class LocalWikiRag:
         for section in self._load_sections():
             score = self._score(query_terms, query_phrases, section)
             navigation = self._navigation_section(section)
+            diagram = self._diagram_section(section)
             if navigation:
                 score *= 0.25
+            if diagram and not re.search(r"\b(diagramme|schema|tableau|diagram|schema|table)\b", _normalize_search(query)):
+                score *= 0.15
             if score > 0:
                 scored.append(WikiRagMatch(score=score, section=section))
                 key = self._page_key(section)
                 evidence = self._page_evidence(query_terms, section)
-                pages[key] = max(pages.get(key, 0.0), evidence * (0.25 if navigation else 1.0))
+                penalty = 0.25 if navigation else (0.15 if diagram else 1.0)
+                pages[key] = max(pages.get(key, 0.0), evidence * penalty)
         if not scored:
             return None
         scored.sort(key=lambda match: (-match.score, match.section.section_index, match.section.path))

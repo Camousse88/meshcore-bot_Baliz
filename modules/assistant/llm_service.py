@@ -1113,6 +1113,31 @@ class LlmService:
 
         return token_pattern.sub(restore, response)
 
+    @staticmethod
+    def _plain_text_wiki_response(response: str) -> str:
+        """Remove presentation markup that is unusable on MeshCore clients."""
+        if not response:
+            return response
+        output: list[str] = []
+        for raw_line in response.splitlines():
+            line = raw_line.strip()
+            if not line or re.fullmatch(r"(?:```|~~~).*", line):
+                continue
+            if re.fullmatch(r"\|?\s*:?-{3,}:?(?:\s*\|\s*:?-{3,}:?)+\s*\|?", line):
+                continue
+            if line.startswith("|") and line.endswith("|"):
+                cells = [cell.strip() for cell in line.strip("|").split("|") if cell.strip()]
+                if cells:
+                    line = (cells[0] + ": " + ", ".join(cells[1:])) if len(cells) > 1 else cells[0]
+            line = re.sub(r"^\s{0,3}#{1,6}\s+", "", line)
+            line = re.sub(r"^\s*[-*+]\s+", "", line)
+            line = re.sub(r"\[([^]]+)\]\([^)]+\)", r"\1", line)
+            line = re.sub(r"\*\*([^*]+)\*\*|__([^_]+)__", lambda m: m.group(1) or m.group(2), line)
+            line = line.replace("`", "")
+            line = re.sub(r"\s*\|\|+\s*|\s+\|\s+", "; ", line)
+            output.append(line)
+        return " ".join(" ".join(output).split()).strip()
+
 
     def _clean_ai_response(self, content: str, max_length: int) -> str:
         cleaned = content or ""
@@ -1279,6 +1304,7 @@ class LlmService:
         if wiki_result:
             selected_source = "\n".join(match.section.content for match in wiki_result.matches)
             content = self._repair_wiki_literals(content, selected_source)
+            content = self._plain_text_wiki_response(content)
 
         # Clean the response first
         if self.pagination_enabled:

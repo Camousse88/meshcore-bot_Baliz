@@ -422,3 +422,17 @@ def test_procedure_compaction_keeps_conditions_and_commands():
     assert compact == '```text\nctl save\n```'
     warning = '<details><summary>Warning</summary>Unplug only after saving.</details>'
     assert LocalWikiRag._procedure_content(warning) == warning
+
+
+def test_action_question_prefers_instructions_over_region_diagram(tmp_path):
+    index = write_corpus(tmp_path, [
+        {'path': 'concepts/regions', 'page_title': 'Regions', 'section_title': 'Regions',
+         'content': '```mermaid\nflowchart LR\nMessage --> Region\nRegion --> Relay\n```'},
+        {'path': 'configuration/repeater', 'page_title': 'Repeater',
+         'section_title': 'Ajouter une région',
+         'content': 'Pour ajouter une région, ouvrez les réglages Regions puis enregistrez.'},
+    ])
+    result = LocalWikiRag(index).retrieve('comment ajouter les régions à un répéteur')
+    assert result is not None
+    assert result.matches[0].section.path == 'configuration/repeater'
+    assert 'flowchart' not in result.context

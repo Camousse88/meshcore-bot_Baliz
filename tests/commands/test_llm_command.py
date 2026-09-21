@@ -580,6 +580,15 @@ class TestLlmCommand:
 
         assert repaired == "Use #centre with Device_ID and ABC-123."
 
+    def test_wiki_response_is_rendered_as_plain_mesh_text(self):
+        response = (
+            "**Régions**\n```text\nset region fr\n```\n"
+            "| Paramètre | Valeur |\n| --- | --- |\n| region | fr |"
+        )
+        assert LlmService._plain_text_wiki_response(response) == (
+            "Régions set region fr Paramètre: Valeur region: fr"
+        )
+
     @pytest.mark.parametrize("response", ["ABC-124", "868.300", "SF8", "node42"])
     def test_repair_wiki_literals_preserves_numeric_values(self, response):
         source = "ABC-123 868.500 SF7 node43"
