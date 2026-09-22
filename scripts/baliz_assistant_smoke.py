@@ -90,9 +90,11 @@ async def run(args):
                           "baliz llm dis bonjour en une courte phrase"]
             if args.wiki_index:
                 questions += [
+                    "baliz qui es-tu ?",
                     "baliz quel est le chemin entre toi et moi ?",
                     "baliz donne moi le chemin",
                     "baliz donne moi les régions pour un Companion",
+                    "baliz comment ajouter les régions à un compagnon ?",
                     "baliz comment ajouter les régions à un répéteur ?",
                 ]
         report = []
@@ -105,7 +107,7 @@ async def run(args):
             # Each fixture is a different sender so target per-user cooldowns apply naturally.
             success = await ask.execute(message)
             text = "\n".join(output)
-            failures = ("indisponible", "non autorisée", "Aucune source", "dépassé le délai", "LLM error", "LLM unavailable", "n’a pas pu", "Could not generate")
+            failures = ("indisponible", "non autorisée", "Aucune source", "dépassé le délai", "LLM error", "LLM unavailable", "No response from AI", "n’a pas pu", "Could not generate")
             passed = bool(success and text and not any(marker in text for marker in failures))
             if "combien de répéteurs" in question:
                 passed = passed and "2" in text
