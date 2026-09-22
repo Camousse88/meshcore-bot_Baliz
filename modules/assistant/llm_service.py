@@ -1398,6 +1398,7 @@ class LlmService:
             content = self._repair_wiki_literals(content, selected_source)
             content = self._plain_text_wiki_response(content)
             content = self._remove_unrequested_local_examples(content, prompt)
+            self.logger.debug("LLM Wiki response after cleanup (%d chars): %r", len(content), content)
 
         # Clean the response first
         if self.pagination_enabled:
