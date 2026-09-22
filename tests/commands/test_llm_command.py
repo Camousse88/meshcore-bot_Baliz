@@ -563,6 +563,27 @@ class TestLlmCommand:
 
         assert repaired == "Use #centre with Device_ID and ABC-123."
 
+    def test_wiki_response_is_rendered_as_plain_mesh_text(self):
+        response = (
+            "**Regions**\n```text\nset region west\n```\n"
+            "| Parameter | Value |\n| --- | --- |\n| region | west |"
+        )
+        assert LlmCommand._plain_text_wiki_response(response) == (
+            "Regions set region west Parameter: Value region: west"
+        )
+
+    def test_wiki_response_removes_unrequested_local_example(self):
+        response = "Open Network Settings. Adapt west-12 to your region."
+        assert LlmCommand._remove_unrequested_local_examples(response, "add a region") == (
+            "Open Network Settings."
+        )
+
+    def test_wiki_response_keeps_requested_local_example(self):
+        response = "Adapt west-12 to your region."
+        assert LlmCommand._remove_unrequested_local_examples(
+            response, "which setting applies in my region?"
+        ) == response
+
     @pytest.mark.parametrize("response", ["ABC-124", "868.300", "SF8", "node42"])
     def test_repair_wiki_literals_preserves_numeric_values(self, response):
         source = "ABC-123 868.500 SF7 node43"

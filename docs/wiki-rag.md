@@ -17,6 +17,9 @@ wiki_verify_ssl = true
 wiki_allowed_paths = handbook, radio/reference
 wiki_rag_index_path = data/wiki_rag/wiki_pages.jsonl
 wiki_rag_max_chunks = 2
+wiki_procedure_max_sections = 6
+wiki_procedure_max_context_chars = 6000
+wiki_response_max_tokens = 384
 wiki_rag_chunk_chars = 1400
 wiki_rag_max_context_chars = 2400
 wiki_rag_min_term_len = 3
@@ -109,19 +112,27 @@ URL, update time, content type and original content. At query time the retriever
    and expands configured aliases;
 3. scores exact terms and adjacent phrases, prioritizing section title, page title
    and path over repeated matches in the body;
-4. applies `wiki_rag_min_score` and `wiki_rag_relative_score`;
-5. removes duplicate sections and retains at most `wiki_rag_max_chunks`;
-6. builds a bounded reference block without cutting its closing delimiter.
+4. demotes navigation directories and diagrams unless the question explicitly asks
+   for a diagram, while recognizing Markdown tables and fenced value lists;
+5. focuses on an unambiguous page and preserves ordered settings, commands, save
+   and verification steps for broad configuration questions;
+6. applies `wiki_rag_min_score` and `wiki_rag_relative_score`;
+7. removes duplicate sections and retains at most `wiki_rag_max_chunks`, or
+   `wiki_procedure_max_sections` for a complete procedure;
+8. builds a bounded reference block without cutting a step or its closing delimiter.
 
 When no section passes the thresholds, the normal LLM prompt is used. When a match
 exists, the wiki prompt is isolated from conversation history, weather, topology and
 other local context. The model is instructed to use only the selected excerpts, to
 say when they are insufficient, and to preserve commands, identifiers, numbers,
 URLs, paths, punctuation and hashtags exactly. Temperature is forced to zero for
-that request. A conservative post-processing pass restores exact technical literals
-and protects hashtags found in the selected source. Numeric sequences are never
-changed by literal repair: a nearby identifier or frequency is not assumed to be
-a typo. Retrieval also runs outside the bot event loop.
+that request and `wiki_response_max_tokens` provides a separate response budget.
+The answer is requested as short plain text for MeshCore. Conservative
+post-processing removes Markdown presentation, restores exact technical literals,
+protects hashtags found in the selected source, and removes unsolicited local
+examples. Numeric sequences are never changed by literal repair: a nearby identifier
+or frequency is not assumed to be a typo. Retrieval also runs outside the bot event
+loop.
 
 The index is reloaded only when its modification time changes. If a malformed index
 appears, the previously loaded in-memory index is retained.

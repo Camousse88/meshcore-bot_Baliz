@@ -1678,6 +1678,11 @@ wiki_allowed_paths =
 wiki_rag_index_path = data/wiki_rag/wiki_pages.jsonl
 # Number of independently scored sections injected into the prompt
 wiki_rag_max_chunks = 2
+# Broad configuration questions can draw complete ordered steps from one clearly identified page
+wiki_procedure_max_sections = 6
+wiki_procedure_max_context_chars = 6000
+# Wiki answer token budget, independent of conversational LLM replies
+wiki_response_max_tokens = 384
 # Per-section and total prompt budgets
 wiki_rag_chunk_chars = 1400
 wiki_rag_max_context_chars = 2400

@@ -44,6 +44,11 @@ semantic versioning.
 
 ### Fixed
 
+- Wiki RAG setup questions now prefer complete command procedures over link
+  directories and diagrams, retain ordered save and verification steps within a
+  dedicated context budget, and emit compact plain text without unsolicited local
+  examples.
+
 - Published packet payloads carry UTC in every time field, not just `timestamp`
   (#278). `time` and `date` came from a local `datetime.now()` while the
   `timestamp` beside them was UTC, so a consumer reading the pair off a bot in a
