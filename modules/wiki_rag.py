@@ -981,7 +981,7 @@ class LocalWikiRag:
         # their title/path over concept pages that only mention it in a heading.
         qualifier = next((term for term in reversed(terms) if term in subject_terms), "")
         if qualifier and (qualifier in title or qualifier in path):
-            evidence += 12
+            evidence += 20
         return evidence
 
     @staticmethod
