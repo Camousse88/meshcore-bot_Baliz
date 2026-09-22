@@ -954,6 +954,9 @@ class LocalWikiRag:
         title = set(self._tokenize(section.page_title))
         heading = set(self._tokenize(section.section_title))
         path = set(self._tokenize(section.path.replace("/", " ")))
+        title |= {term.rstrip("s") for term in title}
+        heading |= {term.rstrip("s") for term in heading}
+        path |= {term.rstrip("s") for term in path}
         # Action verbs describe what to do, not which device or subject page
         # should supply the answer. Ignoring them for page focus prevents an
         # exact "Add ..." heading on the wrong device from tying the page whose
