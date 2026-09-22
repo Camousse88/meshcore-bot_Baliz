@@ -49,6 +49,25 @@ class TestLlmCommand:
 
         assert "reasoning_effort" not in cmd.service._build_payload(prompt="hello", include_rag=False)
 
+    def test_ui_procedure_is_extracted_without_calling_the_model(self):
+        section = SimpleNamespace(
+            content=(
+                "Dans l'application :\n```text\nRéglages\n→ Network Settings\n"
+                "→ Région par défaut\n→ +\n```\nPuis ajoutez :\n```text\n"
+                "europe\neu\nfr\nbzh\nfr-bre\nfr-29\n```"
+            )
+        )
+        result = SimpleNamespace(matches=(SimpleNamespace(section=section),))
+
+        answer = LlmService._wiki_ui_procedure_answer(
+            "comment ajouter les régions à un compagnon ?", result
+        )
+
+        assert answer == (
+            "Réglages → Network Settings → Région par défaut → +. "
+            "Ajoutez : europe, eu, fr, bzh, fr-bre, fr-29."
+        )
+
     def test_can_execute_when_disabled(self, command_mock_bot):
         if not command_mock_bot.config.has_section("Llm_Command"):
             command_mock_bot.config.add_section("Llm_Command")

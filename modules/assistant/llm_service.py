@@ -1222,6 +1222,48 @@ class LlmService:
                 return "Commandes : " + " ; ".join(commands) + "."
         return None
 
+    @staticmethod
+    def _wiki_ui_procedure_answer(prompt: str, wiki_result: Any) -> str | None:
+        """Render a documented UI path and its values without model paraphrasing."""
+        normalized = " ".join(prompt.casefold().split())
+        if not re.search(
+            r"\b(?:comment|how|ajout\w*|add\w*|configur\w*|parametr\w*|setup|set)\b",
+            normalized,
+        ):
+            return None
+        for match in wiki_result.matches:
+            raw_lines = match.section.content.replace("\\n", "\n").splitlines()
+            lines: list[str] = []
+            for raw_line in raw_lines:
+                line = raw_line.strip().lstrip(">").strip()
+                if not line or re.fullmatch(r"(?:```|~~~).*", line):
+                    continue
+                line = re.sub(r"^\s*[-*+]\s+", "", line)
+                line = re.sub(r"\*\*([^*]+)\*\*|__([^_]+)__", lambda m: m.group(1) or m.group(2), line)
+                lines.append(line)
+
+            first_arrow = next((i for i, line in enumerate(lines) if line.startswith("→")), None)
+            if first_arrow is None or first_arrow == 0:
+                continue
+            path_parts = [lines[first_arrow - 1]]
+            for line in lines[first_arrow:]:
+                if not line.startswith("→"):
+                    break
+                part = line.lstrip("→").strip()
+                if part:
+                    path_parts.append(part)
+            if len(path_parts) < 2:
+                continue
+
+            answer = " → ".join(path_parts) + "."
+            value_lists = LocalWikiRag._fenced_value_lists(match.section)
+            if value_lists:
+                values = max(value_lists, key=len)
+                label = "Add" if re.search(r"\b(?:how|add|setup|set)\b", normalized) else "Ajoutez"
+                answer += f" {label} : {', '.join(values)}."
+            return answer
+        return None
+
 
     def _clean_ai_response(self, content: str, max_length: int) -> str:
         cleaned = content or ""
@@ -1349,6 +1391,9 @@ class LlmService:
             supported_values = self._wiki_supported_values_answer(prompt, wiki_result)
             if supported_values:
                 return supported_values
+            ui_procedure = self._wiki_ui_procedure_answer(prompt, wiki_result)
+            if ui_procedure:
+                return ui_procedure
 
         user_key = self._user_key(message)
         history = self._get_context_history(user_key) if user_key else []
