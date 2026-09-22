@@ -54,6 +54,7 @@ async def run(args):
             "Mesh_Command": {"enabled": "true"},
             "Llm_Command": {
                 "enabled": "true", "endpoint": args.endpoint, "model": args.model,
+                "reasoning_effort": args.reasoning_effort,
                 "timeout_seconds": str(args.timeout), "max_tokens": "200", "cpu_temp_threshold": "0",
                 "context_window_seconds": "0", "wiki_rag_enabled": "true",
                 "wiki_rag_index_path": str(args.wiki_index or index), "wiki_refresh_interval_seconds": "0",
@@ -129,6 +130,7 @@ if __name__ == "__main__":
     parser.add_argument("--live", action="store_true", help="Use the configured LLM for mesh/Wiki/conversation")
     parser.add_argument("--endpoint", default="http://127.0.0.1:11434/v1/chat/completions")
     parser.add_argument("--model", default="gemma3:4b")
+    parser.add_argument("--reasoning-effort", default="", help="Optional OpenAI-compatible reasoning effort")
     parser.add_argument("--timeout", type=int, choices=range(1, 301), metavar="SECONDS", default=180,
                         help="Per-call model timeout, 1-300 seconds; CPU-only models may need a cold start")
     parser.add_argument("--wiki-index", type=Path)
