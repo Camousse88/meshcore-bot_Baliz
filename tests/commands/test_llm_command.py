@@ -190,6 +190,25 @@ class TestLlmCommand:
         sent_text = command_mock_bot.command_manager.send_response.call_args[0][1]
         assert "LLM unavailable" in sent_text
 
+    @pytest.mark.asyncio
+    async def test_execute_retries_empty_success_response_once(self, command_mock_bot):
+        self._enable_llm(command_mock_bot)
+        command_mock_bot.config.set("Bot", "command_prefix", "")
+        cmd = LlmCommand(command_mock_bot)
+        empty = Mock(status_code=200)
+        empty.json.return_value = {"choices": [{"message": {"content": ""}}]}
+        recovered = Mock(status_code=200)
+        recovered.json.return_value = {"choices": [{"message": {"content": "Réponse disponible."}}]}
+
+        with patch(
+            "modules.assistant.llm_service.requests.post",
+            side_effect=[empty, recovered],
+        ) as post_mock:
+            assert await cmd.execute(mock_message(content="llm hello", is_dm=True)) is True
+
+        assert post_mock.call_count == 2
+        assert command_mock_bot.command_manager.send_response.call_args[0][1] == "Réponse disponible."
+
     def test_get_help_text_uses_configured_prefix(self, command_mock_bot):
         """get_help_text() must reflect the configured command prefix, not a hardcoded one."""
         self._enable_llm(command_mock_bot)

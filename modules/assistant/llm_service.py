@@ -1389,6 +1389,28 @@ class LlmService:
                 raise ValueError("Non-text model response")
             self.logger.debug(f"LLM raw response ({len(content)} chars): {repr(content)}")
 
+            # Some reasoning models occasionally return HTTP 200 with an empty
+            # content field. Retry once deterministically instead of emitting a
+            # misleading successful-but-empty answer over the mesh.
+            if not content.strip():
+                retry_payload = dict(payload)
+                retry_payload["temperature"] = 0
+                self.logger.warning("LLM returned empty content; retrying once")
+                retry_response = await asyncio.to_thread(
+                    post_chat,
+                    self.endpoint,
+                    retry_payload,
+                    self.timeout_seconds,
+                )
+                if retry_response.status_code == 200:
+                    retry_data = retry_response.json()
+                    retry_content = retry_data["choices"][0]["message"].get("content", "")
+                    if isinstance(retry_content, str):
+                        content = retry_content
+                        self.logger.debug(
+                            "LLM retry response (%d chars): %r", len(content), content
+                        )
+
         except (ValueError, TypeError, IndexError, AttributeError, KeyError) as e:
             self.logger.warning(f"LLM command parse error: {e}")
             return "LLM error: could not parse response."
