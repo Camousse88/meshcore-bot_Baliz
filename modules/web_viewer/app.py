@@ -2263,6 +2263,21 @@ class BotDataViewer:
                                 t['clock_drift'] = sample.get('drift')
                     except Exception:
                         pass
+                    # Enrich with battery level (same Battery_Monitor data as
+                    # /contacts' badge — these are the same devices, since
+                    # Battery_Monitor polls exactly this target list).
+                    try:
+                        battery_samples = self._get_latest_battery_samples(cursor)
+                        for t in targets:
+                            pubkey = t.get('public_key')
+                            sample = battery_samples.get(pubkey) if pubkey else None
+                            if sample:
+                                t['battery_voltage'] = sample['voltage']
+                                t['battery_observed_at'] = sample['observed_at']
+                                t['battery_status'] = self._battery_status(sample['voltage'])
+                                t['battery_percent'] = self._battery_percent(sample['voltage'])
+                    except Exception:
+                        pass
                 # Include config info + bot public key + bot name
                 config_info = {
                     'enabled': self.config.getboolean('Clock_Sync_Admin', 'enabled', fallback=False),
@@ -2621,6 +2636,34 @@ class BotDataViewer:
                 return jsonify(clients)
             except Exception as e:
                 self.logger.error(f"Error getting connected clients: {e}")
+                return jsonify({'error': str(e)}), 500
+
+        @self.app.route('/api/battery/<public_key>/history')
+        def api_battery_history(public_key):
+            """Battery voltage points for one device over a rolling window
+            (default 7 days), for the contacts-page battery badge's history
+            chart. JSON shape: {"public_key": ..., "days": N,
+            "points": [{"observed_at": str, "voltage": float}, ...]}."""
+            try:
+                days = int(request.args.get('days', 7))
+            except (TypeError, ValueError):
+                days = 7
+            days = max(1, min(days, 30))
+            try:
+                with self._with_db_connection() as conn:
+                    rows = conn.execute(
+                        """
+                        SELECT observed_at, voltage FROM battery_observations
+                        WHERE public_key = ?
+                            AND observed_at >= strftime('%Y-%m-%d %H:%M:%S', 'now', ?)
+                        ORDER BY observed_at
+                        """,
+                        (public_key, f'-{days} days'),
+                    ).fetchall()
+                points = [{'observed_at': row['observed_at'], 'voltage': row['voltage']} for row in rows]
+                return jsonify({'public_key': public_key, 'days': days, 'points': points})
+            except Exception as e:
+                self.logger.error(f"Error reading battery history for {public_key[:12]}...: {e}")
                 return jsonify({'error': str(e)}), 500
 
         @self.app.route('/api/contacts')
@@ -6932,9 +6975,11 @@ class BotDataViewer:
                 'dashboard_max_clock_drift_seconds',
                 fallback=300,
             )
+            battery_samples = self._get_latest_battery_samples(cursor)
 
             tracking = []
             for row in main_rows:
+                battery_sample = battery_samples.get(row['public_key'])
                 drift_sample = clock_drift_samples.get(row['name'])
                 drift_value = drift_sample['drift'] if drift_sample is not None else None
                 if drift_value is not None:
@@ -7027,6 +7072,14 @@ class BotDataViewer:
                     'clock_drift_detected': bool(
                         drift_value is not None
                         and drift_value > clock_drift_threshold
+                    ),
+                    'battery_voltage': battery_sample['voltage'] if battery_sample is not None else None,
+                    'battery_observed_at': battery_sample['observed_at'] if battery_sample is not None else None,
+                    'battery_status': self._battery_status(
+                        battery_sample['voltage'] if battery_sample is not None else None
+                    ),
+                    'battery_percent': self._battery_percent(
+                        battery_sample['voltage'] if battery_sample is not None else None
                     ),
                 })
 
@@ -7324,6 +7377,73 @@ class BotDataViewer:
             self.logger.error(f"Error computing clock drift samples: {e}")
             return {}
         return samples
+
+    def _get_latest_battery_samples(self, cursor: Any) -> dict[str, dict[str, Any]]:
+        """Latest battery voltage reading per device, from Battery_Monitor's
+        polling (``modules/scheduler.py``, ``battery_observations`` table).
+
+        Returns ``{public_key: {'voltage': float, 'observed_at': str}}`` —
+        keyed by public key, unlike ``_get_latest_clock_drift_samples``'s
+        name-keying, since ``battery_observations`` is written with the full
+        public key already (no need to go through the name join it uses to
+        work around ``message_stats`` only storing names).
+        """
+        samples: dict[str, dict[str, Any]] = {}
+        try:
+            cursor.execute(
+                """
+                SELECT public_key, voltage, observed_at
+                FROM battery_observations bo
+                WHERE observed_at = (
+                    SELECT MAX(observed_at) FROM battery_observations
+                    WHERE public_key = bo.public_key
+                )
+                """
+            )
+            for row in cursor.fetchall():
+                samples[row['public_key']] = {
+                    'voltage': row['voltage'],
+                    'observed_at': row['observed_at'],
+                }
+        except Exception as e:
+            self.logger.error(f"Error computing battery samples: {e}")
+            return {}
+        return samples
+
+    def _battery_status(self, voltage: float | None) -> str | None:
+        """Classify a voltage reading for the contacts-page badge colour.
+        Thresholds are configurable (``[Battery_Monitor]
+        low_voltage``/``critical_voltage``) since battery chemistry and
+        wiring vary per device — there is no universal "20%" for a raw
+        voltage reading. Returns ``'critical'``/``'low'``/``'ok'``/``None``
+        (no reading yet)."""
+        if voltage is None:
+            return None
+        critical = self.config.getfloat('Battery_Monitor', 'critical_voltage', fallback=3.4)
+        low = self.config.getfloat('Battery_Monitor', 'low_voltage', fallback=3.7)
+        if voltage <= critical:
+            return 'critical'
+        if voltage <= low:
+            return 'low'
+        return 'ok'
+
+    @staticmethod
+    def _battery_percent(voltage: float | None) -> int | None:
+        """Rough voltage-to-percentage estimate for display alongside the
+        raw voltage — same linear 3.0V=0% / 4.2V=100% mapping the companion
+        firmware itself uses for its own screen battery icon
+        (``examples/companion_radio/ui-new/UITask.cpp``'s
+        ``renderBatteryIndicator``, ``BATT_MIN_MILLIVOLTS``/
+        ``BATT_MAX_MILLIVOLTS``), so this matches what the device's own
+        display already shows rather than inventing a different curve.
+        Real Li-ion discharge isn't linear, but neither is the firmware's
+        own estimate — consistency with the device's own screen matters
+        more here than curve accuracy.
+        """
+        if voltage is None:
+            return None
+        percent = (voltage - 3.0) * 100 / (4.2 - 3.0)
+        return max(0, min(100, round(percent)))
 
     def _calculate_distance(self, lat1, lon1, lat2, lon2):
         """Calculate distance between two points using Haversine formula"""

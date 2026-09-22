@@ -188,6 +188,7 @@ class MessageScheduler:
                     self.logger.warning(f"Error setting up scheduled message '{schedule_key}': {e}")
 
         self._setup_clock_sync_admin_job(tz)
+        self._setup_battery_monitor_job(tz)
         self._apscheduler.start()
         self.logger.info(f"APScheduler started with {len(self.scheduled_messages)} scheduled message(s)")
 
@@ -241,6 +242,58 @@ class MessageScheduler:
         )
         self.logger.info(
             "Scheduled Clock_Sync_Admin job: %s (%d unique target(s))",
+            parsed.display_label,
+            len(targets),
+        )
+
+    def _setup_battery_monitor_job(self, tz) -> None:
+        """Register the periodic battery-telemetry poll, reusing the
+        Clock_Sync_Admin target list (see [[project_meshcore-bot]] discussion,
+        2026-09-18): those are the devices the bot already holds admin
+        rights on, so no separate target configuration is needed. Absent
+        by default — the ``[Battery_Monitor]`` section must be added
+        explicitly (same convention as ``[Clock_Sync_Admin]``) before this
+        job is ever registered, so existing deployments don't suddenly gain
+        new mesh traffic on an upgrade.
+
+        Cron-based (same ``parse_schedule_key`` mechanism as
+        Clock_Sync_Admin's own ``schedule``), not a plain hourly interval —
+        real-world tuning (2026-09-18, after the first production test)
+        settled on every 6h aligned to midnight (``0 0,6,12,18 * * *``)
+        rather than a fixed hourly cadence, and a cron string can express
+        that alignment; ``IntervalTrigger`` cannot (it fires every N hours
+        from whenever the job was *registered*, not from a fixed wall-clock
+        anchor).
+        """
+        if self._apscheduler is None:
+            return
+        if not self.bot.config.has_section("Battery_Monitor"):
+            return
+
+        enabled = self.bot.config.getboolean("Battery_Monitor", "enabled", fallback=False)
+        if not enabled:
+            self.logger.info("Battery_Monitor schedule disabled")
+            return
+
+        schedule_raw = (self.bot.config.get("Battery_Monitor", "schedule", fallback="0 0,6,12,18 * * *") or "").strip()
+        parsed = parse_schedule_key(schedule_raw, tz)
+        if parsed.trigger is None:
+            self.logger.warning("Battery_Monitor invalid schedule %r; job not registered", schedule_raw)
+            return
+
+        targets = self._get_clock_sync_targets()
+        if not targets:
+            self.logger.warning("Battery_Monitor has no targets configured (uses Clock_Sync_Admin's target list); job not registered")
+            return
+
+        self._apscheduler.add_job(
+            self.run_battery_monitor_job_sync,
+            parsed.trigger,
+            id="battery_monitor_poll",
+            replace_existing=True,
+        )
+        self.logger.info(
+            "Scheduled Battery_Monitor job: %s (%d target(s))",
             parsed.display_label,
             len(targets),
         )
@@ -953,6 +1006,161 @@ class MessageScheduler:
             'duplicates_skipped': duplicate_count,
             'in_sync_skipped': skipped_in_sync_count,
         }
+
+    def run_battery_monitor_job_sync(self) -> None:
+        """APScheduler sync wrapper for the async battery-telemetry poll."""
+        self._run_async_on_main_loop(self._run_battery_monitor_job_async(), timeout=300.0)
+
+    async def _run_battery_monitor_job_async(self) -> dict[str, Any]:
+        """Request telemetry from each Clock_Sync_Admin target and store its
+        battery voltage. Uses the binary telemetry request/response protocol
+        (``req_telemetry_sync``), not the DM/CLI channel Clock_Sync_Admin
+        uses — battery data only exists as a reply to this explicit request,
+        MeshCore devices never broadcast it unprompted.
+
+        Returns a summary dict — {'success': False, 'error': ...} if the run
+        was skipped before polling anything, otherwise {'success': True,
+        'polled': N, 'stored': N, 'failed': N}.
+        """
+        if not self.bot.config.getboolean("Battery_Monitor", "enabled", fallback=False):
+            self.logger.debug("Battery_Monitor run skipped — disabled")
+            return {'success': False, 'error': 'Battery_Monitor is disabled'}
+        if not self.bot.connected or not getattr(self.bot, "meshcore", None):
+            self.logger.warning("Battery_Monitor run skipped — bot/radio not connected")
+            return {'success': False, 'error': 'Bot/radio not connected'}
+        if self.bot.is_radio_zombie:
+            self.logger.warning("Battery_Monitor run skipped — radio in zombie state")
+            return {'success': False, 'error': 'Radio in zombie state'}
+        if self.bot.is_radio_offline:
+            self.logger.warning("Battery_Monitor run skipped — radio offline")
+            return {'success': False, 'error': 'Radio offline'}
+
+        targets = self._get_clock_sync_targets()
+        if not targets:
+            self.logger.debug("Battery_Monitor run skipped — no targets configured")
+            return {'success': False, 'error': 'No targets configured'}
+
+        request_timeout = self.bot.config.getfloat(
+            "Battery_Monitor", "request_timeout_seconds", fallback=20.0
+        )
+        request_gap = self.bot.config.getfloat(
+            "Battery_Monitor", "request_gap_seconds", fallback=2.0
+        )
+
+        polled = 0
+        stored = 0
+        failed = 0
+
+        for index, target in enumerate(targets):
+            contact = self._resolve_clock_sync_target_contact(target)
+            if not contact:
+                failed += 1
+                self.logger.warning(
+                    "Battery_Monitor skipping unknown target: %s", sanitize_name(target)
+                )
+                continue
+
+            public_key = (contact.get("public_key", "") or "").strip()
+            if not public_key:
+                failed += 1
+                continue
+
+            if index > 0 and request_gap > 0:
+                await asyncio.sleep(request_gap)
+
+            polled += 1
+            try:
+                # Bounded like neighbors_discovery's own regions request: an
+                # unbounded stall here would hold up every other bot command
+                # for as long as this one telemetry reply never arrives.
+                lpp = await asyncio.wait_for(
+                    self.bot.meshcore.commands.req_telemetry_sync(
+                        public_key, timeout=request_timeout
+                    ),
+                    timeout=request_timeout + 5.0,
+                )
+            except asyncio.CancelledError:
+                raise
+            except asyncio.TimeoutError:
+                failed += 1
+                self.logger.warning(
+                    "Battery_Monitor: telemetry request to %s... timed out", public_key[:12]
+                )
+                continue
+            except Exception as exc:
+                failed += 1
+                self.logger.warning(
+                    "Battery_Monitor: telemetry request to %s... failed: %s", public_key[:12], exc
+                )
+                continue
+
+            voltage = self._extract_voltage_from_lpp(lpp)
+            if voltage is None:
+                failed += 1
+                # Logged at warning (not debug) with the raw reply included --
+                # confirmed on real hardware (2026-09-18) that this exact case
+                # is silent otherwise at the default INFO log level, which
+                # made a real "polled=2 stored=0 failed=2" result impossible
+                # to diagnose remotely without a temporary log_level=DEBUG
+                # change and restart.
+                self.logger.warning(
+                    "Battery_Monitor: no voltage reading in telemetry reply from %s...: %r",
+                    public_key[:12], lpp
+                )
+                continue
+
+            self._store_battery_observation(public_key, voltage)
+            stored += 1
+
+        self.logger.info(
+            "Battery_Monitor run complete: targets=%d polled=%d stored=%d failed=%d",
+            len(targets), polled, stored, failed,
+        )
+        return {'success': True, 'polled': polled, 'stored': stored, 'failed': failed}
+
+    @staticmethod
+    def _extract_voltage_from_lpp(lpp: Any) -> Optional[float]:
+        """Pull the first voltage reading (LPP type 116, volts) out of a
+        decoded telemetry response.
+
+        ``entry["type"]`` is the *name string* ``"voltage"``, not the raw
+        numeric LPP code 116 — confirmed both on real hardware (2026-09-18:
+        a reply that genuinely carried a voltage reading was being silently
+        discarded because of this) and by reading ``cayennelpp``'s own
+        source: ``LppData.type`` holds an ``LppType`` object, and
+        ``meshcore``'s ``lpp_json_encoder`` resolves *that* object through
+        its own numeric-to-name table (``my_lpp_types[obj.type][0]``) before
+        it ever reaches this dict — so by the time this function sees it,
+        the numeric code has already been translated to ``"voltage"``.
+        """
+        if not isinstance(lpp, list):
+            return None
+        for entry in lpp:
+            if isinstance(entry, dict) and entry.get("type") == "voltage":
+                value = entry.get("value")
+                if isinstance(value, (int, float)):
+                    return float(value)
+        return None
+
+    def _store_battery_observation(self, public_key: str, voltage: float) -> None:
+        """Record one battery voltage reading — same try/except-and-log-only
+        shape as ``_log_clock_sync_admin_attempt``, since a storage failure
+        here must never take down the polling loop."""
+        db_manager = getattr(self.bot, "db_manager", None)
+        if not db_manager:
+            return
+        try:
+            with db_manager.connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "INSERT INTO battery_observations (public_key, voltage) VALUES (?, ?)",
+                    (public_key, voltage),
+                )
+                conn.commit()
+        except Exception as e:
+            self.logger.warning(
+                "Failed to store battery observation for %s...: %s", public_key[:12], e
+            )
 
     def _setup_device_mode_scheduler_jobs(self) -> None:
         """One-shot jobs for auto_manage_contacts=device: firmware autoadd + favourite hygiene."""
@@ -2205,6 +2413,24 @@ class MessageScheduler:
                 elif op_type == 'clock_sync_admin_run_now':
                     result_payload = await self._run_clock_sync_admin_job_async()
                     success = bool(result_payload.get('success'))
+                    # Battery_Monitor polls this exact same target list, so an
+                    # explicit "Run Now" is also the natural moment to refresh
+                    # battery readings on demand (e.g. right after deploying,
+                    # rather than waiting for the next hourly tick). Best-effort
+                    # and never allowed to affect this operation's own
+                    # success/error — a battery-poll hiccup is not a
+                    # Clock_Sync_Admin failure, and _run_battery_monitor_job_async
+                    # already no-ops cleanly when Battery_Monitor is disabled.
+                    try:
+                        battery_result = await self._run_battery_monitor_job_async()
+                        self.logger.info(
+                            "Battery_Monitor run (triggered by Clock_Sync_Admin Run Now): %s",
+                            battery_result,
+                        )
+                    except Exception as battery_exc:
+                        self.logger.warning(
+                            "Battery_Monitor run (triggered by Run Now) failed: %s", battery_exc
+                        )
                 elif op_type == 'send_announcement':
                     payload = json.loads(op['payload_data'] or '{}')
                     success, result_payload = await self._send_announcement_op(payload)
