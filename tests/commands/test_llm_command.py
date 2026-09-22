@@ -34,6 +34,21 @@ class TestLlmCommand:
         msg = mock_message(content="llm hello", is_dm=True)
         assert cmd.can_execute(msg) is True
 
+    def test_payload_includes_configured_reasoning_effort(self, command_mock_bot):
+        self._enable_llm(command_mock_bot)
+        command_mock_bot.config.set("Llm_Command", "reasoning_effort", "none")
+
+        cmd = LlmCommand(command_mock_bot)
+
+        assert cmd.service._build_payload(prompt="hello", include_rag=False)["reasoning_effort"] == "none"
+
+    def test_payload_omits_blank_reasoning_effort(self, command_mock_bot):
+        self._enable_llm(command_mock_bot)
+
+        cmd = LlmCommand(command_mock_bot)
+
+        assert "reasoning_effort" not in cmd.service._build_payload(prompt="hello", include_rag=False)
+
     def test_can_execute_when_disabled(self, command_mock_bot):
         if not command_mock_bot.config.has_section("Llm_Command"):
             command_mock_bot.config.add_section("Llm_Command")

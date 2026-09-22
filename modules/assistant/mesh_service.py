@@ -15,7 +15,7 @@ import requests
 from ..db_manager import validate_readonly_sql
 from ..models import MeshMessage
 from ..utils import get_cpu_temperature
-from .llm_client import post_chat
+from .llm_client import apply_reasoning_effort, configured_reasoning_effort, post_chat
 
 DB_SCHEMA = """\
 Tables:
@@ -69,6 +69,7 @@ class MeshService:
             8, min(500, self.get_config_value("Llm_Command", "max_tokens", fallback=200, value_type="int"))
         )
         self.model = self.get_config_value("Llm_Command", "model", fallback="", value_type="str")
+        self.reasoning_effort = configured_reasoning_effort(self.get_config_value)
 
 
     def _get_sender_position(self, message: MeshMessage) -> tuple[float, float] | None:
@@ -210,6 +211,7 @@ class MeshService:
         }
         if self.model:
             payload["model"] = self.model
+        apply_reasoning_effort(payload, self.reasoning_effort)
         try:
             response = post_chat(self.endpoint, payload, self.timeout_seconds)
             if response.status_code != 200:
@@ -516,6 +518,7 @@ class MeshService:
         }
         if self.model:
             payload["model"] = self.model
+        apply_reasoning_effort(payload, self.reasoning_effort)
         try:
             response = post_chat(self.endpoint, payload, self.timeout_seconds)
             if response.status_code == 200:

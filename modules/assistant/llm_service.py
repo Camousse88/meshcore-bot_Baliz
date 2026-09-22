@@ -19,7 +19,7 @@ from ..models import MeshMessage
 from ..solar_conditions import get_moon, get_sun
 from ..utils import geocode_city_sync, get_cpu_temperature, get_cpu_usage, get_ram_usage
 from ..wiki_rag import LocalWikiRag, WikiJsSource
-from .llm_client import post_chat
+from .llm_client import apply_reasoning_effort, configured_reasoning_effort, post_chat
 from .rag_config import read_rag_config
 
 
@@ -38,6 +38,7 @@ class LlmService:
             value_type="str",
         )
         self.model = self.get_config_value("Llm_Command", "model", fallback="", value_type="str")
+        self.reasoning_effort = configured_reasoning_effort(self.get_config_value)
         self.system_prompt = self.get_config_value(
             "Llm_Command",
             "system_prompt",
@@ -1027,6 +1028,7 @@ class LlmService:
         }
         if self.model:
             payload["model"] = self.model
+        apply_reasoning_effort(payload, self.reasoning_effort)
 
         return payload
 

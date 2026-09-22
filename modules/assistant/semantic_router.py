@@ -6,7 +6,7 @@ from typing import Any
 
 import requests
 
-from .llm_client import post_chat
+from .llm_client import apply_reasoning_effort, configured_reasoning_effort, post_chat
 from .router import Route
 
 
@@ -30,6 +30,7 @@ class SemanticRouter:
             value_type="str",
         )
         self.model = read("Llm_Command", "model", fallback="", value_type="str")
+        self.reasoning_effort = configured_reasoning_effort(read)
         self.timeout_seconds = max(
             1.0,
             min(
@@ -74,6 +75,7 @@ class SemanticRouter:
         }
         if self.model:
             payload["model"] = self.model
+        apply_reasoning_effort(payload, self.reasoning_effort)
         try:
             response = post_chat(self.endpoint, payload, self.timeout_seconds)
             if response.status_code != 200:

@@ -1642,6 +1642,10 @@ endpoint = http://127.0.0.1:8080/v1/chat/completions
 # Optional model name (blank = server default model)
 model =
 
+# Optional OpenAI-compatible reasoning effort (for example: none, low, medium, high).
+# Leave blank for backends or models that do not support this parameter.
+reasoning_effort =
+
 # System prompt (keep short for mesh bandwidth)
 system_prompt = You are a helpful assistant on a low-bandwidth mesh network. Reply briefly in one short sentence.
 
