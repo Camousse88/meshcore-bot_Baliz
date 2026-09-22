@@ -954,8 +954,24 @@ class LocalWikiRag:
         title = set(self._tokenize(section.page_title))
         heading = set(self._tokenize(section.section_title))
         path = set(self._tokenize(section.path.replace("/", " ")))
-        return sum(8 * (term in title) + 12 * (term in heading) + 4 * (term in path)
-                   for term in set(terms))
+        # Action verbs describe what to do, not which device or subject page
+        # should supply the answer. Ignoring them for page focus prevents an
+        # exact "Add ..." heading on the wrong device from tying the page whose
+        # title/path actually names the requested device.
+        subject_terms = {
+            term
+            for term in terms
+            if not re.fullmatch(
+                r"configur\w*|install\w*|parametr\w*|setup|set|ajout\w*|add\w*|"
+                r"associ\w*|assign\w*|retir\w*|supprim\w*|remove\w*|activ\w*|"
+                r"enable\w*|disable\w*",
+                term,
+            )
+        }
+        return sum(
+            8 * (term in title) + 12 * (term in heading) + 4 * (term in path)
+            for term in subject_terms
+        )
 
     @staticmethod
     def _page_key(section: WikiRagSection) -> tuple[str, str, str]:
