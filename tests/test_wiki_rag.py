@@ -440,6 +440,9 @@ def test_action_question_prefers_instructions_over_region_diagram(tmp_path):
 
 def test_add_question_prefers_device_command_procedure_over_exact_ui_heading(tmp_path):
     index = write_corpus(tmp_path, [
+        {'path': 'concepts/regions', 'page_title': 'Regions',
+         'section_title': 'Companion and repeater roles',
+         'content': 'A repeater filters regions before relaying messages.'},
         {'path': 'configuration/Compagnons', 'page_title': 'Configurer un Companion',
          'section_title': 'Ajouter les régions',
          'content': 'Réglages puis Network Settings puis Région par défaut.'},

@@ -968,10 +968,18 @@ class LocalWikiRag:
                 term,
             )
         }
-        return sum(
+        evidence = sum(
             8 * (term in title) + 12 * (term in heading) + 4 * (term in path)
             for term in subject_terms
         )
+        # In natural-language relation questions the final subject commonly
+        # qualifies the requested device or target ("regions for a repeater",
+        # "policy on a gateway"). Prefer pages that name that qualifier in
+        # their title/path over concept pages that only mention it in a heading.
+        qualifier = next((term for term in reversed(terms) if term in subject_terms), "")
+        if qualifier and (qualifier in title or qualifier in path):
+            evidence += 12
+        return evidence
 
     @staticmethod
     def _page_key(section: WikiRagSection) -> tuple[str, str, str]:
