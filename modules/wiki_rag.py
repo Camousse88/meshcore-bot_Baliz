@@ -954,8 +954,35 @@ class LocalWikiRag:
         title = set(self._tokenize(section.page_title))
         heading = set(self._tokenize(section.section_title))
         path = set(self._tokenize(section.path.replace("/", " ")))
-        return sum(8 * (term in title) + 12 * (term in heading) + 4 * (term in path)
-                   for term in set(terms))
+        title |= {term.rstrip("s") for term in title}
+        heading |= {term.rstrip("s") for term in heading}
+        path |= {term.rstrip("s") for term in path}
+        # Action verbs describe what to do, not which device or subject page
+        # should supply the answer. Ignoring them for page focus prevents an
+        # exact "Add ..." heading on the wrong device from tying the page whose
+        # title/path actually names the requested device.
+        subject_terms = {
+            term
+            for term in terms
+            if not re.fullmatch(
+                r"configur\w*|install\w*|parametr\w*|setup|set|ajout\w*|add\w*|"
+                r"associ\w*|assign\w*|retir\w*|supprim\w*|remove\w*|activ\w*|"
+                r"enable\w*|disable\w*",
+                term,
+            )
+        }
+        evidence = sum(
+            8 * (term in title) + 12 * (term in heading) + 4 * (term in path)
+            for term in subject_terms
+        )
+        # In natural-language relation questions the final subject commonly
+        # qualifies the requested device or target ("regions for a repeater",
+        # "policy on a gateway"). Prefer pages that name that qualifier in
+        # their title/path over concept pages that only mention it in a heading.
+        qualifier = next((term for term in reversed(terms) if term in subject_terms), "")
+        if qualifier and (qualifier in title or qualifier in path):
+            evidence += 20
+        return evidence
 
     @staticmethod
     def _page_key(section: WikiRagSection) -> tuple[str, str, str]:

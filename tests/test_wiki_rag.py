@@ -440,10 +440,13 @@ def test_action_question_prefers_instructions_over_region_diagram(tmp_path):
 
 def test_add_question_prefers_device_command_procedure_over_exact_ui_heading(tmp_path):
     index = write_corpus(tmp_path, [
+        {'path': 'concepts/regions', 'page_title': 'Regions',
+         'section_title': 'Companion and repeater roles',
+         'content': 'A repeater filters regions before relaying messages.'},
         {'path': 'configuration/Compagnons', 'page_title': 'Configurer un Companion',
          'section_title': 'Ajouter les régions',
          'content': 'Réglages puis Network Settings puis Région par défaut.'},
-        {'path': 'configuration/Répéteurs', 'page_title': 'Configurer un Répéteur',
+        {'path': 'configuration/Répéteurs', 'page_title': 'Configurer des Répéteurs',
          'section_title': 'Configurer les régions',
          'content': ('Utilisez les commandes documentées :\n```text\n'
                      'region def eu fr fr-bre fr-29|fr bzh|* europe\n'
@@ -452,6 +455,7 @@ def test_add_question_prefers_device_command_procedure_over_exact_ui_heading(tmp
     result = LocalWikiRag(index).retrieve('comment ajouter les régions à un répéteur')
     assert result is not None
     assert result.matches[0].section.path == 'configuration/Répéteurs'
+    assert {match.section.path for match in result.matches} == {'configuration/Répéteurs'}
     assert 'region def eu fr fr-bre fr-29|fr bzh|* europe' in result.context
 
 
