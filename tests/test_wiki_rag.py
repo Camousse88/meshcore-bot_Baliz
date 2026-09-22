@@ -452,6 +452,7 @@ def test_add_question_prefers_device_command_procedure_over_exact_ui_heading(tmp
     result = LocalWikiRag(index).retrieve('comment ajouter les régions à un répéteur')
     assert result is not None
     assert result.matches[0].section.path == 'configuration/Répéteurs'
+    assert {match.section.path for match in result.matches} == {'configuration/Répéteurs'}
     assert 'region def eu fr fr-bre fr-29|fr bzh|* europe' in result.context
 
 
