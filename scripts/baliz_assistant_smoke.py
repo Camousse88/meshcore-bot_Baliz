@@ -104,7 +104,7 @@ async def run(args):
             return True
         bot.command_manager.send_response = AsyncMock(side_effect=capture)
         bot.command_manager.send_response_chunked = AsyncMock(side_effect=chunks)
-        questions = ["baliz aide", "baliz comment tu me reçois ?", "baliz path"]
+        questions = ["baliz aide", "baliz tu me reçois", "baliz path"]
         if args.live:
             questions += ["baliz mesh combien de répéteurs sont dans la base ?",
                           "baliz wiki " + ("comment choisir la région radio pour un Companion ?" if args.wiki_index else "quelle est la configuration demo_region du banc de test Baliz ?"),
