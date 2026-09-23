@@ -2088,7 +2088,11 @@ long_jokes = false
                 try:
                     tz, tz_key = get_config_timezone(self.config, self.logger)
                     tz_name = tz_key or str(tz)
-                    utc_offset = tz.utcoffset(datetime.now(_dt_tz.utc))
+                    # pytz timezones reject an aware datetime passed directly
+                    # to ``utcoffset``. Convert the UTC instant into the
+                    # configured zone first; this also works with zoneinfo.
+                    local_now = datetime.now(_dt_tz.utc).astimezone(tz)
+                    utc_offset = local_now.utcoffset()
                     if utc_offset is not None:
                         offset_seconds = int(utc_offset.total_seconds())
                         current_time += offset_seconds
