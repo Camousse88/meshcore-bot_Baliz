@@ -75,6 +75,9 @@ async def test_baliz_alias_routes_network_to_mesh_only(command_mock_bot):
 async def test_baliz_routes_natural_weather_question_to_hidden_wx(command_mock_bot):
     commands, sent = setup_bot(command_mock_bot)
     assert commands["wx"].wx_enabled is False
+    commands["llm"].service.rephrase_tool_result = AsyncMock(
+        return_value="Demain à Brest, ciel couvert, de 14 à 16 °C."
+    )
 
     async def weather(message):
         assert message.content == "wx brest tomorrow"
@@ -83,7 +86,38 @@ async def test_baliz_routes_natural_weather_question_to_hidden_wx(command_mock_b
 
     commands["wx"].execute = AsyncMock(side_effect=weather)
     await commands["ask"].execute(mock_message(content="baliz quelle météo demain à Brest ?"))
-    assert sent[0][1] == "Brest demain : 16°C, pluie faible."
+    assert sent[0][1] == "Demain à Brest, ciel couvert, de 14 à 16 °C."
+    commands["llm"].service.rephrase_tool_result.assert_awaited_once()
+
+
+async def test_weather_keeps_raw_tool_data_when_llm_rephrase_fails(command_mock_bot):
+    commands, sent = setup_bot(command_mock_bot)
+    commands["llm"].service.rephrase_tool_result = AsyncMock(return_value=None)
+
+    async def weather(message):
+        await commands["wx"].send_response(message, "Brest, FR: Demain: Couvert H:16°C L:14°C 12G25")
+        return True
+
+    commands["wx"].execute = AsyncMock(side_effect=weather)
+    await commands["ask"].execute(mock_message(content="baliz quelle météo demain à Brest ?"))
+    assert sent[0][1] == "Brest, FR: Demain: Couvert H:16°C L:14°C 12G25"
+
+
+async def test_tool_rephrase_accepts_grounded_values_and_rejects_changed_values(command_mock_bot):
+    commands, _ = setup_bot(command_mock_bot)
+    service = commands["llm"].service
+    source = "Brest, FR: Demain: Couvert H:27°C L:14°C 12G25"
+    good = model_reply(
+        "Demain à Brest, ciel couvert, de 14 à 27 °C, vent 12 km/h, rafales 25 km/h."
+    )
+    bad = model_reply(
+        "Demain à Brest, ciel couvert, de 15 à 27 °C, vent 12 km/h, rafales 25 km/h."
+    )
+    with patch("modules.assistant.llm_service.post_chat", side_effect=[good, bad]):
+        assert await service.rephrase_tool_result("météo demain à Brest", source) == (
+            "Demain à Brest, ciel couvert, de 14 à 27 °C, vent 12 km/h, rafales 25 km/h."
+        )
+        assert await service.rephrase_tool_result("météo demain à Brest", source) is None
 
 
 async def test_ambiguous_question_uses_semantic_router(command_mock_bot):

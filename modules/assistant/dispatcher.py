@@ -127,6 +127,24 @@ class AssistantDispatcher:
             cloned.prefix_normalized = True
             cloned.capture_sink = []
             await command.execute(cloned)
-            if cloned.capture_sink:
-                return "\n".join(cloned.capture_sink)
-            return "Le service météo n'a renvoyé aucune prévision."
+            if not cloned.capture_sink:
+                return "Le service météo n'a renvoyé aucune prévision."
+            raw_answer = "\n".join(cloned.capture_sink)
+
+        # Tool data remains authoritative. The LLM only turns the compact wx
+        # notation into natural language; any error or altered value falls back
+        # to the original forecast.
+        llm = self._command("llm")
+        if self._allowed(llm, message, service=True):
+            provider = getattr(command, "delegate_command", None)
+            wind_unit = getattr(provider, "wind_speed_unit", "")
+            context = f"Unité du vent : {wind_unit}." if wind_unit else ""
+            reformulated = await llm.service.rephrase_tool_result(
+                question,
+                raw_answer,
+                context=context,
+                max_length=220,
+            )
+            if reformulated:
+                return reformulated
+        return raw_answer

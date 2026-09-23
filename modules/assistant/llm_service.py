@@ -1291,6 +1291,66 @@ class LlmService:
 
         return cleaned
 
+    @staticmethod
+    def _preserves_tool_numbers(source: str, answer: str) -> bool:
+        """Reject a reformulation that drops or changes measured values."""
+        source_numbers = re.findall(r"-?\d+(?:[.,]\d+)?", source)
+        answer_numbers = {
+            value.replace(",", ".")
+            for value in re.findall(r"-?\d+(?:[.,]\d+)?", answer)
+        }
+        return all(value.replace(",", ".") in answer_numbers for value in source_numbers)
+
+    async def rephrase_tool_result(
+        self,
+        question: str,
+        source: str,
+        *,
+        context: str = "",
+        max_length: int = 220,
+    ) -> str | None:
+        """Rephrase trusted tool output without RAG, history or local context.
+
+        Returning ``None`` tells the dispatcher to use the original tool output.
+        """
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "Reformule les données fournies en français naturel et très concis pour un réseau "
+                    "bas débit. Utilise uniquement ces données. Conserve tous les nombres, unités, lieu, "
+                    "date ou période et conditions météo; n'ajoute aucune prévision ni conseil. Développe "
+                    "les abréviations météo évidentes. Une ou deux phrases, texte brut, sans Markdown."
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"Question : {question}\nContexte : {context}\nDonnées : {source}",
+            },
+        ]
+        payload = self._build_payload(messages=messages)
+        payload["temperature"] = 0
+        payload["max_tokens"] = min(self.max_tokens, 96)
+        try:
+            async with self._answer_lock:
+                response = await asyncio.to_thread(
+                    post_chat, self.endpoint, payload, self.timeout_seconds
+                )
+            if response.status_code != 200:
+                self.logger.warning("Tool reformulation returned HTTP %s", response.status_code)
+                return None
+            content = response.json()["choices"][0]["message"].get("content", "")
+            if not isinstance(content, str) or not content.strip():
+                return None
+            cleaned = self._clean_ai_response(content, max_length)
+            if not self._preserves_tool_numbers(source, cleaned):
+                self.logger.warning("Tool reformulation changed or omitted measured values")
+                return None
+            return cleaned
+        except (requests.RequestException, ValueError, TypeError, IndexError, KeyError) as exc:
+            self.logger.warning("Tool reformulation failed: %s", exc)
+            return None
+
 
     def _split_response_into_pages(self, content: str) -> list[str]:
         """Split a long response into multiple pages based on pagination settings.
