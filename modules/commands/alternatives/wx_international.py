@@ -6,6 +6,7 @@ Provides worldwide weather information using Open-Meteo API
 
 import asyncio
 import re
+import time
 from datetime import datetime, timedelta
 from typing import Any, Optional, Union
 
@@ -994,7 +995,7 @@ class GlobalWxCommand(BaseCommand):
 
             # For tomorrow or multiday, return raw data for formatting
             if forecast_type in ["tomorrow", "multiday"]:
-                response = requests.get(api_url, params=params, timeout=self.url_timeout)
+                response = self._request_open_meteo(api_url, params)
 
                 if not response.ok:
                     self.logger.warning(f"Error fetching weather from Open-Meteo: {response.status_code}")
@@ -1007,7 +1008,7 @@ class GlobalWxCommand(BaseCommand):
                 elif forecast_type == "multiday":
                     return self.format_multiday_forecast(data, num_days)
 
-            response = requests.get(api_url, params=params, timeout=self.url_timeout)
+            response = self._request_open_meteo(api_url, params)
 
             if not response.ok:
                 self.logger.warning(f"Error fetching weather from Open-Meteo: {response.status_code}")
@@ -1197,6 +1198,35 @@ class GlobalWxCommand(BaseCommand):
         except Exception as e:
             self.logger.error(f"Error fetching Open-Meteo weather: {e}")
             return self.translate('commands.gwx.error_fetching')
+
+    def _request_open_meteo(self, api_url: str, params: dict) -> requests.Response:
+        """Fetch Open-Meteo data, retrying only temporary failures."""
+        attempts = 3
+        for attempt in range(attempts):
+            try:
+                response = requests.get(api_url, params=params, timeout=self.url_timeout)
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+                if attempt == attempts - 1:
+                    raise
+                self.logger.warning(
+                    "Temporary Open-Meteo connection failure; retrying (%s/%s)",
+                    attempt + 1,
+                    attempts - 1,
+                )
+            else:
+                if response.ok or (response.status_code != 429 and response.status_code < 500):
+                    return response
+                if attempt == attempts - 1:
+                    return response
+                self.logger.warning(
+                    "Temporary Open-Meteo HTTP %s; retrying (%s/%s)",
+                    response.status_code,
+                    attempt + 1,
+                    attempts - 1,
+                )
+            time.sleep(0.25 * (2 ** attempt))
+
+        raise RuntimeError("Open-Meteo retry loop ended unexpectedly")
 
     def format_tomorrow_forecast(self, data: dict) -> str:
         """Format a detailed forecast for tomorrow.
