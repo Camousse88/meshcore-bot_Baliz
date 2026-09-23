@@ -71,7 +71,7 @@ class TestCommand(BaseCommand):
             self.logger.warning(f"Error reading bot location from config: {e}")
 
     def can_execute(self, message: MeshMessage, skip_channel_check: bool = False) -> bool:
-        """Check if this command can be executed with the given message.
+        """Check direct test access; ASK can use the capability independently.
 
         Args:
             message: The message triggering the command.
@@ -79,9 +79,11 @@ class TestCommand(BaseCommand):
         Returns:
             bool: True if command is enabled and checks pass, False otherwise.
         """
-        if not self.test_enabled:
-            return False
-        return super().can_execute(message)
+        return self.test_enabled and self.can_use_service(message, skip_channel_check)
+
+    def can_use_service(self, message: MeshMessage, skip_channel_check: bool = False) -> bool:
+        """Allow ASK to use reception measurements while direct test stays hidden."""
+        return super().can_execute(message, skip_channel_check)
 
     def get_help_text(self) -> str:
         """Get help text for the command.

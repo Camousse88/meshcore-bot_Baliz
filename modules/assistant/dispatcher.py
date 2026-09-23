@@ -54,7 +54,7 @@ class AssistantDispatcher:
         if route.value not in self.owner.enabled_routes:
             return f"La fonction {route.value} est désactivée."
         if route in {Route.TEST, Route.PATH}:
-            return await self._rf_tool(route.value, message)
+            return await self._rf_tool(route.value, decision.question, message)
         if route is Route.WEATHER:
             return await self._weather_tool(decision.question, message)
         command = self._command("mesh" if route is Route.MESH else "llm")
@@ -70,7 +70,7 @@ class AssistantDispatcher:
             mode = "auto" if "llm" in self.owner.enabled_routes else "wiki"
         return await command.service.answer(decision.question, message, mode=mode)
 
-    async def _rf_tool(self, name: str, message: MeshMessage) -> str:
+    async def _rf_tool(self, name: str, question: str, message: MeshMessage) -> str:
         # Existing RF commands have no pure service yet. An explicit adapter uses
         # the established task-local capture contract, never monkeypatches send.
         from ..commands.path_command import PathCommand
@@ -85,12 +85,28 @@ class AssistantDispatcher:
             cloned.content_lower = name
             cloned.prefix_normalized = True
             cloned.capture_sink = []
-            if not self._allowed(command, cloned):
+            if not self._allowed(command, cloned, service=name == "test"):
                 return f"L'outil {name} est désactivé, limité ou non autorisé ici."
             command.record_execution(message.sender_id or None)
             await command.execute(cloned)
             if cloned.capture_sink:
-                return "\n".join(cloned.capture_sink)
+                raw_answer = "\n".join(cloned.capture_sink)
+                if name == "test":
+                    llm = self._command("llm")
+                    if self._allowed(llm, message, service=True):
+                        reformulated = await llm.service.rephrase_tool_result(
+                            question,
+                            raw_answer,
+                            context=(
+                                "Il s'agit de la mesure de réception du message par le bot. "
+                                "Réponds directement à l'utilisateur et explique brièvement "
+                                "la qualité de réception à partir des mesures disponibles."
+                            ),
+                            max_length=220,
+                        )
+                        if reformulated:
+                            return reformulated
+                return raw_answer
             if name == "path":
                 return "Ce message ne contient pas de chemin radio exploitable."
             return "Ce message ne contient pas de mesure radio exploitable."

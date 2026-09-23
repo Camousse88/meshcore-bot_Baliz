@@ -1331,9 +1331,9 @@ class LlmService:
                 "role": "system",
                 "content": (
                     "Reformule les données fournies en français naturel et très concis pour un réseau "
-                    "bas débit. Utilise uniquement ces données. Conserve tous les nombres, unités, lieu, "
-                    "date ou période et conditions météo; n'ajoute aucune prévision ni conseil. Développe "
-                    "les abréviations météo évidentes. Une ou deux phrases, texte brut, sans Markdown."
+                    "bas débit. Utilise uniquement ces données. Conserve tous les nombres, unités, noms, "
+                    "lieux, dates, périodes et mesures; n'ajoute aucun fait ni conseil. Développe les "
+                    "abréviations évidentes. Une ou deux phrases, texte brut, sans Markdown."
                 ),
             },
             {

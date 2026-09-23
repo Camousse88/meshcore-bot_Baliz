@@ -288,6 +288,8 @@ async def test_general_disabled_prevents_wiki_probe_fallback(command_mock_bot):
 @pytest.mark.parametrize("route", ["test", "path"])
 async def test_rf_adapter_preserves_message_metadata_and_captures_output(command_mock_bot, route):
     commands, sent = setup_bot(command_mock_bot)
+    if route == "test":
+        commands["llm"].service.rephrase_tool_result = AsyncMock(return_value=None)
     original = mock_message(content=f"baliz {route}", sender_pubkey="ab"*32, path="abcd", hops=2,
                             snr=7.5, rssi=-92, routing_info={"bytes_per_hop": 2, "path_hex": "abcd"}, reply_scope="#bzh")
     async def execute(message):
@@ -315,9 +317,35 @@ async def test_actual_test_command_uses_received_snr(command_mock_bot):
     commands, sent = setup_bot(command_mock_bot)
     command_mock_bot.config.remove_option("Keywords", "test")
     commands["test"].enforce_path_byte_requirement = AsyncMock(return_value=True)
+    commands["llm"].service.rephrase_tool_result = AsyncMock(return_value=None)
     await commands["ask"].execute(mock_message(content="baliz comment tu me reçois ?", snr=7.5, rssi=-92, hops=0))
     assert len(sent) >= 1
     assert "7.5" in " ".join(t for _, t in sent)
+
+
+async def test_hidden_test_command_remains_available_to_ask_and_is_rephrased(command_mock_bot):
+    commands, sent = setup_bot(command_mock_bot)
+    commands["test"].test_enabled = False
+    assert not commands["test"].can_execute(mock_message(content="test"))
+    commands["llm"].service.rephrase_tool_result = AsyncMock(
+        return_value="Oui, je te reçois avec un SNR de 7,5 dB et un RSSI de -92 dBm."
+    )
+
+    async def execute(message):
+        assert message.content == "test"
+        await commands["test"].send_response(
+            message,
+            "ack Fr22_Dakota | SNR: 7.5 dB | RSSI: -92 dBm",
+        )
+        return True
+
+    commands["test"].execute = AsyncMock(side_effect=execute)
+    await commands["ask"].execute(
+        mock_message(content="baliz tu me reçois", snr=7.5, rssi=-92, hops=0)
+    )
+
+    assert sent[0][1] == "Oui, je te reçois avec un SNR de 7,5 dB et un RSSI de -92 dBm."
+    commands["llm"].service.rephrase_tool_result.assert_awaited_once()
 
 
 async def test_timeout_has_one_response_and_no_fallback(command_mock_bot):

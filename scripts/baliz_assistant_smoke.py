@@ -54,7 +54,7 @@ async def run(args):
             "Ask_Command": {"enabled": "true", "aliases": "baliz", "route_timeout_seconds": str(min(300, args.timeout * 2 + 15))},
             "Mesh_Command": {"enabled": "true"},
             "Llm_Command": {
-                "enabled": "true", "endpoint": args.endpoint, "model": args.model,
+                "enabled": str(args.live).lower(), "endpoint": args.endpoint, "model": args.model,
                 "reasoning_effort": args.reasoning_effort,
                 "timeout_seconds": str(args.timeout), "max_tokens": "200", "cpu_temp_threshold": "0",
                 "context_window_seconds": "0", "wiki_rag_enabled": "true",
@@ -69,6 +69,8 @@ async def run(args):
             },
             # Direct wx stays hidden; ASK still has access to its capability.
             "Wx_Command": {"enabled": "false"},
+            # Direct test stays hidden; ASK still has access to reception data.
+            "Test_Command": {"enabled": "false"},
         })
         bot = MagicMock()
         bot.config = config
@@ -86,6 +88,9 @@ async def run(args):
         bot.command_manager.commands = {c.name: c(bot) for c in (
             AskCommand, MeshCommand, LlmCommand, TestCommand, PathCommand, WxCommand,
         )}
+        assert not bot.command_manager.commands["test"].can_execute(
+            MeshMessage(content="test", channel="test", sender_id="DirectTest")
+        )
         output = []
         async def capture(message, text, **kw):
             if message.capture_sink is not None:
