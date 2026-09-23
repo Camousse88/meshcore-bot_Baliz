@@ -122,7 +122,10 @@ class AssistantDispatcher:
         if message.rssi is not None:
             values.append(f"RSSI : {message.rssi} dBm")
         if message.hops is not None:
-            values.append(f"Nombre de sauts : {message.hops}")
+            if message.hops > 0:
+                values.append(f"Nombre de sauts : {message.hops}")
+            else:
+                values.append("Réception directe")
         if message.path:
             values.append(f"Chemin radio : {message.path}")
         return " ; ".join(values) if len(values) > 1 else fallback
