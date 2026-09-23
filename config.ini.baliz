@@ -164,8 +164,8 @@ prefix_best_location_radius_km = 50
 prefix_best_do_not_suggest = 
 
 [Weather]
-weather_provider = noaa
-default_state = WA
+weather_provider = openmeteo
+default_state =
 default_country = FR
 use_bot_location_when_no_location = false
 temperature_unit = celsius
@@ -659,7 +659,7 @@ enabled = false
 [Ask_Command]
 enabled = true
 aliases = baliz
-enabled_routes = test,path,mesh,wiki,llm
+enabled_routes = test,path,mesh,wiki,weather,llm
 route_timeout_seconds = 120
 max_pages = 4
 

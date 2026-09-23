@@ -1537,6 +1537,8 @@ url_timeout = 10
 
 # Command stubs (enable/channels only; omit to use global monitor_channels)
 [Wx_Command]
+# Controls the direct wx/weather keywords. ASK may still use the weather
+# capability internally when its weather route is enabled.
 enabled = true
 
 # Temperature unit for weather reports: fahrenheit (default) or celsius
@@ -1617,7 +1619,7 @@ enabled = true
 # Assistant entry: aliases are additive; ask remains available.
 enabled = true
 aliases = baliz
-enabled_routes = test,path,mesh,wiki,llm
+enabled_routes = test,path,mesh,wiki,weather,llm
 route_timeout_seconds = 120
 # Use the LLM only when the deterministic router cannot classify the question.
 semantic_routing_enabled = true

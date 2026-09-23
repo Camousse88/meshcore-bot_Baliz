@@ -19,6 +19,8 @@ from modules.assistant.router import AssistantRouter, Route
     ("Quelle commande pour configurer la région ?", Route.WIKI, "documentation"),
     ("Comment ajouter les régions à un répéteur ?", Route.WIKI, "configuration_documentation"),
     ("Donne-moi les régions pour un Companion", Route.WIKI, "configuration_documentation"),
+    ("Quelle météo demain à Brest ?", Route.WEATHER, "weather_forecast"),
+    ("What is the weather tomorrow in London?", Route.WEATHER, "weather_forecast"),
     ("bonjour", Route.LLM, "conversation"),
     ("llm raconte une histoire", Route.LLM, "explicit"),
     ("mesh: top 5 contacts", Route.MESH, "explicit"),

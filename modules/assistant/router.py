@@ -10,6 +10,7 @@ class Route(str, Enum):
     PATH = "path"
     MESH = "mesh"
     WIKI = "wiki"
+    WEATHER = "weather"
     LLM = "llm"
     HELP = "help"
 
@@ -73,6 +74,14 @@ class AssistantRouter:
             r"comment vas[- ]tu|ca va|how are you)", conversational
         )):
             return Decision(Route.LLM, question, "conversation")
+        # Weather is live data, never documentation. Keep this before the Wiki
+        # rules so words such as "quelle" or a date cannot send a forecast to RAG.
+        if re.search(
+            r"\b(meteo|weather|previsions? meteo|weather forecast|quel temps|quelle temperature|"
+            r"temperatures?|pluie|pleuv\w*|neige|vent)\b",
+            q,
+        ):
+            return Decision(Route.WEATHER, question, "weather_forecast")
         # Creative requests remain conversation even if they mention radio words
         # such as "courte portee" that can accidentally match the lexical index.
         if re.search(

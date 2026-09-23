@@ -13,6 +13,7 @@ from modules.commands.llm_command import LlmCommand
 from modules.commands.mesh_command import MeshCommand
 from modules.commands.path_command import PathCommand
 from modules.commands.test_command import TestCommand as RFTestCommand
+from modules.commands.wx_command import WxCommand
 from tests.conftest import mock_message
 
 
@@ -22,9 +23,14 @@ def setup_bot(bot, **ask_options):
         bot.config.set(section, "enabled", "true")
     bot.config.set("Ask_Command", "aliases", "baliz")
     bot.config.set("Llm_Command", "cpu_temp_threshold", "0")
+    bot.config.add_section("Weather")
+    bot.config.set("Weather", "weather_provider", "openmeteo")
+    bot.config.set("Weather", "default_country", "FR")
+    bot.config.add_section("Wx_Command")
+    bot.config.set("Wx_Command", "enabled", "false")
     for key, value in ask_options.items():
         bot.config.set("Ask_Command", key, str(value))
-    commands = {c.name: c(bot) for c in (AskCommand, MeshCommand, LlmCommand, RFTestCommand, PathCommand)}
+    commands = {c.name: c(bot) for c in (AskCommand, MeshCommand, LlmCommand, RFTestCommand, PathCommand, WxCommand)}
     bot.command_manager.commands = commands
     sent = []
 
@@ -64,6 +70,20 @@ async def test_baliz_alias_routes_network_to_mesh_only(command_mock_bot):
     commands["mesh"].service.answer.assert_awaited_once_with("combien de répéteurs actifs ?", message)
     commands["llm"].service.answer.assert_not_called()
     assert len(sent) == 1 and sent[0][1] == "4 répéteurs actifs"
+
+
+async def test_baliz_routes_natural_weather_question_to_hidden_wx(command_mock_bot):
+    commands, sent = setup_bot(command_mock_bot)
+    assert commands["wx"].wx_enabled is False
+
+    async def weather(message):
+        assert message.content == "wx brest tomorrow"
+        await commands["wx"].send_response(message, "Brest demain : 16°C, pluie faible.")
+        return True
+
+    commands["wx"].execute = AsyncMock(side_effect=weather)
+    await commands["ask"].execute(mock_message(content="baliz quelle météo demain à Brest ?"))
+    assert sent[0][1] == "Brest demain : 16°C, pluie faible."
 
 
 async def test_ambiguous_question_uses_semantic_router(command_mock_bot):

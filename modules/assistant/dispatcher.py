@@ -1,5 +1,7 @@
 """Capability invocation, retaining caller identity and command restrictions."""
 import asyncio
+import re
+import unicodedata
 from copy import deepcopy
 from typing import Any
 
@@ -7,7 +9,7 @@ from ..models import MeshMessage
 from .router import AssistantRouter, Decision, Route
 from .semantic_router import SemanticRouter
 
-HELP = "ask <question> — réseau, Wiki, réception ou chemin. Routes explicites : mesh, wiki, test, path, llm."
+HELP = "ask <question> — réseau, Wiki, météo, réception ou chemin. Routes explicites : mesh, wiki, test, path, llm."
 
 
 class AssistantDispatcher:
@@ -53,6 +55,8 @@ class AssistantDispatcher:
             return f"La fonction {route.value} est désactivée."
         if route in {Route.TEST, Route.PATH}:
             return await self._rf_tool(route.value, message)
+        if route is Route.WEATHER:
+            return await self._weather_tool(decision.question, message)
         command = self._command("mesh" if route is Route.MESH else "llm")
         if not self._allowed(command, message, service=True):
             return f"La fonction {route.value} est indisponible ou non autorisée ici."
@@ -90,3 +94,39 @@ class AssistantDispatcher:
             if name == "path":
                 return "Ce message ne contient pas de chemin radio exploitable."
             return "Ce message ne contient pas de mesure radio exploitable."
+
+    @staticmethod
+    def _weather_command(question: str) -> str:
+        """Turn a natural-language forecast question into the existing wx syntax."""
+        folded = "".join(
+            char for char in unicodedata.normalize("NFKD", question.casefold())
+            if not unicodedata.combining(char)
+        )
+        option = "tomorrow" if re.search(r"\b(demain|tomorrow)\b", folded) else ""
+        # Prefer a location introduced by an unambiguous preposition. This
+        # covers French and English while leaving a bare request to wx's normal
+        # companion/default-location handling.
+        location = ""
+        matches = list(re.finditer(r"\b(?:a|pour|in|for)\s+([^?!.]+)", folded))
+        if matches:
+            location = matches[-1].group(1).strip()
+        location = re.sub(r"\b(?:demain|tomorrow|aujourd'hui|today)\b", "", location).strip(" ,")
+        return " ".join(part for part in ("wx", location, option) if part)
+
+    async def _weather_tool(self, question: str, message: MeshMessage) -> str:
+        """Invoke wx as an internal ASK capability, even when direct wx is hidden."""
+        from ..commands.wx_command import WxCommand
+
+        command = self._command("wx")
+        if type(command) is not WxCommand or not self._allowed(command, message, service=True):
+            return "Le service météo est indisponible ou non autorisé ici."
+        async with self._rf_lock:
+            cloned = deepcopy(message)
+            cloned.content = self._weather_command(question)
+            cloned.content_lower = cloned.content.casefold()
+            cloned.prefix_normalized = True
+            cloned.capture_sink = []
+            await command.execute(cloned)
+            if cloned.capture_sink:
+                return "\n".join(cloned.capture_sink)
+            return "Le service météo n'a renvoyé aucune prévision."

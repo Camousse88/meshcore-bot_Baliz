@@ -253,10 +253,11 @@ class WxCommand(BaseCommand):
         )
 
     def can_execute(self, message: MeshMessage, skip_channel_check: bool = False) -> bool:
-        """Override to delegate or use base class cooldown"""
-        # Check if wx command is enabled
-        if not self.wx_enabled:
-            return False
+        """Check direct wx access; ASK can use the capability independently."""
+        return self.wx_enabled and self.can_use_service(message, skip_channel_check)
+
+    def can_use_service(self, message: MeshMessage, skip_channel_check: bool = False) -> bool:
+        """Allow ASK to use weather while the direct wx command stays hidden."""
 
         if self.delegate_command:
             # Enforce [Wx_Command] channels first; delegate uses skip_channel_check
@@ -266,7 +267,7 @@ class WxCommand(BaseCommand):
             return self.delegate_command.can_execute(message, skip_channel_check=True)
 
         # Use base class for cooldown and other checks
-        return super().can_execute(message)
+        return super().can_execute(message, skip_channel_check)
 
     def get_remaining_cooldown(self, user_id: Optional[str] = None) -> int:
         """Get remaining cooldown time for a specific user"""
