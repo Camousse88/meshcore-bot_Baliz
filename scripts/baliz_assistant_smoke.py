@@ -76,6 +76,12 @@ async def run(args):
         bot.translator.get_value = Mock(return_value=None)
         bot.translator.translate = Mock(side_effect=lambda k, **kw: k)
         bot.db_manager.connection = connection
+        # MagicMock cache methods are truthy by default and would be mistaken
+        # for real geocoding records by the wx capability.
+        bot.db_manager.get_cached_geocoding = Mock(return_value=(None, None))
+        bot.db_manager.get_cached_json = Mock(return_value=None)
+        bot.db_manager.cache_geocoding = Mock()
+        bot.db_manager.cache_json = Mock()
         bot.command_manager.monitor_channels = ["test"]
         bot.command_manager.commands = {c.name: c(bot) for c in (
             AskCommand, MeshCommand, LlmCommand, TestCommand, PathCommand, WxCommand,
