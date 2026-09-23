@@ -2535,6 +2535,12 @@ class TestClockDriftFreshness:
                 return row
         return None
 
+    def test_db_timestamp_uses_configured_timezone(self, viewer_with_db):
+        viewer_with_db.config.set("Bot", "timezone", "Europe/Paris")
+        parsed = viewer_with_db._parse_db_timestamp("2026-09-23 17:25:28")
+        expected = datetime(2026, 9, 23, 15, 25, 28, tzinfo=timezone.utc).timestamp()
+        assert parsed == expected
+
     def test_fresh_advert_overrides_stale_out_of_sync_message(self, viewer_with_db):
         """TigroBot case: stale 4h-drift message + fresh in-sync advert."""
         now_epoch = int(time.time())

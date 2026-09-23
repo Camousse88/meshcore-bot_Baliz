@@ -55,10 +55,9 @@ db_path = /var/lib/meshcore-bot/meshcore_bot.db
 service_restart_backoff_seconds = 300
 send_timeout_seconds = 30
 prefix_bytes = 3
-# The Baliz radio firmware interprets its wall clock in the configured local
-# timezone before publishing Unix timestamps. Keep its clock on Europe/Paris;
-# database timestamps and Web Viewer drift calculations remain UTC.
-radio_clock_use_local_time = true
+# Keep the MeshCore protocol clock in UTC. The Web Viewer converts the naive
+# database reception timestamps from the configured Europe/Paris timezone.
+radio_clock_use_local_time = false
 local_dir_path = /var/lib/meshcore-bot/local
 
 [Admin]

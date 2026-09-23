@@ -22,10 +22,10 @@ Ce profil est propre au fork Baliz. Il ne remplace pas `config.ini.example`.
   Le rayon du tableau de synchronisation d'horloge est de 5 sauts
   (`Clock_Sync_Admin.dashboard_hop_radius`).
 
-`[Bot] timezone = Europe/Paris` règle les opérations visibles du bot en heure
-française. `radio_clock_use_local_time = true` règle aussi l'horloge murale du
-firmware radio sur ce fuseau. Le service et les horodatages de la base restent
-en UTC afin que le Web Viewer puisse calculer la dérive sans décalage saisonnier.
+`[Bot] timezone = Europe/Paris` règle les opérations visibles du bot et permet
+au Web Viewer d'interpréter correctement les dates locales stockées sans fuseau.
+`radio_clock_use_local_time = false` conserve l'horloge du protocole MeshCore en
+UTC ; le calcul de dérive convertit les dates de réception avant comparaison.
 
 ## Adaptation au routeur
 

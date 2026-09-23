@@ -121,7 +121,7 @@ from modules.settings_schema import (
     validate_field,
 )
 from modules.settings_store import get_settings_store
-from modules.utils import resolve_path
+from modules.utils import get_config_timezone, resolve_path
 from modules.web_viewer.config_panels import CONFIG_PANELS, PANEL_CATEGORIES
 from modules.web_viewer.dashboard_stats import (
     SERIES_METRICS,
@@ -7204,15 +7204,20 @@ class BotDataViewer:
             if conn:
                 conn.close()
 
-    @staticmethod
-    def _parse_db_timestamp(value: Any) -> Optional[float]:
-        """Parse a naive UTC timestamp from the DB into epoch seconds."""
+    def _parse_db_timestamp(self, value: Any) -> Optional[float]:
+        """Parse a naive DB timestamp in the bot's configured timezone."""
         if value is None:
             return None
         text = str(value).strip()
+        tz, _ = get_config_timezone(self.config, self.logger)
         for fmt in ('%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d %H:%M:%S'):
             try:
-                return datetime.strptime(text, fmt).replace(tzinfo=timezone.utc).timestamp()
+                naive = datetime.strptime(text, fmt)
+                if hasattr(tz, 'localize'):
+                    aware = tz.localize(naive)
+                else:
+                    aware = naive.replace(tzinfo=tz)
+                return aware.timestamp()
             except ValueError:
                 continue
         return None
