@@ -99,8 +99,9 @@ class AssistantDispatcher:
                             raw_answer,
                             context=(
                                 "Il s'agit de la mesure de réception du message par le bot. "
-                                "Réponds directement à l'utilisateur et explique brièvement "
-                                "la qualité de réception à partir des mesures disponibles."
+                                "Réponds directement par oui et reformule brièvement les mesures. "
+                                "Ne qualifie pas la liaison (bonne, moyenne, faible ou médiocre) "
+                                "si cette qualification n'est pas déjà présente dans les données."
                             ),
                             max_length=220,
                         )

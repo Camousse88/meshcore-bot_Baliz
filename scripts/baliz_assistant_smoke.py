@@ -135,7 +135,7 @@ async def run(args):
             if "combien de répéteurs" in question:
                 passed = passed and "2" in text
             if "reçois" in question:
-                passed = passed and "7.5" in text
+                passed = passed and ("7.5" in text or "7,5" in text)
             if "régions" in question:
                 passed = passed and len(output) <= 2 and not any(
                     marker in text for marker in ("```", "||", "▼", "**")
