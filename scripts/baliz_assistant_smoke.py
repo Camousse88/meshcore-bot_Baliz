@@ -22,6 +22,7 @@ from modules.commands.llm_command import LlmCommand
 from modules.commands.mesh_command import MeshCommand
 from modules.commands.path_command import PathCommand
 from modules.commands.test_command import TestCommand
+from modules.commands.wx_command import WxCommand
 from modules.models import MeshMessage
 
 
@@ -61,6 +62,13 @@ async def run(args):
                 "context_include_weather": "false", "context_include_commands": "false",
                 "system_prompt": "Réponds brièvement en français. Tu es Baliz sur un banc de test.",
             },
+            "Weather": {
+                "weather_provider": "openmeteo", "default_country": "FR",
+                "temperature_unit": "celsius", "wind_speed_unit": "kmh",
+                "precipitation_unit": "mm",
+            },
+            # Direct wx stays hidden; ASK still has access to its capability.
+            "Wx_Command": {"enabled": "false"},
         })
         bot = MagicMock()
         bot.config = config
@@ -69,7 +77,9 @@ async def run(args):
         bot.translator.translate = Mock(side_effect=lambda k, **kw: k)
         bot.db_manager.connection = connection
         bot.command_manager.monitor_channels = ["test"]
-        bot.command_manager.commands = {c.name: c(bot) for c in (AskCommand, MeshCommand, LlmCommand, TestCommand, PathCommand)}
+        bot.command_manager.commands = {c.name: c(bot) for c in (
+            AskCommand, MeshCommand, LlmCommand, TestCommand, PathCommand, WxCommand,
+        )}
         output = []
         async def capture(message, text, **kw):
             if message.capture_sink is not None:
@@ -88,6 +98,7 @@ async def run(args):
             questions += ["baliz mesh combien de répéteurs sont dans la base ?",
                           "baliz wiki " + ("comment choisir la région radio pour un Companion ?" if args.wiki_index else "quelle est la configuration demo_region du banc de test Baliz ?"),
                           "baliz llm dis bonjour en une courte phrase"]
+            questions += ["baliz quelle météo demain à Brest ?"]
             if args.wiki_index:
                 questions += [
                     "baliz qui es-tu ?",
@@ -121,6 +132,8 @@ async def run(args):
                 passed = passed and all(command in text for command in (
                     "region def", "region default", "region save",
                 ))
+            if "météo demain à Brest" in question:
+                passed = passed and "brest" in text.casefold()
             report.append({"question": question, "route": ask.dispatcher.router.decide(question.split(" ", 1)[1]).route.value,
                            "passed": passed, "answer": text, "pages": len(output)})
         print(json.dumps({"radio_started": False, "live_llm": args.live, "results": report}, ensure_ascii=False, indent=2))
