@@ -101,7 +101,7 @@ class AssistantDispatcher:
         folded = "".join(
             char for char in unicodedata.normalize("NFKD", question.casefold())
             if not unicodedata.combining(char)
-        )
+        ).replace("’", "'").replace("`", "'")
         option = "tomorrow" if re.search(r"\b(demain|tomorrow)\b", folded) else ""
         # Prefer a location introduced by an unambiguous preposition. This
         # covers French and English while leaving a bare request to wx's normal
@@ -110,7 +110,11 @@ class AssistantDispatcher:
         matches = list(re.finditer(r"\b(?:a|pour|in|for)\s+([^?!.]+)", folded))
         if matches:
             location = matches[-1].group(1).strip()
-        location = re.sub(r"\b(?:demain|tomorrow|aujourd'hui|today)\b", "", location).strip(" ,")
+        location = re.sub(
+            r"\b(?:demain|tomorrow|aujourd'hui|today|ce soir|tonight)\b",
+            "",
+            location,
+        ).strip(" ,")
         return " ".join(part for part in ("wx", location, option) if part)
 
     async def _weather_tool(self, question: str, message: MeshMessage) -> str:

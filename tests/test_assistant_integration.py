@@ -90,6 +90,18 @@ async def test_baliz_routes_natural_weather_question_to_hidden_wx(command_mock_b
     commands["llm"].service.rephrase_tool_result.assert_awaited_once()
 
 
+@pytest.mark.parametrize(("question", "expected"), [
+    ("météo à Brest aujourd’hui ?", "wx brest"),
+    ("météo à Brest aujourd'hui ?", "wx brest"),
+    ("weather in London today?", "wx london"),
+    ("météo demain à Brest ?", "wx brest tomorrow"),
+])
+def test_weather_question_builds_clean_wx_location(question, expected):
+    from modules.assistant.dispatcher import AssistantDispatcher
+
+    assert AssistantDispatcher._weather_command(question) == expected
+
+
 async def test_weather_keeps_raw_tool_data_when_llm_rephrase_fails(command_mock_bot):
     commands, sent = setup_bot(command_mock_bot)
     commands["llm"].service.rephrase_tool_result = AsyncMock(return_value=None)

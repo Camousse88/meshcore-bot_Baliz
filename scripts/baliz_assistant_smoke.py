@@ -105,6 +105,7 @@ async def run(args):
                           "baliz wiki " + ("comment choisir la région radio pour un Companion ?" if args.wiki_index else "quelle est la configuration demo_region du banc de test Baliz ?"),
                           "baliz llm dis bonjour en une courte phrase"]
             questions += ["baliz quelle météo demain à Brest ?"]
+            questions += ["baliz météo à Brest aujourd’hui ?"]
             if args.wiki_index:
                 questions += [
                     "baliz qui es-tu ?",
@@ -138,7 +139,7 @@ async def run(args):
                 passed = passed and all(command in text for command in (
                     "region def", "region default", "region save",
                 ))
-            if "météo demain à Brest" in question:
+            if "météo demain à Brest" in question or "météo à Brest aujourd’hui" in question:
                 passed = passed and "brest" in text.casefold()
             report.append({"question": question, "route": ask.dispatcher.router.decide(question.split(" ", 1)[1]).route.value,
                            "passed": passed, "answer": text, "pages": len(output)})
