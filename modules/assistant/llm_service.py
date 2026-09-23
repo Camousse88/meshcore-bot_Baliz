@@ -1301,6 +1301,19 @@ class LlmService:
         }
         return all(value.replace(",", ".") in answer_numbers for value in source_numbers)
 
+    @staticmethod
+    def _uses_only_tool_numbers(source: str, answer: str) -> bool:
+        """Allow concise omissions, but never a numeric value absent from the tool."""
+        source_numbers = {
+            value.replace(",", ".")
+            for value in re.findall(r"-?\d+(?:[.,]\d+)?", source)
+        }
+        answer_numbers = {
+            value.replace(",", ".")
+            for value in re.findall(r"-?\d+(?:[.,]\d+)?", answer)
+        }
+        return bool(answer_numbers) and answer_numbers.issubset(source_numbers)
+
     async def rephrase_tool_result(
         self,
         question: str,
@@ -1343,9 +1356,47 @@ class LlmService:
             if not isinstance(content, str) or not content.strip():
                 return None
             cleaned = self._clean_ai_response(content, max_length)
-            if not self._preserves_tool_numbers(source, cleaned):
-                self.logger.warning("Tool reformulation changed or omitted measured values")
+            if self._preserves_tool_numbers(source, cleaned):
+                return cleaned
+            if not self._uses_only_tool_numbers(source, cleaned):
+                self.logger.warning("Tool reformulation introduced a value absent from source")
                 return None
+
+            source_values = {
+                value.replace(",", ".")
+                for value in re.findall(r"-?\d+(?:[.,]\d+)?", source)
+            }
+            answer_values = {
+                value.replace(",", ".")
+                for value in re.findall(r"-?\d+(?:[.,]\d+)?", cleaned)
+            }
+            missing = ", ".join(sorted(source_values - answer_values))
+            retry_messages = messages + [
+                {"role": "assistant", "content": cleaned},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Il manque les valeurs suivantes : {missing}. Reformule à nouveau en les "
+                        "conservant toutes, sans ajouter d'autre nombre."
+                    ),
+                },
+            ]
+            retry_payload = self._build_payload(messages=retry_messages)
+            retry_payload["temperature"] = 0
+            retry_payload["max_tokens"] = min(self.max_tokens, 96)
+            async with self._answer_lock:
+                retry = await asyncio.to_thread(
+                    post_chat, self.endpoint, retry_payload, self.timeout_seconds
+                )
+            if retry.status_code == 200:
+                retry_content = retry.json()["choices"][0]["message"].get("content", "")
+                if isinstance(retry_content, str) and retry_content.strip():
+                    retried = self._clean_ai_response(retry_content, max_length)
+                    if self._uses_only_tool_numbers(source, retried):
+                        return retried
+            # The first reformulation is still grounded: it only shortened the
+            # source. Prefer it to exposing compact provider notation to users.
+            self.logger.info("Tool reformulation omitted values after retry; using safe concise answer")
             return cleaned
         except (requests.RequestException, ValueError, TypeError, IndexError, KeyError) as exc:
             self.logger.warning("Tool reformulation failed: %s", exc)
