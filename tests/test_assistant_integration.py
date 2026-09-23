@@ -346,6 +346,10 @@ async def test_hidden_test_command_remains_available_to_ask_and_is_rephrased(com
 
     assert sent[0][1] == "Oui, je te reçois avec un SNR de 7,5 dB et un RSSI de -92 dBm."
     commands["llm"].service.rephrase_tool_result.assert_awaited_once()
+    source = commands["llm"].service.rephrase_tool_result.await_args.args[1]
+    assert "SNR : 7.5 dB" in source
+    assert "RSSI : -92 dBm" in source
+    assert "Fr22_Dakota" not in source and "Received at" not in source
 
 
 async def test_timeout_has_one_response_and_no_fallback(command_mock_bot):

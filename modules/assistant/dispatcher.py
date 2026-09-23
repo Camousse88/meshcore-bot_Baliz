@@ -94,9 +94,10 @@ class AssistantDispatcher:
                 if name == "test":
                     llm = self._command("llm")
                     if self._allowed(llm, message, service=True):
+                        measurements = self._reception_measurements(message, raw_answer)
                         reformulated = await llm.service.rephrase_tool_result(
                             question,
-                            raw_answer,
+                            measurements,
                             context=(
                                 "Il s'agit de la mesure de réception du message par le bot. "
                                 "Réponds directement par oui et reformule brièvement les mesures. "
@@ -111,6 +112,20 @@ class AssistantDispatcher:
             if name == "path":
                 return "Ce message ne contient pas de chemin radio exploitable."
             return "Ce message ne contient pas de mesure radio exploitable."
+
+    @staticmethod
+    def _reception_measurements(message: MeshMessage, fallback: str) -> str:
+        """Build a format-independent summary of the received RF measurements."""
+        values = ["Message reçu par le bot"]
+        if message.snr is not None:
+            values.append(f"SNR : {message.snr} dB")
+        if message.rssi is not None:
+            values.append(f"RSSI : {message.rssi} dBm")
+        if message.hops is not None:
+            values.append(f"Nombre de sauts : {message.hops}")
+        if message.path:
+            values.append(f"Chemin radio : {message.path}")
+        return " ; ".join(values) if len(values) > 1 else fallback
 
     @staticmethod
     def _weather_command(question: str) -> str:
