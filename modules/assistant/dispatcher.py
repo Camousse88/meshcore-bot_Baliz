@@ -132,7 +132,7 @@ class AssistantDispatcher:
         return " ; ".join(values) if len(values) > 1 else fallback
 
     @staticmethod
-    def _weather_command(question: str) -> str:
+    def _weather_command(question: str, default_location: str = "") -> str:
         """Turn a natural-language forecast question into the existing wx syntax."""
         folded = "".join(
             char for char in unicodedata.normalize("NFKD", question.casefold())
@@ -151,6 +151,8 @@ class AssistantDispatcher:
             "",
             location,
         ).strip(" ,")
+        if not location:
+            location = default_location.strip()
         return " ".join(part for part in ("wx", location, option) if part)
 
     @staticmethod
@@ -234,9 +236,12 @@ class AssistantDispatcher:
         command = self._command("wx")
         if type(command) is not WxCommand or not self._allowed(command, message, service=True):
             return "Le service météo est indisponible ou non autorisé ici."
+        default_location = self.owner.bot.config.get(
+            "Weather", "default_city", fallback=""
+        ).strip()
         async with self._rf_lock:
             cloned = deepcopy(message)
-            cloned.content = self._weather_command(question)
+            cloned.content = self._weather_command(question, default_location)
             cloned.content_lower = cloned.content.casefold()
             cloned.prefix_normalized = True
             cloned.capture_sink = []

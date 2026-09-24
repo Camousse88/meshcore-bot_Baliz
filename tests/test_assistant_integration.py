@@ -136,6 +136,14 @@ def test_weather_question_builds_clean_wx_location(question, expected):
     assert AssistantDispatcher._weather_command(question) == expected
 
 
+def test_weather_question_without_location_uses_configured_default():
+    from modules.assistant.dispatcher import AssistantDispatcher
+
+    assert AssistantDispatcher._weather_command(
+        "météo de demain", "Bretagne"
+    ) == "wx Bretagne tomorrow"
+
+
 def test_weather_codes_are_labelled_before_llm_rephrasing():
     from modules.assistant.dispatcher import AssistantDispatcher
 
