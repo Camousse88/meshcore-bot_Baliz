@@ -92,15 +92,16 @@ async def test_baliz_routes_natural_weather_question_to_hidden_wx(command_mock_b
     assert "H signifie température maximale" in rephrase.kwargs["context"]
     assert "L température minimale" in rephrase.kwargs["context"]
     assert "jamais une température intérieure ou extérieure" in rephrase.kwargs["context"]
-    assert rephrase.kwargs["max_length"] == 120
+    assert "T° (température actuelle), T° Max, T° Min, Vent et Raf." in rephrase.kwargs["context"]
+    assert "seulement pour la période demandée" in rephrase.kwargs["context"]
+    assert rephrase.kwargs["max_length"] == 105
 
 
 async def test_weather_reply_is_always_one_mesh_message(command_mock_bot):
     commands, sent = setup_bot(command_mock_bot)
     commands["llm"].service.rephrase_tool_result = AsyncMock(
         return_value=(
-            "Demain à Brest, le ciel sera couvert avec une température maximale de 21 °C, "
-            "une minimale de 13 °C, un vent de 17 km/h et des rafales de 36 km/h."
+            "Brest : couvert, T° Max 21°C, T° Min 13°C, Vent 17 km/h, Raf. 36 km/h."
         )
     )
 
@@ -116,6 +117,10 @@ async def test_weather_reply_is_always_one_mesh_message(command_mock_bot):
 
     assert len(sent) == 1
     assert len(sent[0][1].encode("utf-8")) <= commands["ask"].get_max_message_length(message)
+    assert "T° Max 21°C" in sent[0][1]
+    assert "T° Min 13°C" in sent[0][1]
+    assert "Vent 17 km/h" in sent[0][1]
+    assert "Raf. 36 km/h" in sent[0][1]
 
 
 @pytest.mark.parametrize(("question", "expected"), [

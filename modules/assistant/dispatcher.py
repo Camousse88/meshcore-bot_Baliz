@@ -210,13 +210,16 @@ class AssistantDispatcher:
                 "H signifie température maximale et L température minimale. "
                 f"Une notation comme 17G36 signifie vent 17 et rafales 36 en {wind_label}. "
                 "Ces valeurs ne désignent jamais une température intérieure ou extérieure. "
-                "Réponds en une seule phrase très courte."
+                "Réponds seulement pour la période demandée. Utilise les libellés compacts "
+                "T° (température actuelle), T° Max, T° Min, Vent et Raf. Exemple de forme : "
+                "Brest : couvert, T° 16°C, T° Max 27°C, T° Min 13°C, Vent 17 km/h, Raf. 36 km/h. "
+                "Une seule phrase, sans expliquer les abréviations et sans dépasser 105 caractères."
             )
             reformulated = await llm.service.rephrase_tool_result(
                 question,
                 labelled_answer,
                 context=context,
-                max_length=120,
+                max_length=105,
             )
             if reformulated:
                 return split_reply(
