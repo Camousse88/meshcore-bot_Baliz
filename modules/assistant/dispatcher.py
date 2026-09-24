@@ -193,6 +193,26 @@ class AssistantDispatcher:
             expanded,
             flags=re.IGNORECASE,
         )
+        # Open-Meteo puts the current temperature directly after the weather
+        # condition, before the labelled H/L extrema. Label it explicitly so
+        # the rephrasing model cannot present it as another maximum.
+        current_match = re.search(
+            r"(\b(?:aujourd['’]hui|today|demain|tomorrow)\s*:\s*[^|;\n]*?)"
+            r"(-?\d+(?:[.,]\d+)?\s*°[CF]?)",
+            expanded,
+            flags=re.IGNORECASE,
+        )
+        if current_match and not re.search(
+            r"température\s+(?:maximale|minimale)",
+            current_match.group(1),
+            flags=re.IGNORECASE,
+        ):
+            expanded = (
+                expanded[:current_match.start(2)]
+                + "température actuelle : "
+                + current_match.group(2)
+                + expanded[current_match.end(2):]
+            )
         unit = f" {wind_unit}" if wind_unit else ""
         expanded = re.sub(
             r"(?<![\w.,])([NSEOW]{1,3})?(-?\d+(?:[.,]\d+)?)G(-?\d+(?:[.,]\d+)?)(?![\w.,])",
@@ -280,6 +300,8 @@ class AssistantDispatcher:
             labelled_answer = self._expand_weather_notation(requested_answer, wind_unit)
             context = (
                 "H signifie température maximale et L température minimale. "
+                "La température actuelle est une mesure distincte : ne la présente jamais "
+                "comme une minimale ou une maximale. "
                 f"Une notation comme 17G36 signifie vent 17 et rafales 36 en {wind_label}. "
                 "Ces valeurs ne désignent jamais une température intérieure ou extérieure. "
                 "Réponds seulement pour la période demandée, dans une formulation naturelle. "

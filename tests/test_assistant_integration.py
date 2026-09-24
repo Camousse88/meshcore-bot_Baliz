@@ -171,7 +171,8 @@ def test_weather_source_drops_pictograms_and_expands_directional_wind():
         "km/h",
     )
     assert expanded == (
-        "Brest: Aujourd'hui: Couvert 16°C vent : E 8 km/h; rafales : 13 km/h "
+        "Brest: Aujourd'hui: Couvert température actuelle : 16°C "
+        "vent : E 8 km/h; rafales : 13 km/h "
         "humidité : 82 % | température maximale : 27°C température minimale : 13°C"
     )
     assert not any(symbol in expanded for symbol in ("☁", "💧", "👁", "📊"))
