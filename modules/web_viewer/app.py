@@ -2937,7 +2937,12 @@ class BotDataViewer:
 
         @self.app.route('/api/mesh/nodes')
         def api_mesh_nodes():
-            """Get all repeater nodes with locations and metadata. Prefix length from query param or [Bot] prefix_bytes."""
+            """Get repeater nodes with locations and metadata.
+
+            ``days`` limits nodes to the selected Node Timeframe.  Keeping the
+            filtering in this endpoint also means the country selector can be
+            built solely from countries heard during that same period.
+            """
             conn = None
             try:
                 prefix_hex_chars = request.args.get('prefix_hex_chars', type=int)
@@ -2945,8 +2950,17 @@ class BotDataViewer:
                     prefix_hex_chars = self.config.getint('Bot', 'prefix_bytes', fallback=1) * 2
                 if prefix_hex_chars <= 0:
                     prefix_hex_chars = 2
+                days = request.args.get('days', type=int)
+                if days is not None and days <= 0:
+                    days = None
                 conn = self._get_db_connection()
                 cursor = conn.cursor()
+
+                time_clause = ''
+                query_params = []
+                if days is not None:
+                    time_clause = "AND last_heard >= datetime('now', 'localtime', ?)"
+                    query_params.append(f'-{days} days')
 
                 query = f'''
                     SELECT
@@ -2969,10 +2983,11 @@ class BotDataViewer:
                     AND longitude IS NOT NULL
                     AND latitude != 0
                     AND longitude != 0
+                    {time_clause}
                     ORDER BY name
                 '''
 
-                cursor.execute(query)
+                cursor.execute(query, query_params)
                 rows = cursor.fetchall()
 
                 nodes = []
