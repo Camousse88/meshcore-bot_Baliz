@@ -1101,6 +1101,40 @@ class TestMeshRoutes:
                 )
                 conn.commit()
 
+    def test_api_mesh_nodes_timeframe_limits_country_options(self, client, viewer):
+        recent_key = "cd" * 32
+        stale_key = "ce" * 32
+        with closing(sqlite3.connect(viewer.db_path)) as conn:
+            conn.executemany(
+                """INSERT OR REPLACE INTO complete_contact_tracking
+                   (public_key, name, role, latitude, longitude, country,
+                    last_heard, is_starred, is_currently_tracked)
+                   VALUES (?, ?, 'repeater', ?, ?, ?,
+                           datetime('now', 'localtime', ?), 0, 1)""",
+                [
+                    (recent_key, 'Recent French repeater', 48.4, -4.5,
+                     'France', '-1 hour'),
+                    (stale_key, 'Stale German repeater', 52.5, 13.4,
+                     'Deutschland', '-10 days'),
+                ],
+            )
+            conn.commit()
+
+        try:
+            resp = client.get('/api/mesh/nodes?days=1')
+            assert resp.status_code == 200
+            nodes = resp.get_json()['nodes']
+            keys = {node['public_key'] for node in nodes}
+            assert recent_key in keys
+            assert stale_key not in keys
+        finally:
+            with closing(sqlite3.connect(viewer.db_path)) as conn:
+                conn.executemany(
+                    'DELETE FROM complete_contact_tracking WHERE public_key = ?',
+                    [(recent_key,), (stale_key,)],
+                )
+                conn.commit()
+
     def test_api_mesh_edges_returns_json(self, client):
         resp = client.get("/api/mesh/edges")
         assert resp.status_code == 200
