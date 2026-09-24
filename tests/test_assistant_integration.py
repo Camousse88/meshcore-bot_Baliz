@@ -92,9 +92,10 @@ async def test_baliz_routes_natural_weather_question_to_hidden_wx(command_mock_b
     assert "H signifie température maximale" in rephrase.kwargs["context"]
     assert "L température minimale" in rephrase.kwargs["context"]
     assert "jamais une température intérieure ou extérieure" in rephrase.kwargs["context"]
-    assert "T° (température actuelle), T° Max, T° Min, Vent et Raf." in rephrase.kwargs["context"]
+    assert "dans une formulation naturelle" in rephrase.kwargs["context"]
+    assert "comme une plage" in rephrase.kwargs["context"]
     assert "seulement pour la période demandée" in rephrase.kwargs["context"]
-    assert rephrase.kwargs["max_length"] == 105
+    assert rephrase.kwargs["max_length"] == 135
 
 
 async def test_weather_reply_is_always_one_mesh_message(command_mock_bot):
@@ -160,6 +161,22 @@ def test_weather_source_drops_pictograms_and_expands_directional_wind():
     assert not any(symbol in expanded for symbol in ("☁", "💧", "👁", "📊"))
     assert "28" not in expanded
     assert "1017" not in expanded
+
+
+def test_today_weather_source_excludes_tomorrow():
+    from modules.assistant.dispatcher import AssistantDispatcher
+
+    source = "Aujourd'hui: Couvert 16°C | H:27°C L:13°C | Demain: H:21°C L:12°C"
+    selected = AssistantDispatcher._select_weather_period("météo à Brest aujourd'hui", source)
+    assert selected == "Aujourd'hui: Couvert 16°C | H:27°C L:13°C"
+    assert "Demain" not in selected
+
+
+def test_tomorrow_weather_source_is_preserved():
+    from modules.assistant.dispatcher import AssistantDispatcher
+
+    source = "Brest: Demain: Couvert H:21°C L:12°C"
+    assert AssistantDispatcher._select_weather_period("météo demain à Brest", source) == source
 
 
 async def test_weather_keeps_raw_tool_data_when_llm_rephrase_fails(command_mock_bot):

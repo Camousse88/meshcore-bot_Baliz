@@ -209,6 +209,24 @@ class AssistantDispatcher:
         )
         return re.sub(r"\s{2,}", " ", expanded).strip()
 
+    @staticmethod
+    def _select_weather_period(question: str, source: str) -> str:
+        """Keep the forecast period requested instead of cramming in the next day."""
+        folded = "".join(
+            char for char in unicodedata.normalize("NFKD", question.casefold())
+            if not unicodedata.combining(char)
+        )
+        if re.search(r"\b(demain|tomorrow)\b", folded):
+            return source
+        # The default Open-Meteo reply appends tomorrow after today's values.
+        # ASK answers only the requested current/today period in its one packet.
+        return re.split(
+            r"\s*\|\s*(?:demain|tomorrow)\s*:",
+            source,
+            maxsplit=1,
+            flags=re.IGNORECASE,
+        )[0].strip()
+
     async def _weather_tool(self, question: str, message: MeshMessage) -> str:
         """Invoke wx as an internal ASK capability, even when direct wx is hidden."""
         from ..commands.wx_command import WxCommand
@@ -235,23 +253,25 @@ class AssistantDispatcher:
             provider = getattr(command, "delegate_command", None)
             wind_unit = getattr(provider, "wind_speed_unit", "")
             wind_label = wind_unit or "l'unité indiquée par la source"
-            labelled_answer = self._expand_weather_notation(raw_answer, wind_unit)
+            requested_answer = self._select_weather_period(question, raw_answer)
+            labelled_answer = self._expand_weather_notation(requested_answer, wind_unit)
             context = (
                 "H signifie température maximale et L température minimale. "
                 f"Une notation comme 17G36 signifie vent 17 et rafales 36 en {wind_label}. "
                 "Ces valeurs ne désignent jamais une température intérieure ou extérieure. "
-                "Réponds seulement pour la période demandée. Utilise les libellés compacts "
-                "T° (température actuelle), T° Max, T° Min, Vent et Raf. Exemple de forme : "
-                "Brest : couvert, T° 16°C, T° Max 27°C, T° Min 13°C, Vent 17 km/h, Raf. 36 km/h. "
-                "Ajoute l'humidité seulement si elle tient. Aucun emoji, aucun code météo brut, "
-                "aucun point de rosée, visibilité ou pression. Une seule phrase, sans expliquer "
-                "les abréviations et sans dépasser 105 caractères."
+                "Réponds seulement pour la période demandée, dans une formulation naturelle. "
+                "Présente les températures minimale et maximale comme une plage. Exemple de forme : "
+                "À Brest aujourd'hui : ciel couvert, 16°C, de 13 à 27°C. "
+                "Vent d'est à 8 km/h, rafales à 13 km/h, humidité 82 %. "
+                "Aucun emoji, aucune liste de champs, aucun code météo brut, "
+                "aucun point de rosée, visibilité ou pression. Un seul message, sans expliquer "
+                "les abréviations et sans dépasser 125 caractères."
             )
             reformulated = await llm.service.rephrase_tool_result(
                 question,
                 labelled_answer,
                 context=context,
-                max_length=105,
+                max_length=135,
             )
             if reformulated:
                 return split_reply(
