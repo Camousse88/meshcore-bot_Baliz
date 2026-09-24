@@ -229,6 +229,18 @@ class AssistantDispatcher:
             flags=re.IGNORECASE,
         )[0].strip()
 
+    @staticmethod
+    def _replace_weather_location(source: str, location: str) -> str:
+        """Keep the configured regional label instead of a geocoder centroid town."""
+        if not location.strip():
+            return source
+        return re.sub(
+            r"^[^:\n]+:",
+            f"{location.strip()}:",
+            source,
+            count=1,
+        )
+
     async def _weather_tool(self, question: str, message: MeshMessage) -> str:
         """Invoke wx as an internal ASK capability, even when direct wx is hidden."""
         from ..commands.wx_command import WxCommand
@@ -239,6 +251,10 @@ class AssistantDispatcher:
         default_location = self.owner.bot.config.get(
             "Weather", "default_city", fallback=""
         ).strip()
+        command_without_default = self._weather_command(question)
+        uses_default_location = bool(default_location) and command_without_default in {
+            "wx", "wx tomorrow"
+        }
         async with self._rf_lock:
             cloned = deepcopy(message)
             cloned.content = self._weather_command(question, default_location)
@@ -249,6 +265,8 @@ class AssistantDispatcher:
             if not cloned.capture_sink:
                 return "Le service météo n'a renvoyé aucune prévision."
             raw_answer = "\n".join(cloned.capture_sink)
+            if uses_default_location:
+                raw_answer = self._replace_weather_location(raw_answer, default_location)
 
         # Tool data remains authoritative. The LLM only turns the compact wx
         # notation into natural language; any error or altered value falls back
@@ -268,6 +286,7 @@ class AssistantDispatcher:
                 "Présente les températures minimale et maximale comme une plage. Exemple de forme : "
                 "À Brest aujourd'hui : ciel couvert, 16°C, de 13 à 27°C. "
                 "Vent d'est à 8 km/h, rafales à 13 km/h, humidité 82 %. "
+                "Pour une région comme Bretagne, écris « En Bretagne » et conserve ce nom. "
                 "Aucun emoji, aucune liste de champs, aucun code météo brut, "
                 "aucun point de rosée, visibilité ou pression. Un seul message, sans expliquer "
                 "les abréviations et sans dépasser 125 caractères."

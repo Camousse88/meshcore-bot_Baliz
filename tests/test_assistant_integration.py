@@ -144,6 +144,14 @@ def test_weather_question_without_location_uses_configured_default():
     ) == "wx Bretagne tomorrow"
 
 
+def test_default_weather_location_replaces_geocoder_centroid_name():
+    from modules.assistant.dispatcher import AssistantDispatcher
+
+    assert AssistantDispatcher._replace_weather_location(
+        "Merléac, FR: Aujourd'hui: Couvert 16°C", "Bretagne"
+    ) == "Bretagne: Aujourd'hui: Couvert 16°C"
+
+
 def test_weather_codes_are_labelled_before_llm_rephrasing():
     from modules.assistant.dispatcher import AssistantDispatcher
 
