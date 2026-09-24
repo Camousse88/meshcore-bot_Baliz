@@ -152,6 +152,15 @@ def test_default_weather_location_replaces_geocoder_centroid_name():
     ) == "Bretagne: Aujourd'hui: Couvert 16°C"
 
 
+def test_default_weather_display_location_survives_llm_rephrasing():
+    from modules.assistant.dispatcher import AssistantDispatcher
+
+    assert AssistantDispatcher._enforce_weather_location(
+        "À Brest aujourd'hui : ciel couvert, 24°C, de 12 à 27°C.",
+        "En Bretagne",
+    ) == "En Bretagne aujourd'hui : ciel couvert, 24°C, de 12 à 27°C."
+
+
 def test_weather_codes_are_labelled_before_llm_rephrasing():
     from modules.assistant.dispatcher import AssistantDispatcher
 

@@ -111,6 +111,8 @@ class WxCommand(BaseCommand):
          "default": "noaa", "help": "API used for forecasts. Shared weather setting."},
         {"key": "default_city", "label": "Default city", "type": "str", "section": "Weather",
          "default": "", "help": "City used for a bare 'wx' when no location is given. Shared weather setting."},
+        {"key": "default_location_label", "label": "Default location label", "type": "str", "section": "Weather",
+         "default": "", "help": "Display label used by ASK for the default weather location, including any preposition."},
         {"key": "default_state", "label": "Default state", "type": "str", "section": "Weather",
          "default": "", "help": "2-letter state for city disambiguation (e.g. WA). Shared weather setting."},
         {"key": "default_country", "label": "Default country", "type": "str", "section": "Weather",

@@ -168,6 +168,7 @@ prefix_best_do_not_suggest =
 [Weather]
 weather_provider = openmeteo
 default_city = Bretagne
+default_location_label = En Bretagne
 default_state =
 default_country = FR
 use_bot_location_when_no_location = false

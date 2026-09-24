@@ -846,6 +846,10 @@ weather_provider = noaa
 # Use English city names (examples: Seattle or Seattle, WA)
 #default_city =
 
+# Optional label used in ASK's natural-language answer for the default location.
+# This may include the appropriate preposition, for example "In Seattle" or "En Bretagne".
+default_location_label =
+
 # Default state for city name disambiguation
 # When users type "wx seattle", it will search for "seattle, WA, USA"
 # Use 2-letter state abbreviation (e.g., WA, CA, NY, TX)

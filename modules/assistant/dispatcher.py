@@ -261,6 +261,24 @@ class AssistantDispatcher:
             count=1,
         )
 
+    @staticmethod
+    def _enforce_weather_location(answer: str, display_location: str) -> str:
+        """Keep the configured display label after non-deterministic LLM rephrasing."""
+        label = display_location.strip()
+        if not label:
+            return answer
+        head, separator, tail = answer.partition(":")
+        if not separator:
+            return f"{label} : {answer.strip()}"
+        period = re.search(
+            r"\b(aujourd['’]hui|demain|today|tomorrow)\b",
+            head,
+            flags=re.IGNORECASE,
+        )
+        if period and period.group(1).casefold() not in label.casefold():
+            label = f"{label} {period.group(1)}"
+        return f"{label} :{tail}"
+
     async def _weather_tool(self, question: str, message: MeshMessage) -> str:
         """Invoke wx as an internal ASK capability, even when direct wx is hidden."""
         from ..commands.wx_command import WxCommand
@@ -271,6 +289,9 @@ class AssistantDispatcher:
         default_location = self.owner.bot.config.get(
             "Weather", "default_city", fallback=""
         ).strip()
+        default_display_location = self.owner.bot.config.get(
+            "Weather", "default_location_label", fallback=default_location
+        ).strip() or default_location
         command_without_default = self._weather_command(question)
         uses_default_location = bool(default_location) and command_without_default in {
             "wx", "wx tomorrow"
@@ -286,7 +307,9 @@ class AssistantDispatcher:
                 return "Le service météo n'a renvoyé aucune prévision."
             raw_answer = "\n".join(cloned.capture_sink)
             if uses_default_location:
-                raw_answer = self._replace_weather_location(raw_answer, default_location)
+                raw_answer = self._replace_weather_location(
+                    raw_answer, default_display_location
+                )
 
         # Tool data remains authoritative. The LLM only turns the compact wx
         # notation into natural language; any error or altered value falls back
@@ -298,6 +321,11 @@ class AssistantDispatcher:
             wind_label = wind_unit or "l'unité indiquée par la source"
             requested_answer = self._select_weather_period(question, raw_answer)
             labelled_answer = self._expand_weather_notation(requested_answer, wind_unit)
+            location_context = (
+                f"Le lieu à afficher est exactement « {default_display_location} » : "
+                "conserve-le et n'en invente aucun autre. "
+                if uses_default_location else ""
+            )
             context = (
                 "H signifie température maximale et L température minimale. "
                 "La température actuelle est une mesure distincte : ne la présente jamais "
@@ -308,7 +336,8 @@ class AssistantDispatcher:
                 "Présente les températures minimale et maximale comme une plage. Exemple de forme : "
                 "À Brest aujourd'hui : ciel couvert, 16°C, de 13 à 27°C. "
                 "Vent d'est à 8 km/h, rafales à 13 km/h, humidité 82 %. "
-                "Pour une région comme Bretagne, écris « En Bretagne » et conserve ce nom. "
+                + location_context
+                +
                 "Aucun emoji, aucune liste de champs, aucun code météo brut, "
                 "aucun point de rosée, visibilité ou pression. Un seul message, sans expliquer "
                 "les abréviations et sans dépasser 125 caractères."
@@ -320,6 +349,10 @@ class AssistantDispatcher:
                 max_length=135,
             )
             if reformulated:
+                if uses_default_location:
+                    reformulated = self._enforce_weather_location(
+                        reformulated, default_display_location
+                    )
                 return split_reply(
                     reformulated,
                     self.owner.get_max_message_length(message),
