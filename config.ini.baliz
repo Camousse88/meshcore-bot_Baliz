@@ -663,7 +663,7 @@ enabled = true
 aliases = baliz
 enabled_routes = test,path,mesh,wiki,weather,llm
 route_timeout_seconds = 120
-max_pages = 4
+max_pages = 1
 
 [Mesh_Command]
 enabled = true

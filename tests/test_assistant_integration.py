@@ -88,6 +88,34 @@ async def test_baliz_routes_natural_weather_question_to_hidden_wx(command_mock_b
     await commands["ask"].execute(mock_message(content="baliz quelle météo demain à Brest ?"))
     assert sent[0][1] == "Demain à Brest, ciel couvert, de 14 à 16 °C."
     commands["llm"].service.rephrase_tool_result.assert_awaited_once()
+    rephrase = commands["llm"].service.rephrase_tool_result.await_args
+    assert "H signifie température maximale" in rephrase.kwargs["context"]
+    assert "L température minimale" in rephrase.kwargs["context"]
+    assert "jamais une température intérieure ou extérieure" in rephrase.kwargs["context"]
+    assert rephrase.kwargs["max_length"] == 120
+
+
+async def test_weather_reply_is_always_one_mesh_message(command_mock_bot):
+    commands, sent = setup_bot(command_mock_bot)
+    commands["llm"].service.rephrase_tool_result = AsyncMock(
+        return_value=(
+            "Demain à Brest, le ciel sera couvert avec une température maximale de 21 °C, "
+            "une minimale de 13 °C, un vent de 17 km/h et des rafales de 36 km/h."
+        )
+    )
+
+    async def weather(message):
+        await commands["wx"].send_response(
+            message, "Brest, FR: Demain: Couvert H:21°C L:13°C 17G36"
+        )
+        return True
+
+    commands["wx"].execute = AsyncMock(side_effect=weather)
+    message = mock_message(content="baliz quelle météo demain à Brest ?")
+    await commands["ask"].execute(message)
+
+    assert len(sent) == 1
+    assert len(sent[0][1].encode("utf-8")) <= commands["ask"].get_max_message_length(message)
 
 
 @pytest.mark.parametrize(("question", "expected"), [

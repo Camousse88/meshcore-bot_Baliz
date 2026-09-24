@@ -6,6 +6,7 @@ from copy import deepcopy
 from typing import Any
 
 from ..models import MeshMessage
+from .response import split_reply
 from .router import AssistantRouter, Decision, Route
 from .semantic_router import SemanticRouter
 
@@ -177,13 +178,27 @@ class AssistantDispatcher:
         if self._allowed(llm, message, service=True):
             provider = getattr(command, "delegate_command", None)
             wind_unit = getattr(provider, "wind_speed_unit", "")
-            context = f"Unité du vent : {wind_unit}." if wind_unit else ""
+            wind_label = wind_unit or "l'unité indiquée par la source"
+            context = (
+                "H signifie température maximale et L température minimale. "
+                f"Une notation comme 17G36 signifie vent 17 et rafales 36 en {wind_label}. "
+                "Ces valeurs ne désignent jamais une température intérieure ou extérieure. "
+                "Réponds en une seule phrase très courte."
+            )
             reformulated = await llm.service.rephrase_tool_result(
                 question,
                 raw_answer,
                 context=context,
-                max_length=220,
+                max_length=120,
             )
             if reformulated:
-                return reformulated
-        return raw_answer
+                return split_reply(
+                    reformulated,
+                    self.owner.get_max_message_length(message),
+                    max_pages=1,
+                )[0]
+        return split_reply(
+            raw_answer,
+            self.owner.get_max_message_length(message),
+            max_pages=1,
+        )[0]

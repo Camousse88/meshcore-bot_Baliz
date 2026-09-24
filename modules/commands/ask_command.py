@@ -22,7 +22,7 @@ class AskCommand(BaseCommand):
         {"key": "semantic_routing_enabled", "label": "LLM routing for ambiguous questions", "type": "bool",
          "default": True, "help": "Use the configured LLM only when deterministic routing is inconclusive."},
         {"key": "max_pages", "label": "Maximum reply pages", "type": "int",
-         "default": 4, "min": 1, "max": 8},
+         "default": 1, "min": 1, "max": 8},
     ]
 
     def __init__(self, bot):
@@ -36,7 +36,7 @@ class AskCommand(BaseCommand):
             raise ValueError(f"Unknown assistant routes: {sorted(unknown)}")
         self.route_timeout_seconds = max(1, min(300, self.get_config_value(
             "Ask_Command", "route_timeout_seconds", fallback=120, value_type="int")))
-        self.max_pages = max(1, min(8, self.get_config_value("Ask_Command", "max_pages", fallback=4, value_type="int")))
+        self.max_pages = max(1, min(8, self.get_config_value("Ask_Command", "max_pages", fallback=1, value_type="int")))
         self.dispatcher = AssistantDispatcher(self)
 
     def can_execute(self, message: MeshMessage, skip_channel_check: bool = False) -> bool:
