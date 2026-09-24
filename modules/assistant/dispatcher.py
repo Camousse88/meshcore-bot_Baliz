@@ -156,10 +156,33 @@ class AssistantDispatcher:
     @staticmethod
     def _expand_weather_notation(source: str, wind_unit: str = "") -> str:
         """Give the LLM labelled values instead of ambiguous compact WX codes."""
+        # Compact providers append point-dew, visibility and pressure fields
+        # behind pictograms. They make the one-packet assistant answer noisy;
+        # the direct wx command remains available when those details are wanted.
+        expanded = re.sub(
+            r"💧\ufe0f?\s*-?\d+(?:[.,]\d+)?\s*°[CF]?",
+            "",
+            source,
+            flags=re.IGNORECASE,
+        )
+        expanded = re.sub(
+            r"👁\ufe0f?\s*-?\d+(?:[.,]\d+)?\s*(?:km|mi)",
+            "",
+            expanded,
+            flags=re.IGNORECASE,
+        )
+        expanded = re.sub(
+            r"(?:📊|📈)\ufe0f?\s*-?\d+(?:[.,]\d+)?\s*(?:hpa|mmhg|inhg)",
+            "",
+            expanded,
+            flags=re.IGNORECASE,
+        )
+        # Remove decorative weather symbols before handing the text to the LLM.
+        expanded = re.sub(r"[\U0001F000-\U0001FAFF\u2600-\u26FF\u2700-\u27BF]\ufe0f?", "", expanded)
         expanded = re.sub(
             r"\bH\s*:\s*(-?\d+(?:[.,]\d+)?\s*°[CF]?)",
             r"température maximale : \1",
-            source,
+            expanded,
             flags=re.IGNORECASE,
         )
         expanded = re.sub(
@@ -170,14 +193,21 @@ class AssistantDispatcher:
         )
         unit = f" {wind_unit}" if wind_unit else ""
         expanded = re.sub(
-            r"(?<![\w.,])(-?\d+(?:[.,]\d+)?)G(-?\d+(?:[.,]\d+)?)(?![\w.,])",
+            r"(?<![\w.,])([NSEOW]{1,3})?(-?\d+(?:[.,]\d+)?)G(-?\d+(?:[.,]\d+)?)(?![\w.,])",
             lambda match: (
-                f"vent : {match.group(1)}{unit}; rafales : {match.group(2)}{unit}"
+                f"vent : {(match.group(1) + ' ') if match.group(1) else ''}"
+                f"{match.group(2)}{unit}; rafales : {match.group(3)}{unit}"
             ),
             expanded,
             flags=re.IGNORECASE,
         )
-        return expanded
+        expanded = re.sub(
+            r"(-?\d+(?:[.,]\d+)?)\s*%RH\b",
+            r"humidité : \1 %",
+            expanded,
+            flags=re.IGNORECASE,
+        )
+        return re.sub(r"\s{2,}", " ", expanded).strip()
 
     async def _weather_tool(self, question: str, message: MeshMessage) -> str:
         """Invoke wx as an internal ASK capability, even when direct wx is hidden."""
@@ -213,7 +243,9 @@ class AssistantDispatcher:
                 "Réponds seulement pour la période demandée. Utilise les libellés compacts "
                 "T° (température actuelle), T° Max, T° Min, Vent et Raf. Exemple de forme : "
                 "Brest : couvert, T° 16°C, T° Max 27°C, T° Min 13°C, Vent 17 km/h, Raf. 36 km/h. "
-                "Une seule phrase, sans expliquer les abréviations et sans dépasser 105 caractères."
+                "Ajoute l'humidité seulement si elle tient. Aucun emoji, aucun code météo brut, "
+                "aucun point de rosée, visibilité ou pression. Une seule phrase, sans expliquer "
+                "les abréviations et sans dépasser 105 caractères."
             )
             reformulated = await llm.service.rephrase_tool_result(
                 question,

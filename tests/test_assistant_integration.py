@@ -146,6 +146,22 @@ def test_weather_codes_are_labelled_before_llm_rephrasing():
     )
 
 
+def test_weather_source_drops_pictograms_and_expands_directional_wind():
+    from modules.assistant.dispatcher import AssistantDispatcher
+
+    expanded = AssistantDispatcher._expand_weather_notation(
+        "Brest: Aujourd'hui: ☁️Couvert 16°C E8G13 82%RH 💧13°C 👁28km 📊1017hPa | H:27°C L:13°C",
+        "km/h",
+    )
+    assert expanded == (
+        "Brest: Aujourd'hui: Couvert 16°C vent : E 8 km/h; rafales : 13 km/h "
+        "humidité : 82 % | température maximale : 27°C température minimale : 13°C"
+    )
+    assert not any(symbol in expanded for symbol in ("☁", "💧", "👁", "📊"))
+    assert "28" not in expanded
+    assert "1017" not in expanded
+
+
 async def test_weather_keeps_raw_tool_data_when_llm_rephrase_fails(command_mock_bot):
     commands, sent = setup_bot(command_mock_bot)
     commands["llm"].service.rephrase_tool_result = AsyncMock(return_value=None)
