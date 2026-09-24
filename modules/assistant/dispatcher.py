@@ -153,6 +153,32 @@ class AssistantDispatcher:
         ).strip(" ,")
         return " ".join(part for part in ("wx", location, option) if part)
 
+    @staticmethod
+    def _expand_weather_notation(source: str, wind_unit: str = "") -> str:
+        """Give the LLM labelled values instead of ambiguous compact WX codes."""
+        expanded = re.sub(
+            r"\bH\s*:\s*(-?\d+(?:[.,]\d+)?\s*°[CF]?)",
+            r"température maximale : \1",
+            source,
+            flags=re.IGNORECASE,
+        )
+        expanded = re.sub(
+            r"\bL\s*:\s*(-?\d+(?:[.,]\d+)?\s*°[CF]?)",
+            r"température minimale : \1",
+            expanded,
+            flags=re.IGNORECASE,
+        )
+        unit = f" {wind_unit}" if wind_unit else ""
+        expanded = re.sub(
+            r"(?<![\w.,])(-?\d+(?:[.,]\d+)?)G(-?\d+(?:[.,]\d+)?)(?![\w.,])",
+            lambda match: (
+                f"vent : {match.group(1)}{unit}; rafales : {match.group(2)}{unit}"
+            ),
+            expanded,
+            flags=re.IGNORECASE,
+        )
+        return expanded
+
     async def _weather_tool(self, question: str, message: MeshMessage) -> str:
         """Invoke wx as an internal ASK capability, even when direct wx is hidden."""
         from ..commands.wx_command import WxCommand
@@ -179,6 +205,7 @@ class AssistantDispatcher:
             provider = getattr(command, "delegate_command", None)
             wind_unit = getattr(provider, "wind_speed_unit", "")
             wind_label = wind_unit or "l'unité indiquée par la source"
+            labelled_answer = self._expand_weather_notation(raw_answer, wind_unit)
             context = (
                 "H signifie température maximale et L température minimale. "
                 f"Une notation comme 17G36 signifie vent 17 et rafales 36 en {wind_label}. "
@@ -187,7 +214,7 @@ class AssistantDispatcher:
             )
             reformulated = await llm.service.rephrase_tool_result(
                 question,
-                raw_answer,
+                labelled_answer,
                 context=context,
                 max_length=120,
             )

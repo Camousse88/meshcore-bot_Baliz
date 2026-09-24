@@ -130,6 +130,17 @@ def test_weather_question_builds_clean_wx_location(question, expected):
     assert AssistantDispatcher._weather_command(question) == expected
 
 
+def test_weather_codes_are_labelled_before_llm_rephrasing():
+    from modules.assistant.dispatcher import AssistantDispatcher
+
+    assert AssistantDispatcher._expand_weather_notation(
+        "Brest, FR: Demain: Couvert H:21°C L:13°C 17G36", "km/h"
+    ) == (
+        "Brest, FR: Demain: Couvert température maximale : 21°C "
+        "température minimale : 13°C vent : 17 km/h; rafales : 36 km/h"
+    )
+
+
 async def test_weather_keeps_raw_tool_data_when_llm_rephrase_fails(command_mock_bot):
     commands, sent = setup_bot(command_mock_bot)
     commands["llm"].service.rephrase_tool_result = AsyncMock(return_value=None)
