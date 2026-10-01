@@ -414,7 +414,7 @@ system_prompt = Tu es Baliz, l'assistant du reseau MeshCore Bretagne, base a Mor
 max_tokens = 100
 temperature = 0.4
 top_p = 0.9
-timeout_seconds = 90
+timeout_seconds = 300
 strip_thinking_tags = true
 include_local_context = true
 context_include_weather = true
@@ -665,6 +665,7 @@ enabled = true
 aliases = baliz
 enabled_routes = test,path,mesh,wiki,weather,llm
 route_timeout_seconds = 120
+semantic_timeout_seconds = 45
 max_pages = 1
 
 [Mesh_Command]

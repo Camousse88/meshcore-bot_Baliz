@@ -20,7 +20,7 @@ class AskCommand(BaseCommand):
         {"key": "route_timeout_seconds", "label": "Processing timeout", "type": "int",
          "default": 120, "min": 1, "max": 300, "unit": "seconds"},
         {"key": "semantic_timeout_seconds", "label": "Classification timeout", "type": "int",
-         "default": 30, "min": 1, "max": 60, "unit": "seconds"},
+         "default": 45, "min": 1, "max": 60, "unit": "seconds"},
         {"key": "semantic_routing_enabled", "label": "Closed-catalog LLM routing", "type": "bool",
          "default": True, "help": "Select a validated operation from enabled_routes. Failure returns unavailable; no Wiki fallback."},
         {"key": "max_pages", "label": "Maximum reply pages", "type": "int",
