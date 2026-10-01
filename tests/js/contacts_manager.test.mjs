@@ -466,3 +466,57 @@ test('setupDriftTooltips initializes tooltips for drift badges', () => {
     manager.setupDriftTooltips();
     assert.equal(created.length, 2);
 });
+
+test('formatBattery renders a badge per status and nothing when no reading yet', () => {
+    const { Manager } = loadManagerClass();
+    const manager = bareManager(Manager);
+
+    assert.equal(manager.formatBattery({ battery_voltage: null }), '');
+    assert.equal(manager.formatBattery({}), '');
+
+    const ok = manager.formatBattery({
+        battery_voltage: 4.1,
+        battery_percent: 92,
+        battery_status: 'ok',
+        user_id: 'abcd1234',
+        username: 'RepA',
+    });
+    assert.match(ok, /bg-success/);
+    assert.match(ok, /4\.10V \/ 92%/);
+    assert.match(ok, /data-user-id="abcd1234"/);
+
+    const low = manager.formatBattery({ battery_voltage: 3.6, battery_percent: 50, battery_status: 'low' });
+    assert.match(low, /bg-warning/);
+    assert.match(low, /3\.60V \/ 50%/);
+
+    const critical = manager.formatBattery({ battery_voltage: 3.2, battery_percent: 17, battery_status: 'critical' });
+    assert.match(critical, /bg-danger/);
+    assert.match(critical, /3\.20V \/ 17%/);
+
+    // battery_percent absent/null: voltage alone, no dangling " / %"
+    const noPercent = manager.formatBattery({ battery_voltage: 3.9, battery_status: 'ok' });
+    assert.match(noPercent, /3\.90V/);
+    assert.doesNotMatch(noPercent, /%/);
+});
+
+test('setupBatteryBadges wires a click handler once per badge', () => {
+    const { context, Manager } = loadManagerClass();
+    const manager = bareManager(Manager);
+    let shown = null;
+    manager.showBatteryHistory = (userId) => {
+        shown = userId;
+    };
+
+    const badge = fakeElement({ dataset: { userId: 'pk1' } });
+    context.document.querySelectorAll = selector => (selector === '.battery-badge' ? [badge] : []);
+
+    manager.setupBatteryBadges();
+    assert.equal(typeof badge.listeners.click, 'function');
+    badge.listeners.click();
+    assert.equal(shown, 'pk1');
+
+    // Re-rendering must not double-bind (dataset.setup guard, same idiom as setupPathTooltips).
+    const previousHandler = badge.listeners.click;
+    manager.setupBatteryBadges();
+    assert.equal(badge.listeners.click, previousHandler);
+});
