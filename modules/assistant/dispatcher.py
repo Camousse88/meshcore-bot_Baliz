@@ -7,16 +7,15 @@ from typing import Any
 
 from ..models import MeshMessage
 from .response import split_reply
-from .router import AssistantRouter, Decision, Route
+from .router import Decision, Route
 from .semantic_router import SemanticRouter
 
-HELP = "ask <question> — réseau, Wiki, météo, réception ou chemin. Routes explicites : mesh, wiki, test, path, llm."
+HELP = "ask <question> — réseau, Wiki, météo, réception ou chemin. Routes explicites : mesh, wiki, test, path, weather, llm."
 
 
 class AssistantDispatcher:
     def __init__(self, owner: Any):
         self.owner = owner
-        self.router = AssistantRouter()
         self.semantic_router = SemanticRouter(owner)
         self._rf_lock = asyncio.Lock()
 
@@ -30,12 +29,12 @@ class AssistantDispatcher:
         return bool(check(message))
 
     async def answer(self, question: str, message: MeshMessage) -> str:
-        decision = self.router.decide(question)
-        if decision.reason == "wiki_probe":
-            semantic_route = await self.semantic_router.decide(question, self.owner.enabled_routes)
-            if semantic_route is not None:
-                decision = Decision(semantic_route, question, "semantic")
-        self.owner.logger.info("Assistant route=%s reason=%s", decision.route.value, decision.reason)
+        if not question.strip():
+            return HELP
+        decision = await self.semantic_router.decide(question, self.owner.enabled_routes)
+        if decision is None:
+            return "Je n’ai pas pu interpréter la demande pour le moment. Réessaie plus tard."
+        self.owner.logger.info("Assistant route=%s operation=%s reason=%s", decision.route.value, decision.operation, decision.reason)
         if decision.route is Route.HELP:
             return HELP
         if not decision.question and decision.route not in {Route.TEST, Route.PATH}:
@@ -50,26 +49,34 @@ class AssistantDispatcher:
 
     async def _dispatch(self, decision: Decision, message: MeshMessage) -> str:
         route = decision.route
-        if route is Route.WIKI and decision.reason == "wiki_probe" and "wiki" not in self.owner.enabled_routes:
-            route = Route.LLM
         if route.value not in self.owner.enabled_routes:
             return f"La fonction {route.value} est désactivée."
         if route in {Route.TEST, Route.PATH}:
             return await self._rf_tool(route.value, decision.question, message)
         if route is Route.WEATHER:
-            return await self._weather_tool(decision.question, message)
-        command = self._command("mesh" if route is Route.MESH else "llm")
+            return await self._weather_tool(decision.question, message, decision.args)
+        if route is Route.MESH:
+            from .network_tools import answer_network
+            return await answer_network(self, decision, message)
+        command = self._command("llm")
         if not self._allowed(command, message, service=True):
             return f"La fonction {route.value} est indisponible ou non autorisée ici."
         command.record_execution(message.sender_id or None)
-        if route is Route.MESH:
-            return await command.service.answer(decision.question, message)
         mode = "general" if route is Route.LLM else "wiki"
-        if route is Route.WIKI and decision.reason == "wiki_probe":
-            # Auto lookup is the sole fallback point; disabled Wiki does not bypass
-            # the routing policy, and a disabled general route cannot be invoked.
-            mode = "auto" if "llm" in self.owner.enabled_routes else "wiki"
-        return await command.service.answer(decision.question, message, mode=mode)
+        return await command.service.answer(decision.question, message, mode=mode, **({"max_length": self.owner.get_max_message_length(message)} if mode == "general" else {}))
+
+    async def _render_tool(self, question, source, message):
+        budget = self.owner.get_max_message_length(message)
+        llm = self._command("llm")
+        if self._allowed(llm, message, service=True):
+            result = await llm.service.rephrase_tool_result(
+                question, source,
+                context=f"Faits mesurés localement. Ne change aucun nom ni mesure. Un message, {budget} octets UTF-8 maximum.",
+                max_length=budget,
+            )
+            if result and len(result.encode("utf-8")) <= budget:
+                return result
+        return split_reply(source, budget, max_pages=1)[0]
 
     async def _rf_tool(self, name: str, question: str, message: MeshMessage) -> str:
         # Existing RF commands have no pure service yet. An explicit adapter uses
@@ -86,7 +93,7 @@ class AssistantDispatcher:
             cloned.content_lower = name
             cloned.prefix_normalized = True
             cloned.capture_sink = []
-            if not self._allowed(command, cloned, service=name == "test"):
+            if not self._allowed(command, cloned, service=True):
                 return f"L'outil {name} est désactivé, limité ou non autorisé ici."
             command.record_execution(message.sender_id or None)
             await command.execute(cloned)
@@ -109,7 +116,7 @@ class AssistantDispatcher:
                         )
                         if reformulated:
                             return reformulated
-                return raw_answer
+                return await self._render_tool(question, raw_answer, message)
             if name == "path":
                 return "Ce message ne contient pas de chemin radio exploitable."
             return "Ce message ne contient pas de mesure radio exploitable."
@@ -179,6 +186,8 @@ class AssistantDispatcher:
             expanded,
             flags=re.IGNORECASE,
         )
+        # Preserve the meaning carried by the rain icon before stripping it.
+        expanded = re.sub(r"🌦\ufe0f?\s*(\d+(?:[.,]\d+)?)\s*%", r"probabilité de pluie : \1 %", expanded)
         # Remove decorative weather symbols before handing the text to the LLM.
         expanded = re.sub(r"[\U0001F000-\U0001FAFF\u2600-\u26FF\u2700-\u27BF]\ufe0f?", "", expanded)
         expanded = re.sub(
@@ -279,7 +288,7 @@ class AssistantDispatcher:
             label = f"{label} {period.group(1)}"
         return f"{label} :{tail}"
 
-    async def _weather_tool(self, question: str, message: MeshMessage) -> str:
+    async def _weather_tool(self, question: str, message: MeshMessage, args: dict | None = None) -> str:
         """Invoke wx as an internal ASK capability, even when direct wx is hidden."""
         from ..commands.wx_command import WxCommand
 
@@ -293,12 +302,17 @@ class AssistantDispatcher:
             "Weather", "default_location_label", fallback=default_location
         ).strip() or default_location
         command_without_default = self._weather_command(question)
+        if args:
+            command_without_default = " ".join(p for p in ("wx", args["location"], "tomorrow" if args["period"] == "tomorrow" else "") if p)
         uses_default_location = bool(default_location) and command_without_default in {
             "wx", "wx tomorrow"
         }
         async with self._rf_lock:
             cloned = deepcopy(message)
-            cloned.content = self._weather_command(question, default_location)
+            cloned.content = command_without_default
+            if uses_default_location:
+                cloned.content = " ".join(p for p in ("wx", default_location, "tomorrow" if "tomorrow" in command_without_default else "") if p)
+            command.record_execution(message.sender_id or None)
             cloned.content_lower = cloned.content.casefold()
             cloned.prefix_normalized = True
             cloned.capture_sink = []
@@ -340,14 +354,17 @@ class AssistantDispatcher:
                 +
                 "Aucun emoji, aucune liste de champs, aucun code météo brut, "
                 "aucun point de rosée, visibilité ou pression. Un seul message, sans expliquer "
-                "les abréviations et sans dépasser 125 caractères."
+                f"les abréviations. Budget maximal : {self.owner.get_max_message_length(message)} octets UTF-8."
             )
             reformulated = await llm.service.rephrase_tool_result(
                 question,
                 labelled_answer,
                 context=context,
-                max_length=135,
+                max_length=self.owner.get_max_message_length(message),
             )
+            if reformulated and "humidité" in reformulated.casefold() and "humidité" not in labelled_answer.casefold():
+                self.owner.logger.warning("Weather reformulation confused rain probability with humidity")
+                reformulated = None
             if reformulated:
                 if uses_default_location:
                     reformulated = self._enforce_weather_location(
@@ -359,7 +376,7 @@ class AssistantDispatcher:
                     max_pages=1,
                 )[0]
         return split_reply(
-            raw_answer,
+            self._expand_weather_notation(self._select_weather_period(question, raw_answer), getattr(getattr(command, "delegate_command", None), "wind_speed_unit", "")),
             self.owner.get_max_message_length(message),
             max_pages=1,
         )[0]

@@ -1,7 +1,7 @@
 """Pure, ordered routing policy. No DB, HTTP, plugin discovery or RF effects."""
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 
@@ -20,6 +20,8 @@ class Decision:
     route: Route
     question: str
     reason: str
+    operation: str = ""
+    args: dict = field(default_factory=dict)
 
 
 def normalize(text: str) -> str:

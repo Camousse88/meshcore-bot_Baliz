@@ -81,9 +81,10 @@ class TraceCommand(BaseCommand):
         self.output_format = output_fmt if output_fmt in ("inline", "vertical") else "inline"
 
     def can_execute(self, message: MeshMessage, skip_channel_check: bool = False) -> bool:
-        if not self.trace_enabled:
-            return False
-        return super().can_execute(message)
+        return self.trace_enabled and self.can_use_service(message, skip_channel_check)
+
+    def can_use_service(self, message: MeshMessage, skip_channel_check: bool = False) -> bool:
+        return super().can_execute(message, skip_channel_check=skip_channel_check)
 
     def get_help_text(self) -> str:
         return (

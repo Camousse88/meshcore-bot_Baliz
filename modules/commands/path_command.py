@@ -470,9 +470,11 @@ class PathCommand(BaseCommand):
         Returns:
             bool: True if command is enabled and checks pass, False otherwise.
         """
-        if not self.path_enabled:
-            return False
-        return super().can_execute(message)
+        return self.path_enabled and self.can_use_service(message, skip_channel_check)
+
+    def can_use_service(self, message: MeshMessage, skip_channel_check: bool = False) -> bool:
+        """Public visibility is separate from authorized internal invocation."""
+        return super().can_execute(message, skip_channel_check=skip_channel_check)
 
     async def execute(self, message: MeshMessage) -> bool:
         """Execute path decode command"""

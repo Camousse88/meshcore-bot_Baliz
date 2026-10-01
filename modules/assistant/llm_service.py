@@ -1342,12 +1342,13 @@ class LlmService:
             },
         ]
         payload = self._build_payload(messages=messages)
+        payload["reasoning_effort"] = "none"
         payload["temperature"] = 0
         payload["max_tokens"] = min(self.max_tokens, 96)
         try:
             async with self._answer_lock:
                 response = await asyncio.to_thread(
-                    post_chat, self.endpoint, payload, self.timeout_seconds
+                    post_chat, self.endpoint, payload, min(self.timeout_seconds, 20.0)
                 )
             if response.status_code != 200:
                 self.logger.warning("Tool reformulation returned HTTP %s", response.status_code)
@@ -1355,8 +1356,9 @@ class LlmService:
             content = response.json()["choices"][0]["message"].get("content", "")
             if not isinstance(content, str) or not content.strip():
                 return None
-            cleaned = self._clean_ai_response(content, max_length)
-            if self._preserves_tool_numbers(source, cleaned):
+            cleaned = self._clean_ai_response(content, 10000)
+            if (len(cleaned.encode("utf-8")) <= max_length and self._preserves_tool_numbers(source, cleaned)
+                    and self._preserves_tool_numbers(cleaned, source)):
                 return cleaned
             if not self._uses_only_tool_numbers(source, cleaned):
                 self.logger.warning("Tool reformulation introduced a value absent from source")
@@ -1376,28 +1378,29 @@ class LlmService:
                 {
                     "role": "user",
                     "content": (
-                        f"Il manque les valeurs suivantes : {missing}. Reformule à nouveau en les "
+                        f"Budget {max_length} octets UTF-8. Valeurs à conserver : {missing}. Reformule à nouveau en les "
                         "conservant toutes, sans ajouter d'autre nombre."
                     ),
                 },
             ]
             retry_payload = self._build_payload(messages=retry_messages)
+            retry_payload["reasoning_effort"] = "none"
             retry_payload["temperature"] = 0
             retry_payload["max_tokens"] = min(self.max_tokens, 96)
             async with self._answer_lock:
                 retry = await asyncio.to_thread(
-                    post_chat, self.endpoint, retry_payload, self.timeout_seconds
+                    post_chat, self.endpoint, retry_payload, min(self.timeout_seconds, 20.0)
                 )
             if retry.status_code == 200:
                 retry_content = retry.json()["choices"][0]["message"].get("content", "")
                 if isinstance(retry_content, str) and retry_content.strip():
-                    retried = self._clean_ai_response(retry_content, max_length)
-                    if self._uses_only_tool_numbers(source, retried):
+                    retried = self._clean_ai_response(retry_content, 10000)
+                    if (len(retried.encode("utf-8")) <= max_length and self._preserves_tool_numbers(source, retried)
+                            and self._preserves_tool_numbers(retried, source)):
                         return retried
-            # The first reformulation is still grounded: it only shortened the
-            # source. Prefer it to exposing compact provider notation to users.
-            self.logger.info("Tool reformulation omitted values after retry; using safe concise answer")
-            return cleaned
+            # Return control to the factual formatter instead of truncating a sentence.
+            self.logger.info("Tool reformulation rejected; using factual fallback")
+            return None
         except (requests.RequestException, ValueError, TypeError, IndexError, KeyError) as exc:
             self.logger.warning("Tool reformulation failed: %s", exc)
             return None
@@ -1515,6 +1518,13 @@ class LlmService:
             history=history,
             rag_context=wiki_result.context if wiki_result else "",
         )
+        if mode == "general":
+            payload["messages"].insert(1, {"role": "system", "content": (
+                f"Réponds directement au dernier message, en une ou deux phrases complètes, au maximum {max_length} octets UTF-8. "
+                "Pas de présentation ni de bonjour systématique, pas de question de relance. "
+                "À une remarque sur ton délai, reconnais simplement l'attente sans inventer sa cause. "
+                "N'annonce pas que tu ne peux pas vérifier tes réponses. Ne termine jamais par des points de suspension."
+            )})
         self.logger.debug(f"LLM prompt: {repr(prompt[:500])}")
 
         try:
@@ -1577,6 +1587,27 @@ class LlmService:
             content = self._plain_text_wiki_response(content)
             content = self._remove_unrequested_local_examples(content, prompt)
             self.logger.debug("LLM Wiki response after cleanup (%d chars): %r", len(content), content)
+
+        if mode == "general":
+            from .conversation import complete_reply
+            # Compress before the final sentence boundary; never cut raw bytes mid-sentence.
+            if len(content.encode("utf-8")) > max_length:
+                compact = dict(payload)
+                compact["messages"] = payload["messages"] + [
+                    {"role": "assistant", "content": content},
+                    {"role": "user", "content": f"Reformule ta réponse en une phrase complète de moins de {max_length} octets UTF-8, sans introduction."}]
+                try:
+                    response = await asyncio.to_thread(post_chat, self.endpoint, compact, self.timeout_seconds)
+                    response.raise_for_status()
+                    candidate = response.json()["choices"][0]["message"]["content"]
+                    if isinstance(candidate, str) and candidate.strip():
+                        content = candidate
+                except (requests.RequestException, ValueError, KeyError, IndexError, TypeError):
+                    self.logger.warning("Conversation compression unavailable; keeping complete sentences")
+            cleaned = complete_reply(content, max_length)
+            if user_key:
+                self._store_context(user_key, prompt, cleaned)
+            return cleaned
 
         # Clean the response first
         if self.pagination_enabled:
