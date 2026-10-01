@@ -77,6 +77,7 @@ dashboard_max_clock_drift_seconds = 300
 clock_sync_admin_reply_window_seconds = 60
 
 [Channels]
+startup_flood_scope = fr-bre
 monitor_channels = #bzh-bot,Aar29,#bretagne
 respond_to_dms = true
 max_response_hops = 7
