@@ -147,10 +147,12 @@
 
         [data-theme="dark"] .table-striped > tbody > tr:nth-of-type(odd) > td {
             background-color: var(--bg-tertiary);
+            color: var(--text-color);
         }
 
         [data-theme="dark"] .table-hover > tbody > tr:hover > td {
             background-color: var(--bg-tertiary);
+            color: var(--text-color);
         }
         
         .badge {
@@ -236,8 +238,14 @@
             color: var(--text-muted) !important;
         }
 
-        /* Dark mode borders */
-        [data-theme="dark"] .border {
+        /* Dark mode borders. The directional utilities need naming too — the
+           all-sides rule does not cover them, so a .border-start divider drew
+           Bootstrap's light #dee2e6 straight onto a dark card. */
+        [data-theme="dark"] .border,
+        [data-theme="dark"] .border-top,
+        [data-theme="dark"] .border-end,
+        [data-theme="dark"] .border-bottom,
+        [data-theme="dark"] .border-start {
             border-color: var(--border-color) !important;
         }
 
@@ -372,7 +380,7 @@
     
     {% block extra_css %}{% endblock %}
 </head>
-<body>
+ <body data-is-admin="{{ 'true' if (not auth_enabled or is_admin) else 'false' }}">
     <!-- Navigation -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
         <div class="container-fluid">
@@ -425,6 +433,7 @@
                         </a>
                     </li>
                     {% endif %}
+                    {% if not auth_enabled or is_admin %}
                     <li class="nav-item">
                         <a class="nav-link" href="/radio">
                             <i class="fas fa-broadcast-tower"></i> Radio
@@ -445,10 +454,24 @@
                             <i class="fas fa-info-circle"></i> Infos
                         </a>
                     </li>
+                    {% endif %}
                 </ul>
                 
                 <!-- Dark Mode Toggle and Connection Status -->
                 <div class="navbar-nav d-flex align-items-center">
+                    {% if auth_enabled %}
+                    <div class="nav-item me-3">
+                        {% if is_admin %}
+                        <a href="/logout" class="btn btn-sm btn-outline-light">
+                            <i class="fas fa-sign-out-alt"></i> Logout
+                        </a>
+                        {% else %}
+                        <a href="/login" class="btn btn-sm btn-outline-light">
+                            <i class="fas fa-sign-in-alt"></i> Admin Login
+                        </a>
+                        {% endif %}
+                    </div>
+                    {% endif %}
                     <div class="nav-item me-3">
                         <button class="dark-mode-toggle" id="dark-mode-toggle" aria-label="Toggle dark mode" title="Toggle dark mode">
                             <i class="fas fa-moon" id="dark-mode-icon"></i>
@@ -486,12 +509,14 @@
                         <i class="fas fa-clock me-1"></i>Since: <span id="zombie-since-text">{{ radio_zombie_since or '' }}</span>
                     </span>
                 </div>
+                {% if not auth_enabled or is_admin %}
                 <div class="d-flex gap-2 align-items-center flex-shrink-0">
                     <span class="small opacity-75">After power cycling:</span>
                     <button id="zombie-recover-btn" class="btn btn-warning btn-sm fw-semibold" type="button">
                         <i class="fas fa-power-off me-1"></i>Restart Bot Processing
                     </button>
                 </div>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -508,12 +533,14 @@
                         <i class="fas fa-clock me-1"></i>Since: <span id="offline-since-text">{{ radio_offline_since or '' }}</span>
                     </span>
                 </div>
+                {% if not auth_enabled or is_admin %}
                 <div class="d-flex gap-2 align-items-center flex-shrink-0">
                     <span class="small opacity-75">Once radio is fixed:</span>
                     <button id="offline-clear-btn" class="btn btn-dark btn-sm fw-semibold" type="button">
                         <i class="fas fa-check me-1"></i>Clear Offline Flag
                     </button>
                 </div>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -669,6 +696,10 @@
 
     <!-- Base JavaScript -->
     <script nonce="{{ g.csp_nonce }}" data-ws-enabled="{{ websocket_enabled|lower }}">
+        // Display hint only — server enforces authenticated_admin. Read from a
+        // data attribute so the inline script stays plain JS for ESLint.
+        const IS_ADMIN = document.body.dataset.isAdmin === 'true';
+
         // Global connection management
         class ModernConnectionManager {
             constructor() {
@@ -676,9 +707,15 @@
                 this.connected = false;
                 this.lastActivity = null;
                 this.pingInterval = null;
-                
-                this.initializeSocket();
-                this.startPingInterval();
+
+                // Live Socket.IO stays admin-only when a password is configured
+                // (packet/message streams can include private mesh traffic).
+                if (IS_ADMIN) {
+                    this.initializeSocket();
+                    this.startPingInterval();
+                } else {
+                    this.updateConnectionStatus('Login for live updates', 'disconnected');
+                }
             }
             
             initializeSocket() {

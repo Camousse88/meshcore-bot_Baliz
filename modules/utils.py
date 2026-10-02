@@ -499,6 +499,21 @@ def get_major_city_queries(city: str, state_abbr: Optional[str] = None) -> list[
     return []
 
 
+def truncate_to_bytes(text: str, limit: int) -> str:
+    """Trim ``text`` to ``limit`` UTF-8 bytes without splitting a character.
+
+    Mesh budgets are byte budgets. Trimming with ``len(text)`` instead overshoots
+    by however much the emoji and accents in the string cost beyond one byte each,
+    so a reply that measured as a fit spills into a second message.
+    """
+    if limit <= 0:
+        return ""
+    encoded = text.encode("utf-8")
+    if len(encoded) <= limit:
+        return text
+    return encoded[:limit].decode("utf-8", errors="ignore")
+
+
 def decode_path_len_byte(path_len_byte: int, max_path_size: int = 64) -> tuple[int, int] | None:
     """Decode the RF packet path_len byte per firmware ``Packet::isValidPathLen``.
 
@@ -2444,6 +2459,8 @@ def format_elapsed_display(ts: Any, translator: Any = None) -> str:
     elapsed_ms = (datetime.now(UTC).timestamp() - ts_f) * 1000
     if elapsed_ms < 0 or elapsed_ms > _ELAPSED_MS_MAX:
         return _sync_str()
+    if elapsed_ms >= 1000:
+        return f"{round(elapsed_ms / 1000, 1)}s"
     return f"{round(elapsed_ms)}ms"
 
 
