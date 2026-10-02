@@ -97,6 +97,19 @@ cmd
 
 ---
 
+### `contact`
+
+Share the bot's own contact card so you can add it and send DMs without waiting for an advert.
+
+**Usage:**
+```
+contact
+```
+
+**Response:** A clickable contact card containing the bot's public key and device name.
+
+---
+
 ### `version`
 
 Show the bot's current software version.
@@ -1111,6 +1124,7 @@ schedule
 Related scheduler config:
 - `[Scheduled_Messages]` for channel posts (`<schedule> = channel[:#scope]:message`)
 - `[Clock_Sync_Admin]` for repeater-targeted admin DMs (`targets = name,pubkey,prefix` with `schedule = <cron>` and optional `command_payload`)
+- `[Battery_Monitor]` for periodic battery-telemetry polling of the Clock_Sync_Admin target list (`enabled = true`, `schedule = <cron>`, default every 6h aligned to midnight) — see [Web viewer](web-viewer.md#battery-level)
 
 **Note:** DM-only command by default. Cron day-of-week uses APScheduler numbering (0=Monday), not Vixie cron — see [Scheduled messages](configuration.md#scheduled-messages-scheduled_messages).
 

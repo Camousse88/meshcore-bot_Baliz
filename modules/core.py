@@ -7,8 +7,9 @@ Contains the main bot class and message processing logic
 import asyncio
 import atexit
 import configparser
+import contextlib
+import contextvars
 import functools
-import inspect
 import json
 import logging
 import signal
@@ -121,8 +122,15 @@ class _BotAdminServer(threading.Thread):
             self._bot.logger.error("BotAdminServer failed to start: %s", exc)
 
 
-class _SerializedCommands:
-    """Serializing proxy around ``meshcore.commands``.
+# True while the current task holds the radio through MeshCoreBot.radio_session(),
+# so the frames it sends don't try to take the (non-reentrant) lock again.
+_radio_session_held: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "radio_session_held", default=False
+)
+
+
+def _serialize_command_frames(bot: "MeshCoreBot", commands: Any) -> bool:
+    """Route every host->radio frame through the bot's radio command lock.
 
     The companion firmware processes one host serial frame per main-loop
     iteration and has no mid-frame resync: a burst of concurrent commands can
@@ -132,37 +140,33 @@ class _SerializedCommands:
     (sends, channel/contact ops, scheduler ops, health probes, auto message
     fetch) with no shared serialization.
 
-    This proxy routes every coroutine command through a single per-bot lock and
-    enforces a minimum inter-command interval, guaranteeing at most one
-    in-flight companion frame at a time. Non-coroutine attributes are passed
-    through untouched, so library internals that read ``_sender_func``,
-    ``default_timeout`` etc. are unaffected. ``meshcore_cli.next_cmd`` calls are
-    serialized too, since they dispatch through this same ``commands`` object.
+    Every meshcore command writes its frame through ``CommandHandler.send()``,
+    which waits for the radio's immediate reply (OK, ERROR, MSG_SENT, ...).
+    Wrapping ``send`` on the handler instance serializes exactly that exchange
+    and paces frames by a minimum interval, so there is at most one in-flight
+    companion frame at a time. Library methods call ``self.send``, so composite
+    commands (``send_msg_with_retry``, ``req_*_sync``, ``send_login_sync``) and
+    ``meshcore_cli.next_cmd`` are covered too, while their waits for ACKs and
+    remote responses happen outside the lock and don't block other senders.
+
+    Returns False when ``commands`` is already serialized.
     """
+    send = commands.send
+    if getattr(send, "_radio_serialized", False):
+        return False
 
-    __slots__ = ("_bot", "_commands")
+    @functools.wraps(send)
+    async def _serialized_send(*args: Any, **kwargs: Any) -> Any:
+        if _radio_session_held.get():
+            await bot._pace_radio_command()
+            return await send(*args, **kwargs)
+        async with bot._get_radio_cmd_lock():
+            await bot._pace_radio_command()
+            return await send(*args, **kwargs)
 
-    def __init__(self, bot: "MeshCoreBot", commands: Any) -> None:
-        object.__setattr__(self, "_bot", bot)
-        object.__setattr__(self, "_commands", commands)
-
-    def __getattr__(self, name: str) -> Any:
-        commands = object.__getattribute__(self, "_commands")
-        attr = getattr(commands, name)
-        if not inspect.iscoroutinefunction(attr):
-            return attr
-        bot = object.__getattribute__(self, "_bot")
-
-        @functools.wraps(attr)
-        async def _serialized(*args: Any, **kwargs: Any) -> Any:
-            async with bot._get_radio_cmd_lock():
-                await bot._pace_radio_command()
-                return await attr(*args, **kwargs)
-
-        return _serialized
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        setattr(object.__getattribute__(self, "_commands"), name, value)
+    _serialized_send._radio_serialized = True  # type: ignore[attr-defined]
+    commands.send = _serialized_send
+    return True
 
 
 class MeshCoreBot:
@@ -328,6 +332,14 @@ class MeshCoreBot:
         self.message_handler = MessageHandler(self)
         self.command_manager = CommandManager(self)
 
+        # Regional flood-scope tallies, and the opt-in warning they can drive.
+        try:
+            from .region_warning import RegionWarningMonitor
+            self.region_warning_monitor = RegionWarningMonitor(self)
+        except Exception as e:
+            self.logger.warning(f"Failed to initialize region warning monitor: {e}")
+            self.region_warning_monitor = None
+
         # Initialize transmission tracker for monitoring TX success
         try:
             self.transmission_tracker = TransmissionTracker(self)
@@ -427,6 +439,8 @@ class MeshCoreBot:
         # Transport reconnect (serial/BLE/TCP) — lock created when event loop runs
         self._transport_reconnect_lock: asyncio.Lock | None = None
         self._transport_reconnect_in_progress = False
+        # Web-viewer reboot/reconnect ops in flight (a count, since they can overlap)
+        self._radio_relinks_in_progress = 0
 
         # Serialize host->radio commands: one companion frame in flight at a
         # time, with a minimum inter-command gap so the firmware's single
@@ -467,6 +481,24 @@ class MeshCoreBot:
         automatically when connect() succeeds after a power cycle.
         """
         return bool(getattr(self, '_radio_zombie_detected', False))
+
+    @property
+    def keep_running(self) -> bool:
+        """True while the main loop and scheduler thread should stay alive.
+
+        ``connected`` alone is not enough: it drops to False while a transport
+        reconnect or a web-viewer reboot/reconnect re-establishes the link, and
+        treating that window as a stop kills the bot on every transport blip.
+        A reconnect that gives up leaves ``connected`` False and clears its
+        in-progress flag, which still ends the loops.
+        """
+        if self._shutdown_event.is_set():
+            return False
+        return bool(
+            self.connected
+            or getattr(self, '_transport_reconnect_in_progress', False)
+            or getattr(self, '_radio_relinks_in_progress', 0)
+        )
 
     @property
     def is_radio_offline(self) -> bool:
@@ -945,6 +977,9 @@ class MeshCoreBot:
                     self.channel_manager.max_channels = new_max_channels
                     set_config(new_config)
 
+                    if getattr(self, 'region_warning_monitor', None):
+                        self.region_warning_monitor.reload_config()
+
                     if hasattr(self, 'scheduler'):
                         scheduler_apply_started = True
                         self.scheduler.setup_scheduled_messages()
@@ -970,6 +1005,8 @@ class MeshCoreBot:
                     )
                     self.channel_manager.max_channels = old_state["max_channels"]
                     set_config(old_config)
+                    if getattr(self, 'region_warning_monitor', None):
+                        self.region_warning_monitor.reload_config()
                     # setup_scheduled_messages may have stopped the previous
                     # APScheduler before failing. Rebuild it against old config.
                     if scheduler_apply_started and hasattr(self, 'scheduler'):
@@ -1577,7 +1614,7 @@ long_jokes = false
             self.logger.info(f"Received shutdown signal {signum}, initiating graceful shutdown...")
             # Set shutdown event to break main loop
             self._shutdown_event.set()
-            # Set connected to False to break the while loop in start()
+            # Reflect the disconnected state for cleanup and status reporting
             self.connected = False
 
         # Register signal handlers
@@ -1721,25 +1758,46 @@ long_jokes = false
             await asyncio.sleep(wait)
         self._radio_cmd_last_ts = time.monotonic()
 
-    def _install_command_serializer(self) -> None:
-        """Wrap ``meshcore.commands`` so every command is serialized + paced.
+    @contextlib.asynccontextmanager
+    async def radio_session(self):
+        """Hold the radio for a short sequence of frames that must not interleave.
 
-        Idempotent and safe to call after each (re)connect. Wrapping the
-        ``commands`` attribute in place means existing call sites
-        (``self.meshcore.commands.*`` and ``meshcore_cli.next_cmd``) are
-        serialized automatically with no per-call changes.
+        Frames are serialized one at a time, so another task's frame can land
+        between two of ours. Use this when that matters, e.g. setting the flood
+        scope, sending, and restoring it, so no other send goes out under the
+        temporary scope. Keep it short: every other sender waits, so don't wait
+        for ACKs or remote responses inside it. Re-entering from the same task
+        is a no-op. Tasks created inside the session inherit it, so don't spawn
+        work that sends after the session ends.
+        """
+        if _radio_session_held.get():
+            yield
+            return
+        async with self._get_radio_cmd_lock():
+            token = _radio_session_held.set(True)
+            try:
+                yield
+            finally:
+                _radio_session_held.reset(token)
+
+    def _install_command_serializer(self) -> None:
+        """Serialize and pace every frame ``meshcore.commands`` writes.
+
+        Idempotent and safe to call after each (re)connect. The handler is
+        wrapped in place, so existing call sites (``self.meshcore.commands.*``
+        and ``meshcore_cli.next_cmd``) need no per-call changes.
         """
         if not self.meshcore:
             return
         cmds = getattr(self.meshcore, "commands", None)
-        if cmds is None or isinstance(cmds, _SerializedCommands):
+        if cmds is None:
             return
         try:
-            self.meshcore.commands = _SerializedCommands(self, cmds)
-            self.logger.debug(
-                "Installed serialized command gateway (min interval %.0fms)",
-                self._radio_cmd_min_interval * 1000,
-            )
+            if _serialize_command_frames(self, cmds):
+                self.logger.debug(
+                    "Installed serialized command gateway (min interval %.0fms)",
+                    self._radio_cmd_min_interval * 1000,
+                )
         except (AttributeError, TypeError) as e:
             self.logger.warning(f"Could not install command serializer: {e}")
 
@@ -1752,6 +1810,8 @@ long_jokes = false
         Returns:
             bool: True if connection was successful, False otherwise.
         """
+        new_meshcore = None
+        connection_ready = False
         try:
             self.logger.info("Connecting to MeshCore node...")
 
@@ -1775,7 +1835,7 @@ long_jokes = false
                 # Create serial connection
                 serial_port = self.config.get('Connection', 'serial_port', fallback='/dev/ttyUSB0')
                 self.logger.info(f"Connecting via serial port: {serial_port}")
-                self.meshcore = await meshcore.MeshCore.create_serial(serial_port, debug=radio_debug)
+                new_meshcore = await meshcore.MeshCore.create_serial(serial_port, debug=radio_debug)
             elif connection_type == 'tcp':
                 # Create TCP connection
                 hostname = self.config.get('Connection', 'hostname', fallback=None)
@@ -1784,12 +1844,14 @@ long_jokes = false
                     self.logger.error("TCP connection requires 'hostname' to be set in config")
                     return False
                 self.logger.info(f"Connecting via TCP: {hostname}:{tcp_port}")
-                self.meshcore = await meshcore.MeshCore.create_tcp(hostname, tcp_port, debug=radio_debug)
+                new_meshcore = await meshcore.MeshCore.create_tcp(hostname, tcp_port, debug=radio_debug)
             else:
                 # Create BLE connection (default)
                 ble_device_name = self.config.get('Connection', 'ble_device_name', fallback=None)
                 self.logger.info("Connecting via BLE" + (f" to device: {ble_device_name}" if ble_device_name else ""))
-                self.meshcore = await meshcore.MeshCore.create_ble(ble_device_name, debug=radio_debug)
+                new_meshcore = await meshcore.MeshCore.create_ble(ble_device_name, debug=radio_debug)
+
+            self.meshcore = new_meshcore
 
             # Route meshcore library output through the bot's handlers (including log file)
             self._configure_meshcore_debug_logging(radio_debug)
@@ -1817,8 +1879,11 @@ long_jokes = false
                 # Wait for contacts to load
                 await self.wait_for_contacts()
 
-                # Fetch channels
-                await self.channel_manager.fetch_channels()
+                # A connected transport without channel data cannot route replies.
+                if not await self.channel_manager.fetch_channels():
+                    raise ConnectionError(
+                        "MeshCore node returned no channels after retries"
+                    )
 
                 # Setup message event handlers
                 await self.setup_message_handlers()
@@ -1826,11 +1891,15 @@ long_jokes = false
                 # Set radio clock if needed
                 await self.set_radio_clock()
 
+                # Apply configured default flood scope after clock sync
+                await self.apply_startup_flood_scope()
+
                 # Set device name to match config if needed
                 await self.set_device_name()
 
                 await self._notify_services_transport_reconnected()
 
+                connection_ready = True
                 return True
             else:
                 self.logger.error("Failed to connect to MeshCore node")
@@ -1839,6 +1908,21 @@ long_jokes = false
         except (OSError, ConnectionError, TimeoutError, ValueError, AttributeError) as e:
             self.logger.error(f"Connection failed: {e}")
             return False
+        finally:
+            if not connection_ready:
+                self.connected = False
+                self._update_radio_connected_metadata(False)
+                if new_meshcore is not None:
+                    try:
+                        await asyncio.wait_for(new_meshcore.disconnect(), timeout=5.0)
+                    except Exception as e:
+                        self.logger.warning(
+                            "Could not clean up incomplete MeshCore connection: %s",
+                            e,
+                        )
+                    finally:
+                        if self.meshcore is new_meshcore:
+                            self.meshcore = None
 
     async def _notify_services_transport_reconnected(self) -> None:
         """Re-bind mesh event subscriptions on running services after transport reconnect."""
@@ -1867,10 +1951,11 @@ long_jokes = false
         """Disconnect from the radio, which also stops the bot.
 
         Despite the name, this is not a radio-only operation: ``run()``ing loops
-        while ``self.connected`` is true, so clearing it ends the main loop and the
-        process exits. The web viewer therefore labels the control "Stop Bot" and
-        confirms first (issue #240). Keep that in mind before calling this from
-        anywhere that only means to drop the radio link.
+        while ``keep_running`` is true. This operation clears ``connected`` without
+        setting a reconnect/relink flag, so it ends the main loop and the process
+        exits. The web viewer therefore labels the control "Stop Bot" and confirms
+        first (issue #240). Keep that in mind before calling this from anywhere that
+        only means to drop the radio link.
 
         Called by the scheduler via the operation queue.
         """
@@ -1892,6 +1977,8 @@ long_jokes = false
     async def reboot_radio(self) -> bool:
         """Send firmware reboot command, disconnect, wait for reboot, then reconnect."""
         import asyncio
+        # Hold the loops open (see keep_running) while connected is False
+        self._radio_relinks_in_progress += 1
         try:
             if self.meshcore and self.meshcore.is_connected:
                 self.logger.info("Sending firmware reboot command")
@@ -1914,10 +2001,14 @@ long_jokes = false
         except Exception as e:
             self.logger.error(f"Error rebooting radio: {e}")
             return False
+        finally:
+            self._radio_relinks_in_progress -= 1
 
     async def reconnect_radio(self) -> bool:
         """Disconnect then reconnect. Called by scheduler for connect ops."""
         import asyncio
+        # Hold the loops open (see keep_running) while connected is False
+        self._radio_relinks_in_progress += 1
         try:
             if self.meshcore:
                 try:
@@ -1930,6 +2021,8 @@ long_jokes = false
         except Exception as e:
             self.logger.error(f"Error reconnecting radio: {e}")
             return False
+        finally:
+            self._radio_relinks_in_progress -= 1
 
     def _handle_serial_probe_error(self, threshold: int, interval: int) -> bool:
         """Serial/BLE: failed get_time may indicate zombie firmware (no transport reconnect)."""
@@ -2152,6 +2245,44 @@ long_jokes = false
 
         except (OSError, AttributeError, ValueError, KeyError) as e:
             self.logger.warning(f"Error checking/setting radio clock: {e}")
+            return False
+
+    async def apply_startup_flood_scope(self) -> bool:
+        """Apply a persistent radio flood scope from config after startup clock sync."""
+        raw_scope = self.config.get("Channels", "startup_flood_scope", fallback="").strip()
+        if not raw_scope:
+            return True
+
+        if not self.meshcore or not self.meshcore.is_connected:
+            self.logger.warning("Cannot apply startup flood scope - not connected to device")
+            return False
+
+        if not hasattr(self.meshcore.commands, "set_flood_scope"):
+            self.logger.warning(
+                "startup_flood_scope is set to %r but meshcore.commands.set_flood_scope is unavailable",
+                raw_scope,
+            )
+            return False
+
+        # '*' / 'none' are global-scope sentinels; do not run them through
+        # _normalize_scope_name() or they would become hashtag names.
+        scope_to_use = "*" if raw_scope == "*" or raw_scope.lower() == "none" else (
+            CommandManager._normalize_scope_name(raw_scope)
+        )
+        try:
+            self.logger.info("Applying startup flood scope: %s", scope_to_use)
+            result = await self.meshcore.commands.set_flood_scope(scope_to_use)
+            if result is None or getattr(result, "type", None) != EventType.OK:
+                self.logger.warning(
+                    "Failed to apply startup flood scope %s: %s",
+                    scope_to_use,
+                    result,
+                )
+                return False
+            self.logger.info("✓ Startup flood scope applied: %s", scope_to_use)
+            return True
+        except (OSError, AttributeError, ValueError, KeyError) as e:
+            self.logger.warning("Error applying startup flood scope: %s", e)
             return False
 
     async def set_device_name(self) -> bool:
@@ -2439,7 +2570,7 @@ long_jokes = false
         # Keep running
         self.logger.info("Bot is running. Press Ctrl+C to stop.")
         try:
-            while self.connected and not self._shutdown_event.is_set():
+            while self.keep_running:
                 # Backup: meshcore transport dropped (DISCONNECTED event is primary)
                 if self.meshcore and not self.meshcore.is_connected:
                     await self._schedule_transport_reconnect('poll_detected')

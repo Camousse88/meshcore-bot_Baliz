@@ -23,8 +23,9 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.date import DateTrigger
 from meshcore.events import EventType
 
+from .flood_scope import scope_key_hex
 from .maintenance import MaintenanceRunner
-from .models import CHANNEL_REGIONAL_FLOOD_SCOPE_BODY_OVERHEAD
+from .models import CHANNEL_REGIONAL_FLOOD_SCOPE_BODY_OVERHEAD, channel_body_limit
 from .scheduled_message_cron import (
     is_valid_legacy_hhmm,
     parse_schedule_key,
@@ -58,6 +59,11 @@ _RADIO_OPERATION_TYPES = (
     'clock_sync_admin_run_now',
 )
 _CONFIG_OPERATION_TYPES = ('config_reload',)
+
+# Let short host stalls or CPU pressure delay a scheduled transmission without
+# dropping it. Coalescing prevents a long suspension from replaying multiple
+# stale occurrences onto the mesh when the process resumes.
+SCHEDULE_MISFIRE_GRACE_SECONDS = 300
 
 
 class MessageScheduler:
@@ -118,7 +124,13 @@ class MessageScheduler:
         # Stop and recreate the APScheduler to avoid duplicate jobs on reload
         self._shutdown_apscheduler_if_running()
         tz, _ = get_config_timezone(self.bot.config, self.logger)
-        self._apscheduler = BackgroundScheduler(timezone=tz)
+        self._apscheduler = BackgroundScheduler(
+            timezone=tz,
+            job_defaults={
+                'misfire_grace_time': SCHEDULE_MISFIRE_GRACE_SECONDS,
+                'coalesce': True,
+            },
+        )
         self.scheduled_messages.clear()
 
         if self.bot.config.has_section('Scheduled_Messages'):
@@ -188,6 +200,7 @@ class MessageScheduler:
                     self.logger.warning(f"Error setting up scheduled message '{schedule_key}': {e}")
 
         self._setup_clock_sync_admin_job(tz)
+        self._setup_battery_monitor_job(tz)
         self._apscheduler.start()
         self.logger.info(f"APScheduler started with {len(self.scheduled_messages)} scheduled message(s)")
 
@@ -241,6 +254,58 @@ class MessageScheduler:
         )
         self.logger.info(
             "Scheduled Clock_Sync_Admin job: %s (%d unique target(s))",
+            parsed.display_label,
+            len(targets),
+        )
+
+    def _setup_battery_monitor_job(self, tz) -> None:
+        """Register the periodic battery-telemetry poll, reusing the
+        Clock_Sync_Admin target list (see [[project_meshcore-bot]] discussion,
+        2026-09-18): those are the devices the bot already holds admin
+        rights on, so no separate target configuration is needed. Absent
+        by default — the ``[Battery_Monitor]`` section must be added
+        explicitly (same convention as ``[Clock_Sync_Admin]``) before this
+        job is ever registered, so existing deployments don't suddenly gain
+        new mesh traffic on an upgrade.
+
+        Cron-based (same ``parse_schedule_key`` mechanism as
+        Clock_Sync_Admin's own ``schedule``), not a plain hourly interval —
+        real-world tuning (2026-09-18, after the first production test)
+        settled on every 6h aligned to midnight (``0 0,6,12,18 * * *``)
+        rather than a fixed hourly cadence, and a cron string can express
+        that alignment; ``IntervalTrigger`` cannot (it fires every N hours
+        from whenever the job was *registered*, not from a fixed wall-clock
+        anchor).
+        """
+        if self._apscheduler is None:
+            return
+        if not self.bot.config.has_section("Battery_Monitor"):
+            return
+
+        enabled = self.bot.config.getboolean("Battery_Monitor", "enabled", fallback=False)
+        if not enabled:
+            self.logger.info("Battery_Monitor schedule disabled")
+            return
+
+        schedule_raw = (self.bot.config.get("Battery_Monitor", "schedule", fallback="0 0,6,12,18 * * *") or "").strip()
+        parsed = parse_schedule_key(schedule_raw, tz)
+        if parsed.trigger is None:
+            self.logger.warning("Battery_Monitor invalid schedule %r; job not registered", schedule_raw)
+            return
+
+        targets = self._get_clock_sync_targets()
+        if not targets:
+            self.logger.warning("Battery_Monitor has no targets configured (uses Clock_Sync_Admin's target list); job not registered")
+            return
+
+        self._apscheduler.add_job(
+            self.run_battery_monitor_job_sync,
+            parsed.trigger,
+            id="battery_monitor_poll",
+            replace_existing=True,
+        )
+        self.logger.info(
+            "Scheduled Battery_Monitor job: %s (%d target(s))",
             parsed.display_label,
             len(targets),
         )
@@ -954,6 +1019,161 @@ class MessageScheduler:
             'in_sync_skipped': skipped_in_sync_count,
         }
 
+    def run_battery_monitor_job_sync(self) -> None:
+        """APScheduler sync wrapper for the async battery-telemetry poll."""
+        self._run_async_on_main_loop(self._run_battery_monitor_job_async(), timeout=300.0)
+
+    async def _run_battery_monitor_job_async(self) -> dict[str, Any]:
+        """Request telemetry from each Clock_Sync_Admin target and store its
+        battery voltage. Uses the binary telemetry request/response protocol
+        (``req_telemetry_sync``), not the DM/CLI channel Clock_Sync_Admin
+        uses — battery data only exists as a reply to this explicit request,
+        MeshCore devices never broadcast it unprompted.
+
+        Returns a summary dict — {'success': False, 'error': ...} if the run
+        was skipped before polling anything, otherwise {'success': True,
+        'polled': N, 'stored': N, 'failed': N}.
+        """
+        if not self.bot.config.getboolean("Battery_Monitor", "enabled", fallback=False):
+            self.logger.debug("Battery_Monitor run skipped — disabled")
+            return {'success': False, 'error': 'Battery_Monitor is disabled'}
+        if not self.bot.connected or not getattr(self.bot, "meshcore", None):
+            self.logger.warning("Battery_Monitor run skipped — bot/radio not connected")
+            return {'success': False, 'error': 'Bot/radio not connected'}
+        if self.bot.is_radio_zombie:
+            self.logger.warning("Battery_Monitor run skipped — radio in zombie state")
+            return {'success': False, 'error': 'Radio in zombie state'}
+        if self.bot.is_radio_offline:
+            self.logger.warning("Battery_Monitor run skipped — radio offline")
+            return {'success': False, 'error': 'Radio offline'}
+
+        targets = self._get_clock_sync_targets()
+        if not targets:
+            self.logger.debug("Battery_Monitor run skipped — no targets configured")
+            return {'success': False, 'error': 'No targets configured'}
+
+        request_timeout = self.bot.config.getfloat(
+            "Battery_Monitor", "request_timeout_seconds", fallback=20.0
+        )
+        request_gap = self.bot.config.getfloat(
+            "Battery_Monitor", "request_gap_seconds", fallback=2.0
+        )
+
+        polled = 0
+        stored = 0
+        failed = 0
+
+        for index, target in enumerate(targets):
+            contact = self._resolve_clock_sync_target_contact(target)
+            if not contact:
+                failed += 1
+                self.logger.warning(
+                    "Battery_Monitor skipping unknown target: %s", sanitize_name(target)
+                )
+                continue
+
+            public_key = (contact.get("public_key", "") or "").strip()
+            if not public_key:
+                failed += 1
+                continue
+
+            if index > 0 and request_gap > 0:
+                await asyncio.sleep(request_gap)
+
+            polled += 1
+            try:
+                # Bounded like neighbors_discovery's own regions request: an
+                # unbounded stall here would hold up every other bot command
+                # for as long as this one telemetry reply never arrives.
+                lpp = await asyncio.wait_for(
+                    self.bot.meshcore.commands.req_telemetry_sync(
+                        public_key, timeout=request_timeout
+                    ),
+                    timeout=request_timeout + 5.0,
+                )
+            except asyncio.CancelledError:
+                raise
+            except asyncio.TimeoutError:
+                failed += 1
+                self.logger.warning(
+                    "Battery_Monitor: telemetry request to %s... timed out", public_key[:12]
+                )
+                continue
+            except Exception as exc:
+                failed += 1
+                self.logger.warning(
+                    "Battery_Monitor: telemetry request to %s... failed: %s", public_key[:12], exc
+                )
+                continue
+
+            voltage = self._extract_voltage_from_lpp(lpp)
+            if voltage is None:
+                failed += 1
+                # Logged at warning (not debug) with the raw reply included --
+                # confirmed on real hardware (2026-09-18) that this exact case
+                # is silent otherwise at the default INFO log level, which
+                # made a real "polled=2 stored=0 failed=2" result impossible
+                # to diagnose remotely without a temporary log_level=DEBUG
+                # change and restart.
+                self.logger.warning(
+                    "Battery_Monitor: no voltage reading in telemetry reply from %s...: %r",
+                    public_key[:12], lpp
+                )
+                continue
+
+            self._store_battery_observation(public_key, voltage)
+            stored += 1
+
+        self.logger.info(
+            "Battery_Monitor run complete: targets=%d polled=%d stored=%d failed=%d",
+            len(targets), polled, stored, failed,
+        )
+        return {'success': True, 'polled': polled, 'stored': stored, 'failed': failed}
+
+    @staticmethod
+    def _extract_voltage_from_lpp(lpp: Any) -> Optional[float]:
+        """Pull the first voltage reading (LPP type 116, volts) out of a
+        decoded telemetry response.
+
+        ``entry["type"]`` is the *name string* ``"voltage"``, not the raw
+        numeric LPP code 116 — confirmed both on real hardware (2026-09-18:
+        a reply that genuinely carried a voltage reading was being silently
+        discarded because of this) and by reading ``cayennelpp``'s own
+        source: ``LppData.type`` holds an ``LppType`` object, and
+        ``meshcore``'s ``lpp_json_encoder`` resolves *that* object through
+        its own numeric-to-name table (``my_lpp_types[obj.type][0]``) before
+        it ever reaches this dict — so by the time this function sees it,
+        the numeric code has already been translated to ``"voltage"``.
+        """
+        if not isinstance(lpp, list):
+            return None
+        for entry in lpp:
+            if isinstance(entry, dict) and entry.get("type") == "voltage":
+                value = entry.get("value")
+                if isinstance(value, (int, float)):
+                    return float(value)
+        return None
+
+    def _store_battery_observation(self, public_key: str, voltage: float) -> None:
+        """Record one battery voltage reading — same try/except-and-log-only
+        shape as ``_log_clock_sync_admin_attempt``, since a storage failure
+        here must never take down the polling loop."""
+        db_manager = getattr(self.bot, "db_manager", None)
+        if not db_manager:
+            return
+        try:
+            with db_manager.connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "INSERT INTO battery_observations (public_key, voltage) VALUES (?, ?)",
+                    (public_key, voltage),
+                )
+                conn.commit()
+        except Exception as e:
+            self.logger.warning(
+                "Failed to store battery observation for %s...: %s", public_key[:12], e
+            )
+
     def _setup_device_mode_scheduler_jobs(self) -> None:
         """One-shot jobs for auto_manage_contacts=device: firmware autoadd + favourite hygiene."""
         if self._apscheduler is None:
@@ -1384,7 +1604,8 @@ class MessageScheduler:
     def _channel_body_budget(self, scope: str | None) -> int:
         """UTF-8 byte budget for one channel message body.
 
-        Mirrors BaseCommand.get_max_message_length: channel sends are framed as
+        Defers to ``models.channel_body_limit``, the same helper
+        ``BaseCommand.get_max_message_length`` uses: channel sends are framed as
         "<username>: <body>", and a regional flood scope costs extra header bytes.
         """
         username = ""
@@ -1406,10 +1627,13 @@ class MessageScheduler:
         if not isinstance(username, str):
             username = ""
 
-        budget = 160 - len(username.encode("utf-8")) - 2
+        # Shared with the command layer and the web viewer: a scheduled broadcast
+        # sized against a different number than a command reply would either waste
+        # airtime or overrun the firmware's text limit.
+        budget = channel_body_limit(username)
         if (scope or "").strip():
             budget -= CHANNEL_REGIONAL_FLOOD_SCOPE_BODY_OVERHEAD
-        return max(budget, 32)
+        return budget
 
     def _effective_send_scope(self, channel: str, scope: str | None) -> str | None:
         """The scope the send will actually use, not just the one on the schedule.
@@ -1559,7 +1783,7 @@ class MessageScheduler:
         last_job_count = 0
         last_job_log_time = 0
 
-        while self.bot.connected:
+        while self.bot.keep_running:
             current_time = self.get_current_time()
 
             # Log current time every 5 minutes for debugging
@@ -2205,6 +2429,24 @@ class MessageScheduler:
                 elif op_type == 'clock_sync_admin_run_now':
                     result_payload = await self._run_clock_sync_admin_job_async()
                     success = bool(result_payload.get('success'))
+                    # Battery_Monitor polls this exact same target list, so an
+                    # explicit "Run Now" is also the natural moment to refresh
+                    # battery readings on demand (e.g. right after deploying,
+                    # rather than waiting for the next hourly tick). Best-effort
+                    # and never allowed to affect this operation's own
+                    # success/error — a battery-poll hiccup is not a
+                    # Clock_Sync_Admin failure, and _run_battery_monitor_job_async
+                    # already no-ops cleanly when Battery_Monitor is disabled.
+                    try:
+                        battery_result = await self._run_battery_monitor_job_async()
+                        self.logger.info(
+                            "Battery_Monitor run (triggered by Clock_Sync_Admin Run Now): %s",
+                            battery_result,
+                        )
+                    except Exception as battery_exc:
+                        self.logger.warning(
+                            "Battery_Monitor run (triggered by Run Now) failed: %s", battery_exc
+                        )
                 elif op_type == 'send_announcement':
                     payload = json.loads(op['payload_data'] or '{}')
                     success, result_payload = await self._send_announcement_op(payload)
@@ -2268,7 +2510,7 @@ class MessageScheduler:
             self.logger.exception(f"Error in _process_config_operations: {e}")
 
     async def _firmware_read_op(self):
-        """Read the path hash mode from radio firmware (device query)."""
+        """Read the path hash mode and default flood scope from radio firmware."""
         import asyncio
         try:
             meshcore = getattr(self.bot, 'meshcore', None)
@@ -2279,10 +2521,59 @@ class MessageScheduler:
                 meshcore.commands.get_path_hash_mode(), timeout=10
             )
 
-            return True, {'path_hash_mode': path_hash_mode}
+            result: dict[str, Any] = {'path_hash_mode': path_hash_mode}
+            result.update(await self._read_default_flood_scope(meshcore))
+            return True, result
         except Exception as e:
             self.logger.error(f"Firmware read failed: {e}")
             return False, {'error': str(e)}
+
+    async def _read_default_flood_scope(self, meshcore) -> dict[str, Any]:
+        """Read the radio's own default flood scope, if it has one to report.
+
+        Never raises: firmware without CMD_GET_DEFAULT_FLOOD_SCOPE answers with
+        an error or not at all, and that must not cost the caller the path hash
+        mode it asked for in the same read. The absence of the keys is how the
+        page knows the radio did not answer, which is not the same as the radio
+        answering "no scope set".
+        """
+        getter = getattr(meshcore.commands, 'get_default_flood_scope', None)
+        if getter is None:
+            self.logger.debug(
+                "meshcore library has no get_default_flood_scope; skipping"
+            )
+            return {}
+        try:
+            event = await asyncio.wait_for(getter(), timeout=10)
+        except Exception as e:  # noqa: BLE001 - optional read, never fatal
+            self.logger.info("Default flood scope read unavailable: %s", e)
+            return {}
+
+        if event is None or getattr(event, 'type', None) == EventType.ERROR:
+            self.logger.info(
+                "Radio did not report a default flood scope (result=%s)", event
+            )
+            return {}
+
+        payload = getattr(event, 'payload', None) or {}
+        name = payload.get('scope_name', '') or ''
+        key = payload.get('scope_key', '') or ''
+        # A radio with no default scope sends the one-byte sentinel, which the
+        # library turns into an empty payload. Report that as the cleared
+        # state, distinct from the radio never having answered.
+        result: dict[str, Any] = {
+            'default_scope_name': name,
+            'default_scope_key': key,
+            'default_scope_supported': True,
+        }
+        if name and key:
+            # The name is a label stored beside the key; the radio routes by
+            # the key. A build-flag default stores the name without its '#'
+            # while hashing the '#' form, so compare on the normalized name.
+            result['default_scope_key_matches'] = (
+                scope_key_hex(name).lower() == key.lower()
+            )
+        return result
 
     async def _firmware_write_op(self, payload: dict):
         """Write the path hash mode to radio firmware."""
@@ -2307,6 +2598,13 @@ class MessageScheduler:
                 if not ok:
                     errors.append(f"set_path_hash_mode({mode}) failed: {result}")
 
+            if 'default_flood_scope' in payload:
+                scope = payload['default_flood_scope']
+                ok, error = await self._write_default_flood_scope(meshcore, scope)
+                results['default_flood_scope'] = ok
+                if error:
+                    errors.append(error)
+
             success = len(errors) == 0
             response: dict[str, Any] = {'results': results}
             if errors:
@@ -2315,6 +2613,43 @@ class MessageScheduler:
         except Exception as e:
             self.logger.error(f"Firmware write failed: {e}")
             return False, {'error': str(e)}
+
+    async def _write_default_flood_scope(self, meshcore, scope) -> tuple[bool, str]:
+        """Set or clear the radio's default flood scope.
+
+        Clearing does not go through the library. ``set_default_flood_scope``
+        cannot do it: ``None`` raises on ``len(None)``, ``""`` makes the
+        firmware answer ILLEGAL_ARG, and ``"*"`` only works because the frame
+        is padded by character count rather than by the name it wrote, leaving
+        it one byte short of the length the firmware reads as "a scope
+        follows". The firmware's own contract for clearing is a bare
+        CMD_SET_DEFAULT_FLOOD_SCOPE with nothing after it, so send that.
+        """
+        from meshcore.packets import CommandType
+
+        setter = getattr(meshcore.commands, 'set_default_flood_scope', None)
+        if setter is None:
+            return False, (
+                'This meshcore library version cannot set the default flood scope'
+            )
+
+        if scope:
+            result = await asyncio.wait_for(setter(scope), timeout=10)
+            label = f'set_default_flood_scope({scope})'
+        else:
+            result = await asyncio.wait_for(
+                meshcore.commands.send(
+                    bytearray([CommandType.SET_DEFAULT_FLOOD_SCOPE.value]),
+                    [EventType.OK, EventType.ERROR],
+                ),
+                timeout=10,
+            )
+            label = 'clear default_flood_scope'
+
+        ok = getattr(result, 'type', None) == EventType.OK
+        if ok:
+            return True, ''
+        return False, f'{label} failed: {result}'
 
     async def _radio_params_read_op(self):
         """Read current radio and node parameters via SELF_INFO (appstart)."""
