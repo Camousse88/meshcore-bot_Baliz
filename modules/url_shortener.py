@@ -121,7 +121,6 @@ def _build_create_gd_url(long_url: str, base: str, api_key: str) -> str:
     rebuilt = urlunparse((parsed.scheme or "https", netloc, path, "", query, ""))
     return rebuilt
 
-
 def _build_create_shlink_url(base: str) -> str:
     """Build the Shlink create endpoint from *base*.
 
@@ -297,15 +296,15 @@ def shorten_url_sync(
             logger=logger,
         )
 
-    except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+    except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
         # Routine on a mesh node with an intermittent uplink. Logging these at ERROR
         # as "unexpected" floods the log and buries the errors that do need triage.
         if logger:
-            logger.debug("URL shortener unreachable: %s", e)
+            logger.debug("URL shortener unreachable: %s", exc)
         return ""
-    except Exception as e:
+    except Exception as exc:
         if logger:
-            logger.error("Unexpected error shortening URL: %s", e)
+            logger.error("Unexpected error shortening URL: %s", exc)
         return ""
 
 
@@ -332,7 +331,7 @@ async def shorten_url(
                 timeout=timeout,
             ),
         )
-    except Exception as e:
+    except Exception as exc:
         if logger:
-            logger.debug("Unexpected error shortening URL: %s", e)
+            logger.debug("Unexpected error shortening URL: %s", exc)
         return ""

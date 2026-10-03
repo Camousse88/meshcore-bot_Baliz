@@ -5,6 +5,7 @@ Bot montoring web interface using Flask-SocketIO 5.x
 """
 
 import configparser
+import hmac
 import json
 import logging
 import os
@@ -43,6 +44,8 @@ from flask import (
 )
 from flask_socketio import SocketIO, disconnect, emit
 
+from modules import flood_scope, region_warning
+from modules.maintenance import MaintenanceRunner
 from modules.security_utils import (
     SafeUrlPolicy,
     create_safe_requests_session,
@@ -99,6 +102,7 @@ def _strip_ansi_codes(text: str) -> str:
 from modules.config_snapshot import config_to_redacted_sections
 from modules.feed_format import format_feed_message
 from modules.ini_writer import IniValueError, update_ini_values
+from modules.models import channel_body_limit
 from modules.multibyte_detection import (
     bucket_hop_chunks,
     chunks_from_multibyte_path_hex,
@@ -265,7 +269,7 @@ class BotDataViewer:
         # Connection management using Flask-SocketIO built-ins
         self.connected_clients = {}  # Track client metadata
         self._clients_lock = threading.RLock()  # Reentrant: disconnect() re-enters from handle_connect
-        self.max_clients = 10
+        self.max_clients = 50
 
         # Database connection pooling with thread safety
         self._db_connection = None
@@ -274,15 +278,14 @@ class BotDataViewer:
         self._db_timeout = 300  # 5 minutes connection timeout
 
         # Load configuration
-        self.config = self._load_config(config_path)
         self.config_path = config_path  # kept for config.ini write-back endpoints
-
         # Resolve db_path relative to the config file's directory — matches core.py's bot_root
         # property which is Path(config_file).parent.resolve().  Using self.bot_root (the project
         # code root, 2 dirs above app.py) as the base caused a mismatch when config.ini lived
         # elsewhere (e.g. a separate deployment directory), resulting in a blank realtime monitor
         # because the web viewer and bot opened different database files.
         self._config_base = Path(config_path).parent.resolve() if os.path.exists(config_path) else self.bot_root
+        self.config = self._load_merged_config()
 
         # Setup logging after config is loaded so file logging can follow the
         # configured [Logging] log_file (which may live on a writable path).
@@ -309,6 +312,28 @@ class BotDataViewer:
             )
 
         self._init_dashboard_service()
+
+        # The multi-byte mesh endpoint derives lifetime edge identity from every
+        # retained multi-byte observed path.  Cache that expensive aggregate and
+        # ensure concurrent requests share one computation.  View-specific day
+        # and observation filters remain cheap and are applied to the cached
+        # lifetime result.
+        try:
+            mesh_cache_seconds = self.config.getint(
+                'Web_Viewer',
+                'mesh_graph_cache_seconds',
+                fallback=30,
+            )
+        except (configparser.Error, ValueError, TypeError):
+            mesh_cache_seconds = 30
+        self._mesh_graph_cache_seconds = max(5, min(mesh_cache_seconds, 300))
+        self._multibyte_graph_cache_condition = threading.Condition()
+        self._multibyte_graph_cache_edges: list[dict[str, Any]] | None = None
+        self._multibyte_graph_cache_created_at = 0.0
+        self._multibyte_graph_cache_computing = False
+        self._multibyte_graph_cache_failure_at = 0.0
+        self._multibyte_graph_cache_failure: tuple[str, str] | None = None
+        self._multibyte_graph_cache_retry_seconds = 5.0
 
         # Configure CORS for SocketIO — default to same-origin (no cross-origin)
         cors_raw = self.config.get('Web_Viewer', 'cors_allowed_origins', fallback='').strip()
@@ -571,6 +596,37 @@ class BotDataViewer:
             config.read(config_path)
         return config
 
+    def _load_merged_config(self):
+        """Load base config.ini plus its local overlay, mirroring core.py.
+
+        core.py's ``_read_config_snapshot`` reads the base ``config.ini``,
+        looks up ``[Bot] local_dir_path`` (fallback ``"local"``), resolves it
+        relative to the bot root, and — if ``<local_dir_path>/config.ini``
+        exists — reads it into the *same* parser so it overlays the base
+        values section-by-section/key-by-key. The web viewer needs the same
+        merged view so settings edited via the local overlay show up here.
+        """
+        base_parser = configparser.ConfigParser()
+        if os.path.exists(self.config_path):
+            base_parser.read(self.config_path, encoding="utf-8")
+        base_sections = set(base_parser.sections())
+
+        local_dir_path_str = base_parser.get("Bot", "local_dir_path", fallback="local")
+        self.local_dir = Path(resolve_path(local_dir_path_str, self._config_base))
+        self.local_config_path = str(self.local_dir / "config.ini")
+
+        local_only = configparser.ConfigParser()
+        if os.path.exists(self.local_config_path):
+            local_only.read(self.local_config_path, encoding="utf-8")
+        local_sections = set(local_only.sections())
+
+        if os.path.exists(self.local_config_path):
+            base_parser.read(self.local_config_path, encoding="utf-8")
+
+        self._base_sections = base_sections
+        self._local_sections = local_sections
+        return base_parser
+
     def _get_version_info(self) -> dict[str, str | None]:
         """Get version info for footer via centralized version resolver. Never raises."""
         info = resolve_runtime_version(self.bot_root)
@@ -617,6 +673,9 @@ class BotDataViewer:
                     websocket_enabled = self.config.getboolean('Web_Viewer', 'websocket_enabled', fallback=False)
                 except (configparser.NoSectionError, configparser.NoOptionError, ValueError, TypeError):
                     websocket_enabled = False
+                auth_enabled = bool(self.web_viewer_password)
+                # Session bit only — missing password is not an admin session.
+                is_admin = bool(session.get('authenticated_admin'))
                 return {
                     'greeter_enabled': greeter_enabled,
                     'feed_manager_enabled': feed_manager_enabled,
@@ -628,6 +687,8 @@ class BotDataViewer:
                     'radio_offline_since': radio_offline_since,
                     'bot_initializing': bot_initializing,
                     'websocket_enabled': websocket_enabled,
+                    'auth_enabled': auth_enabled,
+                    'is_admin': is_admin,
                 }
             except Exception as e:
                 self.logger.exception("Template context processor failed: %s", e)
@@ -642,6 +703,8 @@ class BotDataViewer:
                     'radio_offline': False,
                     'radio_offline_since': None,
                     'websocket_enabled': False,
+                    'auth_enabled': bool(getattr(self, 'web_viewer_password', '')),
+                    'is_admin': False,
                 }
 
     def _init_databases(self):
@@ -667,6 +730,14 @@ class BotDataViewer:
 
             # Now set db_manager on the minimal bot for RepeaterManager
             minimal_bot.db_manager = self.db_manager
+
+            # The viewer runs as a separate process, so it cannot call the bot's
+            # MessageScheduler directly. MaintenanceRunner only needs this small
+            # bot facade for manual database backups.
+            self._maintenance_runner = MaintenanceRunner(
+                minimal_bot,
+                get_current_time=datetime.now,
+            )
 
             # Store minimal bot for lazy singletons
             self._minimal_bot = minimal_bot
@@ -945,12 +1016,60 @@ class BotDataViewer:
                 error_message='Something went wrong on our end. The error has been logged.',
             ), 500)
 
-        # Authentication middleware (BUG-001)
+        # Authentication middleware (BUG-001).
+        # Fail closed when a password is configured: only the public allowlist
+        # below is reachable without authenticated_admin. Everything else
+        # (config, logs, radio, mutations, channel keys, sockets) stays admin.
         _EXEMPT_PATHS = frozenset([
             '/login', '/logout',
             '/apple-touch-icon.png', '/favicon-32x32.png', '/favicon-16x16.png',
             '/site.webmanifest', '/favicon.ico',
+            # Bot→viewer ingest uses X-Stream-Token, not the admin session.
+            '/api/stream_data',
         ])
+
+        # Issue #240 public HTML surface (Realtime page renders; live socket stays admin).
+        _PUBLIC_PAGE_PATHS = frozenset([
+            '/', '/realtime', '/contacts', '/mesh',
+        ])
+
+        # Anonymous-safe GET APIs: mesh-visible / aggregate data only. No channel
+        # keys, config, logs, backups, or private message firehose.
+        _PUBLIC_API_GET_PATHS = frozenset([
+            '/api/health',
+            '/api/banner-status',
+            '/api/stats',
+            '/api/dashboard/summary',
+            '/api/dashboard/series',
+            '/api/dashboard/top',
+            '/api/dashboard/windows',
+            '/api/contacts',
+            '/api/contact-detail',
+            '/api/mesh/nodes',
+            '/api/mesh/edges',
+            '/api/mesh/stats',
+        ])
+
+        # Read-only POST helpers used by public Contacts / Mesh info panels.
+        _PUBLIC_API_POST_PATHS = frozenset([
+            '/api/decode-path',
+            '/api/mesh/resolve-path',
+        ])
+
+        def _is_local_redirect(url: str) -> bool:
+            # Browsers read '//host' and '/\host' as another origin, and strip
+            # tabs/newlines before parsing, so '/\t/host' becomes '//host' too.
+            if not url.startswith('/') or any(c in url for c in '\\\t\r\n'):
+                return False
+            if url.startswith('//'):
+                return False
+            parsed = urlparse(url)
+            return not (parsed.scheme or parsed.netloc)
+
+        def _normalize_request_path(path: str) -> str:
+            if path != '/' and path.endswith('/'):
+                path = path.rstrip('/')
+            return path or '/'
 
         @self.app.before_request
         def create_csp_nonce():
@@ -959,16 +1078,25 @@ class BotDataViewer:
 
         @self.app.before_request
         def require_auth():
+            """Enforce admin auth except for the explicit public allowlist."""
             if not self.web_viewer_password:
-                return  # Auth disabled — no password configured
-            if request.path in _EXEMPT_PATHS or request.path.startswith('/static/'):
+                return  # Auth disabled — no password configured (legacy open mode)
+            path = _normalize_request_path(request.path)
+            if path in _EXEMPT_PATHS or path.startswith('/static/'):
                 return
-            if session.get('authenticated'):
+            if session.get('authenticated_admin'):
                 return
-            if request.path.startswith('/api/'):
-                return make_response(jsonify({'error': 'Authentication required'}), 401)
-            next_url = request.path
-            return redirect(url_for('login', next=next_url))
+            # HEAD and OPTIONS are answered by Flask from the GET route with no
+            # body, so they are as safe as the GET they shadow.
+            if request.method in ('GET', 'HEAD', 'OPTIONS') and (
+                path in _PUBLIC_PAGE_PATHS or path in _PUBLIC_API_GET_PATHS
+            ):
+                return
+            if request.method in ('POST', 'OPTIONS') and path in _PUBLIC_API_POST_PATHS:
+                return
+            if path.startswith('/api/'):
+                return make_response(jsonify({'error': 'Admin authentication required'}), 401)
+            return redirect(url_for('login', next=path))
 
         @self.app.before_request
         def csrf_protection():
@@ -1014,6 +1142,8 @@ class BotDataViewer:
                 'contacts',
                 'plugins_page',
                 'greeter',
+                'region_warnings_page',
+                'regions_page',
                 'logs',
                 'multibyte_rollout',
                 'mesh',
@@ -1057,16 +1187,31 @@ class BotDataViewer:
 
         @self.app.route('/login', methods=['GET', 'POST'])
         def login():
-            """Login page for web viewer authentication"""
+            """Login page for admin authentication"""
             if not self.web_viewer_password:
                 return redirect(url_for('index'))
             if request.method == 'POST':
                 password = request.form.get('password', '')
-                if password == self.web_viewer_password:
-                    session['authenticated'] = True
+                # Hash both sides so compare_digest always sees equal-length
+                # digests (avoids TypeError / length short-circuit on ==).
+                expected = hmac.new(
+                    b'web-viewer-login',
+                    self.web_viewer_password.encode('utf-8'),
+                    'sha256',
+                ).digest()
+                provided = hmac.new(
+                    b'web-viewer-login',
+                    password.encode('utf-8'),
+                    'sha256',
+                ).digest()
+                if hmac.compare_digest(provided, expected):
+                    session.clear()
+                    session['authenticated_admin'] = True
+                    # Ties this login's Socket.IO connections together so logout
+                    # can drop them (a socket keeps its connect-time session).
+                    session['admin_login_id'] = secrets.token_urlsafe(16)
                     next_url = request.args.get('next', '/')
-                    parsed = urlparse(next_url)
-                    if parsed.scheme or parsed.netloc or not next_url.startswith('/'):
+                    if not _is_local_redirect(next_url):
                         next_url = '/'
                     return redirect(next_url)
                 return render_template('login.html', error='Invalid password')
@@ -1074,9 +1219,12 @@ class BotDataViewer:
 
         @self.app.route('/logout')
         def logout():
-            """Logout and clear session"""
-            session.pop('authenticated', None)
-            return redirect(url_for('login'))
+            """Logout, clear session, and drop this login's live sockets"""
+            login_id = session.get('admin_login_id')
+            session.clear()
+            if login_id:
+                self._disconnect_login_sockets(login_id)
+            return redirect(url_for('index'))
 
         @self.app.route('/')
         def index():
@@ -1109,10 +1257,374 @@ class BotDataViewer:
             """Greeter management page"""
             return render_template('greeter.html')
 
+        def _region_warning_channel_limit() -> int:
+            """Channel body budget for a global-scope send."""
+            name = (self.config.get('Bot', 'bot_name', fallback='Bot') or 'Bot').strip()
+            return channel_body_limit(name or 'Bot')
+
+        @self.app.route('/regions')
+        def regions_page():
+            """Public explainer: why the bot sends region warnings, with public stats."""
+            return render_template('regions.html')
+
+        @self.app.route('/api/regions')
+        def api_regions():
+            """Public aggregates only: no settings, no per-sender data."""
+            try:
+                self.config = self._load_merged_config()
+                try:
+                    days = max(1, min(int(request.args.get('days', 14)), 90))
+                except (TypeError, ValueError):
+                    days = 14
+                return jsonify({
+                    'traffic': region_warning.traffic_summary(
+                        self.db_manager, self.config, days, self.logger
+                    ),
+                    'series': region_warning.daily_series(
+                        self.db_manager, self.config, days, self.logger
+                    ),
+                })
+            except Exception:
+                self.logger.exception("Error building public regions view")
+                return jsonify({'error': 'Failed to build regions view'}), 500
+
+        @self.app.route('/region-warnings')
+        def region_warnings_page():
+            """Regional flood scope monitoring and warning settings."""
+            return render_template('region_warnings.html')
+
+        @self.app.route('/api/region-warnings')
+        def api_region_warnings():
+            """Settings, traffic tallies, budget and recent decisions for the page."""
+            try:
+                self.config = self._load_merged_config()
+                settings = region_warning.load_settings(self.config)
+                try:
+                    days = max(1, min(int(request.args.get('days', 14)), 90))
+                except (TypeError, ValueError):
+                    days = 14
+
+                known_channels = []
+                try:
+                    known_channels = [
+                        c.get('name') for c in self._get_channels() if c.get('name')
+                    ]
+                except Exception:
+                    pass
+
+                return jsonify({
+                    'settings': region_warning.settings_to_config_values(settings),
+                    'defaults': region_warning.settings_to_config_values(
+                        region_warning.RegionWarningSettings()
+                    ),
+                    'default_message': region_warning.DEFAULT_MESSAGE,
+                    'traffic': region_warning.traffic_summary(
+                        self.db_manager, self.config, days, self.logger
+                    ),
+                    'series': region_warning.daily_series(
+                        self.db_manager, self.config, days, self.logger
+                    ),
+                    'budget': region_warning.warning_budget(
+                        self.db_manager, settings, self.config, self.logger
+                    ),
+                    'events': region_warning.recent_events(self.db_manager, 50),
+                    'limits': {
+                        'dm': region_warning.DM_BODY_LIMIT,
+                        'channel': _region_warning_channel_limit(),
+                    },
+                    'known_channels': known_channels,
+                })
+            except Exception:
+                self.logger.exception("Error building region warning view")
+                return jsonify({'error': 'Internal error — see server logs'}), 500
+
+        @self.app.route('/api/region-warnings/settings', methods=['POST'])
+        def api_region_warnings_save():
+            """Persist [Region_Warnings] and queue a hot config reload."""
+            data = request.get_json(silent=True) or {}
+
+            def _as_bool(key, default):
+                raw = data.get(key, default)
+                if isinstance(raw, bool):
+                    return raw
+                return str(raw).strip().lower() in ('1', 'true', 'yes', 'on')
+
+            def _as_number(key, default, minimum=0.0, maximum=None):
+                raw = data.get(key, default)
+                try:
+                    value = float(raw)
+                except (TypeError, ValueError):
+                    raise ValueError(f'{key} must be a number')
+                if value < minimum:
+                    raise ValueError(f'{key} must be at least {minimum:g}')
+                if maximum is not None and value > maximum:
+                    raise ValueError(f'{key} must be at most {maximum:g}')
+                return value
+
+            try:
+                delivery = str(data.get('delivery', 'dm')).strip().lower()
+                if delivery not in (region_warning.DELIVERY_DM, region_warning.DELIVERY_CHANNEL):
+                    raise ValueError('delivery must be "dm" or "channel"')
+
+                message = str(data.get('message') or '').strip() or region_warning.DEFAULT_MESSAGE
+                if '\n' in message or '\r' in message:
+                    raise ValueError('message must be a single line')
+                if '%' in message:
+                    raise ValueError('message cannot contain "%"; write "percent" instead')
+                if len(message) > 500:
+                    raise ValueError('message must be 500 characters or fewer')
+
+                channels = data.get('channels')
+                if isinstance(channels, list):
+                    channel_parts = channels
+                else:
+                    channel_parts = str(channels or '').split(',')
+                normalized_channels = []
+                for part in channel_parts:
+                    name = region_warning.normalize_channel(part)
+                    if name and name not in normalized_channels:
+                        normalized_channels.append(name)
+
+                settings = region_warning.RegionWarningSettings(
+                    enabled=_as_bool('enabled', False),
+                    dry_run=_as_bool('dry_run', True),
+                    delivery=delivery,
+                    channels=tuple(normalized_channels),
+                    message=message,
+                    min_unscoped_messages=int(_as_number('min_unscoped_messages', 3, 1, 100)),
+                    per_sender_cooldown_hours=_as_number('per_sender_cooldown_hours', 168, 0, 8760),
+                    mesh_cooldown_minutes=_as_number('mesh_cooldown_minutes', 30, 0, 10080),
+                    max_warnings_per_day=int(_as_number('max_warnings_per_day', 6, 0, 1000)),
+                    track_traffic=_as_bool('track_traffic', True),
+                )
+            except ValueError as exc:
+                return jsonify({'success': False, 'error': str(exc)}), 400
+
+            section = region_warning.CONFIG_SECTION
+            target_path = (
+                self.local_config_path
+                if section in self._local_sections
+                else self.config_path
+            )
+            try:
+                store = get_settings_store(self.config, target_path, self.db_manager)
+                result = store.write_values(
+                    section, region_warning.settings_to_config_values(settings)
+                )
+            except IniValueError as exc:
+                return jsonify({'success': False, 'error': str(exc)}), 400
+            except Exception:
+                self.logger.exception("Error saving region warning settings")
+                return jsonify({'success': False, 'error': 'Internal error — see server logs'}), 500
+
+            backup_path = result.get('backup_path', '') if isinstance(result, dict) else ''
+            reload_queued = _queue_config_reload()
+
+            self.logger.info(
+                "Region warning settings saved (enabled=%s, dry_run=%s, delivery=%s)",
+                settings.enabled, settings.dry_run, settings.delivery,
+            )
+            return jsonify({
+                'success': True,
+                'backup_path': backup_path,
+                'reload_queued': reload_queued,
+                'settings': region_warning.settings_to_config_values(settings),
+            })
+
+        # ── Region scopes ([Channels] flood_scopes) ──────────────────────────
+
+        def _region_scope_target_path():
+            """Where a [Channels] write lands: the local overlay wins if it has
+            the section, because that is the copy the merged config reads last."""
+            return (
+                self.local_config_path
+                if 'Channels' in self._local_sections
+                else self.config_path
+            )
+
+        def _region_scope_view():
+            """Effective region-scope settings, read the way the bot reads them."""
+            # [Channels] is canonical; [Bot] is still honoured with a warning by
+            # CommandManager, so read it the same way or the page would show
+            # "replies to every scope" while the bot enforces an allowlist.
+            raw = ''
+            legacy_section = None
+            for section in ('Channels', 'Bot'):
+                if self.config.has_section(section) and self.config.has_option(
+                    section, 'flood_scopes'
+                ):
+                    candidate = (self.config.get(section, 'flood_scopes') or '').strip()
+                    if not candidate:
+                        continue
+                    raw = candidate
+                    if section != 'Channels':
+                        legacy_section = section
+                    break
+
+            scopes, allow_global = flood_scope.split_allowlist(raw)
+            override_raw = ''
+            if self.config.has_section('Channels') and self.config.has_option(
+                'Channels', 'outgoing_flood_scope_override'
+            ):
+                override_raw = (
+                    self.config.get('Channels', 'outgoing_flood_scope_override') or ''
+                ).strip()
+            override = (
+                '' if flood_scope.is_global_marker(override_raw)
+                else flood_scope.normalize_scope_name(override_raw)
+            )
+
+            # Read-only, but it is the answer to "why does that channel ignore
+            # the default?", so the page shows it rather than making the
+            # operator open config.ini to find out.
+            channel_overrides = []
+            if self.config.has_section('Channels'):
+                for key, value in self.config.items('Channels'):
+                    if not key.startswith('flood_scope.') or len(key) <= len('flood_scope.'):
+                        continue
+                    configured = (value or '').strip()
+                    channel_overrides.append({
+                        'channel': key[len('flood_scope.'):],
+                        'scope': (
+                            '' if flood_scope.is_global_marker(configured)
+                            else flood_scope.normalize_scope_name(configured)
+                        ),
+                    })
+            channel_overrides.sort(key=lambda entry: entry['channel'].lower())
+
+            target = _region_scope_target_path()
+            if target == self.local_config_path:
+                target_label = os.path.join(
+                    os.path.basename(os.path.dirname(target)), os.path.basename(target)
+                )
+            else:
+                target_label = os.path.basename(target)
+
+            return {
+                'allowlist_active': bool(scopes or allow_global),
+                'scopes': scopes,
+                'allow_global': allow_global,
+                'outgoing_override': override,
+                'channel_overrides': channel_overrides,
+                'legacy_section': legacy_section,
+                'target': target_label,
+                'max_name_length': flood_scope.MAX_SCOPE_NAME_LENGTH,
+            }
+
+        @self.app.route('/api/region-scopes')
+        def api_region_scopes_get():
+            """Regional flood scopes from [Channels], as the bot resolves them."""
+            try:
+                # Re-read from disk so the page reflects edits made elsewhere,
+                # and so the local-overlay target is resolved against what is
+                # on disk now rather than at viewer startup.
+                self.config = self._load_merged_config()
+                return jsonify(_region_scope_view())
+            except Exception:
+                self.logger.exception("Error reading region scopes")
+                return jsonify({'error': 'Internal error — see server logs'}), 500
+
+        @self.app.route('/api/region-scopes', methods=['POST'])
+        def api_region_scopes_save():
+            """Persist [Channels] flood_scopes / outgoing_flood_scope_override."""
+            data = request.get_json(silent=True) or {}
+
+            def _as_bool(key, default=False):
+                raw = data.get(key, default)
+                if isinstance(raw, bool):
+                    return raw
+                return str(raw).strip().lower() in ('1', 'true', 'yes', 'on')
+
+            try:
+                submitted = data.get('scopes')
+                if isinstance(submitted, (list, tuple)):
+                    entries = [str(part).strip() for part in submitted if str(part).strip()]
+                else:
+                    entries = flood_scope.parse_scope_list(submitted)
+
+                allow_global = _as_bool('allow_global', False)
+                scopes: list[str] = []
+                for entry in entries:
+                    canonical = flood_scope.validate_scope_name(entry)
+                    # '*' typed into the list box means the same thing as the
+                    # checkbox; fold it in rather than writing it twice.
+                    if flood_scope.is_global_marker(canonical):
+                        allow_global = True
+                    elif canonical not in scopes:
+                        scopes.append(canonical)
+
+                allowlist_enabled = _as_bool('allowlist_enabled', bool(scopes or allow_global))
+                if allowlist_enabled and not scopes and not allow_global:
+                    raise ValueError(
+                        'Add at least one region scope, or turn the allowlist off '
+                        'so the bot replies whatever the scope'
+                    )
+
+                # '*' last, matching the order config.ini.example documents.
+                flood_scopes_value = (
+                    flood_scope.format_scope_list(scopes + (['*'] if allow_global else []))
+                    if allowlist_enabled else ''
+                )
+
+                override_raw = str(data.get('outgoing_override') or '').strip()
+                # Every global marker means the same send path, but only the
+                # empty value keeps send_channel_message from logging "override
+                # was not applied" on each global send. Store the quiet one.
+                override_value = (
+                    '' if flood_scope.is_global_marker(override_raw)
+                    else flood_scope.validate_scope_name(override_raw)
+                )
+            except ValueError as exc:
+                return jsonify({'success': False, 'error': str(exc)}), 400
+
+            try:
+                # Resolve the write target against the config on disk now: the
+                # local overlay may have grown a [Channels] section since the
+                # viewer started, and it would silently win over a base write.
+                self.config = self._load_merged_config()
+                store = get_settings_store(
+                    self.config, _region_scope_target_path(), self.db_manager
+                )
+                result = store.write_values('Channels', {
+                    'flood_scopes': flood_scopes_value,
+                    'outgoing_flood_scope_override': override_value,
+                })
+            except IniValueError as exc:
+                return jsonify({'success': False, 'error': str(exc)}), 400
+            except OSError:
+                self.logger.exception("Error writing region scopes")
+                return jsonify({
+                    'success': False,
+                    'error': 'Could not write config.ini — check file permissions',
+                }), 500
+            except Exception:
+                self.logger.exception("Error saving region scopes")
+                return jsonify({'success': False, 'error': 'Internal error — see server logs'}), 500
+
+            backup_path = result.get('backup_path', '') if isinstance(result, dict) else ''
+            reload_op_id = _queue_config_reload_id()
+
+            self.logger.info(
+                "Region scopes saved: flood_scopes=%r outgoing_flood_scope_override=%r",
+                flood_scopes_value, override_value,
+            )
+            return jsonify({
+                'success': True,
+                'backup_path': backup_path,
+                'reload_queued': reload_op_id is not None,
+                'reload_operation_id': reload_op_id,
+                'settings': _region_scope_view(),
+            })
+
         @self.app.route('/feeds')
         def feeds():
             """Feed management page"""
             return render_template('feeds.html')
+
+        @self.app.route('/schedule')
+        def schedule_page():
+            """Scheduled message management page"""
+            return render_template('schedule.html')
 
         @self.app.route('/radio')
         def radio():
@@ -1720,12 +2232,11 @@ class BotDataViewer:
         def api_maintenance_backup_now():
             """Trigger an immediate DB backup outside the normal schedule."""
             try:
-                bot = getattr(self, 'bot', None)
-                scheduler = getattr(bot, 'scheduler', None) if bot else None
-                if scheduler is None or not hasattr(scheduler, 'run_db_backup'):
-                    return jsonify({'success': False, 'error': 'Scheduler not available'}), 503
-                scheduler.run_db_backup()
-                # Read outcome written by _run_db_backup
+                runner = getattr(self, '_maintenance_runner', None)
+                if runner is None:
+                    return jsonify({'success': False, 'error': 'Maintenance runner not available'}), 503
+                runner.run_db_backup()
+                # Read the outcome written by MaintenanceRunner.
                 path = self.db_manager.get_metadata('maint.status.db_backup_path') or ''
                 outcome = self.db_manager.get_metadata('maint.status.db_backup_outcome') or ''
                 if outcome.startswith('error'):
@@ -3082,9 +3593,61 @@ class BotDataViewer:
                 days = request.args.get('days', type=int)
                 min_distance = request.args.get('min_distance', type=float)
                 max_distance = request.args.get('max_distance', type=float)
+                evidence = request.args.get('evidence', 'all')
+                force_refresh = request.args.get('refresh') == '1'
+
+                if evidence == 'multibyte':
+                    edges, prefix_hex_chars = self._derive_multibyte_evidence_graph(
+                        days=days,
+                        min_observations=min_observations,
+                        force_refresh=force_refresh,
+                    )
+                    return jsonify({
+                        'edges': edges,
+                        'prefix_hex_chars': prefix_hex_chars,
+                        'evidence': 'multibyte',
+                    })
+
+                if evidence == 'neighbors':
+                    edges, prefix_hex_chars = self._derive_neighbor_evidence_graph(
+                        days=days,
+                        min_observations=min_observations,
+                    )
+                    return jsonify({
+                        'edges': edges,
+                        'prefix_hex_chars': prefix_hex_chars,
+                        'evidence': 'neighbors',
+                    })
+
+                # Combined view: mesh_connections cannot record *why* an edge
+                # exists, so re-derive the strongest label from neighbor_links.
+                # Same window as the edges themselves, so stale evidence cannot
+                # claim a recent edge is a current direct neighbor.
+                neighbor_keys = self._neighbor_evidence_edge_keys(days=days)
 
                 conn = self._get_db_connection()
                 cursor = conn.cursor()
+
+                # Edge windows control visibility, but node identity must retain
+                # the lifetime graph's prefix resolution. Otherwise an older
+                # multi-byte edge disappearing from the window can collapse
+                # distinct nodes onto one shorter prefix in the browser.
+                cursor.execute(
+                    '''
+                    SELECT COALESCE(
+                        MAX(
+                            CASE
+                                WHEN LENGTH(from_prefix) > LENGTH(to_prefix)
+                                THEN LENGTH(from_prefix)
+                                ELSE LENGTH(to_prefix)
+                            END
+                        ),
+                        2
+                    ) AS prefix_hex_chars
+                    FROM mesh_connections
+                    '''
+                )
+                prefix_hex_chars = cursor.fetchone()['prefix_hex_chars']
 
                 query = '''
                     SELECT
@@ -3124,20 +3687,34 @@ class BotDataViewer:
                 rows = cursor.fetchall()
 
                 edges = []
-                prefix_hex_chars = 2  # default 1 byte
                 for row in rows:
                     fp, tp = row['from_prefix'], row['to_prefix']
-                    prefix_hex_chars = max(prefix_hex_chars, len(fp) if fp else 0, len(tp) if tp else 0)
+                    is_multibyte = bool(fp) and bool(tp) and len(fp) >= 4 and len(tp) >= 4
+                    from_lower = fp.lower() if fp else ''
+                    to_lower = tp.lower() if tp else ''
+                    from_key = (row['from_public_key'] or '').lower()
+                    to_key = (row['to_public_key'] or '').lower()
+                    if (
+                        (from_lower, to_lower) in neighbor_keys.prefixes
+                        or (from_key and to_key
+                            and (from_key, to_key) in neighbor_keys.public_keys)
+                    ):
+                        edge_evidence = 'neighbors'
+                    elif is_multibyte:
+                        edge_evidence = 'multibyte'
+                    else:
+                        edge_evidence = 'singlebyte'
                     edges.append({
-                        'from_prefix': fp.lower() if fp else '',
-                        'to_prefix': tp.lower() if tp else '',
+                        'from_prefix': from_lower,
+                        'to_prefix': to_lower,
                         'from_public_key': row['from_public_key'],
                         'to_public_key': row['to_public_key'],
                         'observation_count': row['observation_count'],
                         'first_seen': row['first_seen'],
                         'last_seen': row['last_seen'],
                         'avg_hop_position': row['avg_hop_position'],
-                        'geographic_distance': row['geographic_distance']
+                        'geographic_distance': row['geographic_distance'],
+                        'evidence': edge_evidence,
                     })
 
                 return jsonify({'edges': edges, 'prefix_hex_chars': prefix_hex_chars or 2})
@@ -3179,7 +3756,9 @@ class BotDataViewer:
                         MAX(geographic_distance) as max_distance,
                         COUNT(CASE WHEN from_public_key IS NOT NULL THEN 1 END) as edges_with_from_key,
                         COUNT(CASE WHEN to_public_key IS NOT NULL THEN 1 END) as edges_with_to_key,
-                        COUNT(CASE WHEN from_public_key IS NOT NULL AND to_public_key IS NOT NULL THEN 1 END) as edges_with_both_keys
+                        COUNT(CASE WHEN from_public_key IS NOT NULL AND to_public_key IS NOT NULL THEN 1 END) as edges_with_both_keys,
+                        COUNT(CASE WHEN LENGTH(from_prefix) >= 4 AND LENGTH(to_prefix) >= 4 THEN 1 END) as multibyte_edges,
+                        COUNT(CASE WHEN last_seen >= datetime("now", "-1 days") THEN 1 END) as recent_edges_24h
                     FROM mesh_connections
                 ''')
                 edge_stats = cursor.fetchone()
@@ -3206,14 +3785,6 @@ class BotDataViewer:
                 # Get top 10 most connected
                 top_connected = sorted(connection_counts.items(), key=lambda x: x[1], reverse=True)[:10]
 
-                # Get recent edges count (last 24 hours)
-                cursor.execute('''
-                    SELECT COUNT(*) as count
-                    FROM mesh_connections
-                    WHERE last_seen >= datetime("now", "-1 days")
-                ''')
-                recent_edges = cursor.fetchone()['count']
-
                 stats = {
                     'node_count': node_count,
                     'total_edges': edge_stats['total_edges'] or 0,
@@ -3225,8 +3796,9 @@ class BotDataViewer:
                     'edges_with_from_key': edge_stats['edges_with_from_key'] or 0,
                     'edges_with_to_key': edge_stats['edges_with_to_key'] or 0,
                     'edges_with_both_keys': edge_stats['edges_with_both_keys'] or 0,
+                    'multibyte_edges': edge_stats['multibyte_edges'] or 0,
                     'top_connected': [{'prefix': prefix, 'count': count} for prefix, count in top_connected],
-                    'recent_edges_24h': recent_edges
+                    'recent_edges_24h': edge_stats['recent_edges_24h'] or 0
                 }
 
                 return jsonify(stats)
@@ -4131,18 +4703,29 @@ class BotDataViewer:
             tz, _name = get_config_timezone(self.config, self.logger)
             return tz
 
-        def _queue_config_reload():
+        def _queue_config_reload_id():
+            """Queue a config reload and return its operation id, or None.
+
+            The id lets a caller poll /api/channel-operations/<id> and report
+            what the bot actually did with the edit, instead of claiming
+            success because a row was inserted.
+            """
             try:
                 with self.db_manager.connection() as conn:
-                    conn.cursor().execute(
+                    cursor = conn.cursor()
+                    cursor.execute(
                         "INSERT INTO channel_operations (operation_type, status) "
                         "VALUES ('config_reload', 'pending')"
                     )
                     conn.commit()
-                return True
+                    return cursor.lastrowid
             except Exception:
                 self.logger.exception("Failed to queue config reload")
-                return False
+                return None
+
+        def _queue_config_reload():
+            """Ask the bot to re-read config.ini; it re-registers scheduled jobs."""
+            return _queue_config_reload_id() is not None
 
         schedule_write_lock = threading.Lock()
 
@@ -4795,14 +5378,36 @@ class BotDataViewer:
 
         @self.app.route('/api/radio/firmware/config/write', methods=['POST'])
         def api_firmware_config_write():
-            """Queue a firmware config write. Body: {path_hash_mode?: int, loop_detect?: str}.
-            Poll /api/channel-operations/<id> for result."""
+            """Queue a firmware config write. Body may carry ``path_hash_mode``
+            and/or ``default_flood_scope`` (a region name, or empty/null to
+            clear the radio's default). Poll /api/channel-operations/<id>."""
             try:
                 data = request.get_json(silent=True) or {}
-                allowed = {'path_hash_mode', 'loop_detect'}
+                allowed = {'path_hash_mode', 'default_flood_scope'}
                 payload = {k: v for k, v in data.items() if k in allowed}
                 if not payload:
-                    return jsonify({'error': 'No valid fields provided (path_hash_mode, loop_detect)'}), 400
+                    return jsonify({
+                        'error': 'No valid fields provided '
+                                 '(path_hash_mode, default_flood_scope)'
+                    }), 400
+                if 'path_hash_mode' in payload:
+                    mode = int(payload['path_hash_mode'])
+                    if not (0 <= mode <= 2):
+                        return jsonify({'error': 'path_hash_mode must be 0-2 (bytes per hop = mode + 1)'}), 400
+                    payload['path_hash_mode'] = mode
+                if 'default_flood_scope' in payload:
+                    raw = str(payload['default_flood_scope'] or '').strip()
+                    try:
+                        # A global marker means "no default scope", which the
+                        # radio spells as a cleared field, so both arrive here
+                        # as the empty string.
+                        canonical = (
+                            '' if flood_scope.is_global_marker(raw)
+                            else flood_scope.validate_device_scope_name(raw)
+                        )
+                    except ValueError as exc:
+                        return jsonify({'error': str(exc)}), 400
+                    payload['default_flood_scope'] = canonical
                 with self.db_manager.connection() as conn:
                     cursor = conn.cursor()
                     cursor.execute(
@@ -4972,8 +5577,13 @@ class BotDataViewer:
             """Validate and persist one plugin's settings, then queue a reload."""
             try:
                 data = request.get_json(silent=True) or {}
-                self.config = self._load_config(self.config_path)
-                view = build_plugin_settings_view(self.config, logger=self.logger)
+                self.config = self._load_merged_config()
+                view = build_plugin_settings_view(
+                    self.config,
+                    logger=self.logger,
+                    local_commands_dir=str(self.local_dir / "commands"),
+                    local_services_dir=str(self.local_dir / "service_plugins"),
+                )
                 entry = next(
                     (e for e in view if e['kind'] == kind and e['name'] == name),
                     None,
@@ -5071,7 +5681,26 @@ class BotDataViewer:
                         if brx.match(k) and k.lower() not in written:
                             deletes.setdefault(section, []).append(k)
 
-                store = get_settings_store(self.config, self.config_path, self.db_manager)
+                if section in self._local_sections:
+                    target_path = self.local_config_path
+                elif section in self._base_sections:
+                    target_path = self.config_path
+                else:
+                    # Brand-new section: local commands default into the local
+                    # overlay, everything else into the base config.
+                    target_path = (
+                        self.local_config_path if entry.get('source') == 'local' else self.config_path
+                    )
+
+                if target_path == self.local_config_path and not os.path.exists(target_path):
+                    # update_ini_values() requires the target file to already
+                    # exist (it reads + backs up before writing) — local/config.ini
+                    # may not exist yet on a fresh install.
+                    os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                    with open(target_path, 'w', encoding='utf-8') as f:
+                        f.write('')
+
+                store = get_settings_store(self.config, target_path, self.db_manager)
                 result = store.write_sections(updates, deletes)
                 backup_path = result.get('backup_path', '') if isinstance(result, dict) else ''
 
@@ -5138,8 +5767,10 @@ class BotDataViewer:
                     self.logger.warning("Connect event received but client_id is None")
                     return False
 
-                # Reject unauthenticated SocketIO connections when auth is enabled (BUG-001)
-                if self.web_viewer_password and not session.get('authenticated'):
+                # Reject unauthenticated SocketIO connections when auth is enabled.
+                # Live packet/message/log streams stay admin-only — they can carry
+                # decrypted channel traffic and operator logs (deviation from #240).
+                if self.web_viewer_password and not session.get('authenticated_admin'):
                     self.logger.warning(f"Rejected unauthenticated SocketIO connection from {client_id}")
                     with suppress(Exception):
                         disconnect()
@@ -5159,6 +5790,7 @@ class BotDataViewer:
 
                     # Track client
                     self.connected_clients[client_id] = {
+                        'admin_login_id': session.get('admin_login_id'),
                         'connected_at': time.time(),
                         'last_activity': time.time(),
                         'subscribed_commands': False,
@@ -5350,6 +5982,23 @@ class BotDataViewer:
             except Exception as emit_error:
                 # If we can't emit, just log it
                 self.logger.error(f"Error emitting error message: {emit_error}")
+
+    def _disconnect_login_sockets(self, login_id):
+        """Disconnect every Socket.IO client opened under the given admin login."""
+        with self._clients_lock:
+            sids = [
+                sid for sid, info in self.connected_clients.items()
+                if info.get('admin_login_id') == login_id
+            ]
+        for sid in sids:
+            try:
+                self.socketio.server.disconnect(sid, namespace='/')
+            except Exception as e:
+                self.logger.warning(f"Could not disconnect socket {sid} on logout: {e}")
+            with self._clients_lock:
+                self.connected_clients.pop(sid, None)
+        if sids:
+            self.logger.info(f"Logout disconnected {len(sids)} live socket(s)")
 
     def _handle_command_data(self, command_data):
         """Handle incoming command data from bot"""
@@ -6559,6 +7208,47 @@ class BotDataViewer:
             self.logger.debug(f"packet_stream JSON scan for multibyte: {e}")
         return n
 
+    def _derive_multibyte_evidence_edges(
+        self,
+        days: int | None = None,
+        min_observations: int | None = None,
+        *,
+        force_refresh: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Return lifetime-derived multi-byte edges filtered for the API view."""
+        all_edges = self._aggregate_multibyte_evidence_edges(
+            force_refresh=force_refresh
+        )
+        return self._filter_multibyte_evidence_edges(
+            all_edges,
+            days=days,
+            min_observations=min_observations,
+        )
+
+    def _derive_multibyte_evidence_graph(
+        self,
+        days: int | None = None,
+        min_observations: int | None = None,
+        *,
+        force_refresh: bool = False,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Return filtered edges plus the lifetime graph's prefix resolution."""
+        all_edges = self._aggregate_multibyte_evidence_edges(
+            force_refresh=force_refresh
+        )
+        prefix_hex_chars = max(
+            (len(edge['from_prefix']) for edge in all_edges),
+            default=2,
+        )
+        return (
+            self._filter_multibyte_evidence_edges(
+                all_edges,
+                days=days,
+                min_observations=min_observations,
+            ),
+            max(2, prefix_hex_chars),
+        )
+
     @staticmethod
     def _filter_multibyte_evidence_edges(
         edges: list[dict[str, Any]],
@@ -6593,6 +7283,224 @@ class BotDataViewer:
             ):
                 continue
             result.append(edge)
+        return result
+
+    def _aggregate_multibyte_evidence_edges(
+        self, *, force_refresh: bool = False
+    ) -> list[dict[str, Any]]:
+        """Return a bounded-age, single-flight lifetime multi-byte aggregate."""
+        def previous_failure(message: str) -> RuntimeError:
+            failure = self._multibyte_graph_cache_failure
+            if failure is None:
+                return RuntimeError(message)
+            failure_type, failure_message = failure
+            return RuntimeError(
+                f"{message}: {failure_type}: {failure_message}"
+            )
+
+        now = time.monotonic()
+        with self._multibyte_graph_cache_condition:
+            cached = self._multibyte_graph_cache_edges
+            cache_age = now - self._multibyte_graph_cache_created_at
+            failure_age = now - self._multibyte_graph_cache_failure_at
+            retry_suppressed = (
+                self._multibyte_graph_cache_failure is not None
+                and failure_age < self._multibyte_graph_cache_retry_seconds
+            )
+            if retry_suppressed:
+                if cached is not None and not force_refresh:
+                    return cached
+                raise previous_failure(
+                    "Multi-byte mesh aggregation retry suppressed after failure"
+                )
+            if (
+                not force_refresh
+                and cached is not None
+                and cache_age < self._mesh_graph_cache_seconds
+            ):
+                return cached
+
+            if self._multibyte_graph_cache_computing:
+                # Prefer a slightly stale result to making concurrent clients
+                # duplicate the same expensive SQLite aggregation.
+                if cached is not None and not force_refresh:
+                    return cached
+                while self._multibyte_graph_cache_computing:
+                    self._multibyte_graph_cache_condition.wait()
+                cached = self._multibyte_graph_cache_edges
+                if self._multibyte_graph_cache_failure is not None:
+                    if cached is not None and not force_refresh:
+                        return cached
+                    raise previous_failure(
+                        "Concurrent multi-byte mesh aggregation failed"
+                    )
+                if cached is not None:
+                    return cached
+
+            self._multibyte_graph_cache_computing = True
+            stale = cached
+
+        started_at = time.monotonic()
+        try:
+            computed = self._compute_multibyte_evidence_edges()
+        except Exception as exc:
+            self.logger.warning(
+                "Multi-byte mesh aggregation failed%s",
+                "; serving cached data"
+                if stale is not None and not force_refresh
+                else "",
+                exc_info=True,
+            )
+            with self._multibyte_graph_cache_condition:
+                self._multibyte_graph_cache_failure = (
+                    type(exc).__name__,
+                    str(exc),
+                )
+                self._multibyte_graph_cache_failure_at = time.monotonic()
+                self._multibyte_graph_cache_computing = False
+                self._multibyte_graph_cache_condition.notify_all()
+            if stale is not None and not force_refresh:
+                return stale
+            raise
+
+        elapsed = time.monotonic() - started_at
+        with self._multibyte_graph_cache_condition:
+            self._multibyte_graph_cache_edges = computed
+            self._multibyte_graph_cache_created_at = time.monotonic()
+            self._multibyte_graph_cache_failure = None
+            self._multibyte_graph_cache_failure_at = 0.0
+            self._multibyte_graph_cache_computing = False
+            self._multibyte_graph_cache_condition.notify_all()
+
+        self.logger.debug(
+            "Computed %d multi-byte mesh edges in %.3fs",
+            len(computed),
+            elapsed,
+        )
+        return computed
+
+    def _compute_multibyte_evidence_edges(self) -> list[dict[str, Any]]:
+        """Derive mesh edges purely from multi-byte path evidence.
+
+        Splits each observed_paths row with bytes_per_hop >= 2 into consecutive
+        hop pairs and aggregates per directed pair. Unlike mesh_connections, this
+        never mixes in single-byte observations, so edge identity is unambiguous
+        (up to 2/3-byte prefix collisions, which are rare).
+
+        Edges observed at 2-byte resolution are coalesced into a 3-byte edge when
+        exactly one 3-byte edge prefix-matches both endpoints — the same
+        unique-match rule MeshGraph.add_edge applies at write time.
+
+        Returns edge dicts matching the /api/mesh/edges schema, plus:
+          path_count — number of distinct observed paths crossing the edge
+          evidence   — always 'multibyte'
+        """
+        # Split paths and aggregate directed hop pairs in SQLite. This preserves
+        # lifetime counts and cross-resolution coalescing while avoiding one
+        # Python row/dict/list per observed path (hundreds of thousands on busy
+        # meshes). The selected timeframe is applied only after coalescing,
+        # matching the historical client-side filter semantics.
+        query = '''
+            WITH RECURSIVE edge_parts(
+                path_hex, step, observation_count, first_seen, last_seen,
+                hop_position, from_prefix, to_prefix, next_offset
+            ) AS (
+                SELECT
+                    LOWER(path_hex),
+                    bytes_per_hop * 2,
+                    CASE
+                        WHEN observation_count IS NULL OR observation_count = 0 THEN 1
+                        ELSE observation_count
+                    END,
+                    first_seen,
+                    last_seen,
+                    1,
+                    SUBSTR(LOWER(path_hex), 1, bytes_per_hop * 2),
+                    SUBSTR(LOWER(path_hex), bytes_per_hop * 2 + 1, bytes_per_hop * 2),
+                    bytes_per_hop * 4 + 1
+                FROM observed_paths
+                WHERE bytes_per_hop >= 2
+                  AND path_hex IS NOT NULL
+                  AND LENGTH(path_hex) > 0
+                  AND LENGTH(path_hex) % (bytes_per_hop * 2) = 0
+                  AND LENGTH(path_hex) >= bytes_per_hop * 4
+
+                UNION ALL
+
+                SELECT
+                    path_hex,
+                    step,
+                    observation_count,
+                    first_seen,
+                    last_seen,
+                    hop_position + 1,
+                    to_prefix,
+                    SUBSTR(path_hex, next_offset, step),
+                    next_offset + step
+                FROM edge_parts
+                WHERE LENGTH(path_hex) >= next_offset + step - 1
+            )
+            SELECT
+                from_prefix,
+                to_prefix,
+                SUM(observation_count) AS observation_count,
+                COUNT(*) AS path_count,
+                MIN(first_seen) AS first_seen,
+                MAX(last_seen) AS last_seen,
+                SUM(hop_position * observation_count) AS hop_position_sum
+            FROM edge_parts
+            GROUP BY from_prefix, to_prefix
+        '''
+
+        with self._with_db_connection() as conn:
+            rows = conn.execute(query).fetchall()
+
+        edges: dict[tuple[str, str], dict[str, Any]] = {
+            (row['from_prefix'], row['to_prefix']): {
+                'observation_count': row['observation_count'],
+                'path_count': row['path_count'],
+                'first_seen': row['first_seen'],
+                'last_seen': row['last_seen'],
+                'hop_position_sum': row['hop_position_sum'],
+            }
+            for row in rows
+        }
+
+        # Coalesce 2-byte edges into a 3-byte edge when exactly one matches.
+        # (Hops within a path share one resolution, so keys are homogeneous.)
+        by_truncated_key: dict[tuple[str, str], list[tuple[str, str]]] = {}
+        for key in edges:
+            if len(key[0]) == 6:
+                by_truncated_key.setdefault((key[0][:4], key[1][:4]), []).append(key)
+        for key in [k for k in edges if len(k[0]) == 4]:
+            candidates = by_truncated_key.get(key, [])
+            if len(candidates) == 1:
+                target = edges[candidates[0]]
+                source = edges.pop(key)
+                target['observation_count'] += source['observation_count']
+                target['path_count'] += source['path_count']
+                target['hop_position_sum'] += source['hop_position_sum']
+                if source['first_seen'] and (target['first_seen'] is None or source['first_seen'] < target['first_seen']):
+                    target['first_seen'] = source['first_seen']
+                if source['last_seen'] and (target['last_seen'] is None or source['last_seen'] > target['last_seen']):
+                    target['last_seen'] = source['last_seen']
+
+        result = []
+        for (from_prefix, to_prefix), agg in edges.items():
+            result.append({
+                'from_prefix': from_prefix,
+                'to_prefix': to_prefix,
+                'from_public_key': None,
+                'to_public_key': None,
+                'observation_count': agg['observation_count'],
+                'path_count': agg['path_count'],
+                'first_seen': agg['first_seen'],
+                'last_seen': agg['last_seen'],
+                'avg_hop_position': agg['hop_position_sum'] / agg['observation_count'],
+                'geographic_distance': None,
+                'evidence': 'multibyte',
+            })
+        result.sort(key=lambda e: e['last_seen'] or '', reverse=True)
         return result
 
     # Nodes in the neighbor tables are stored as full 32-byte public keys, so the

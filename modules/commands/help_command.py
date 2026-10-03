@@ -94,30 +94,36 @@ class HelpCommand(BaseCommand):
             str: The formatted help text for the specific command.
         """
         requested_name = command_name.strip()
-        normalized_name = requested_name.lower()
+        command = None
+        candidates = [requested_name]
+        if requested_name:
+            base_name = requested_name.split(maxsplit=1)[0]
+            if base_name != requested_name:
+                candidates.append(base_name)
 
-        # Get the command instance by direct name first
-        command = (
-            self.bot.command_manager.commands.get(normalized_name)
-            or self.bot.command_manager.commands.get(requested_name)
-        )
-
-        # Then through plugin keyword mappings (if available)
-        if not command and hasattr(self.bot.command_manager, 'plugin_loader'):
-            mappings = getattr(self.bot.command_manager.plugin_loader, 'keyword_mappings', {})
-            mapped_name = mappings.get(normalized_name)
-            if mapped_name:
-                command = self.bot.command_manager.commands.get(mapped_name)
-
-        # Final fallback: resolve through runtime command keywords
-        if not command:
-            for cmd_instance in self.bot.command_manager.commands.values():
-                if (
-                    hasattr(cmd_instance, 'keywords')
-                    and normalized_name in [k.lower() for k in cmd_instance.keywords]
-                ):
-                    command = cmd_instance
-                    break
+        mappings = getattr(self.bot.command_manager.plugin_loader, 'keyword_mappings', {})
+        for lookup_name in candidates:
+            normalized_name = lookup_name.lower()
+            command = (
+                self.bot.command_manager.commands.get(normalized_name)
+                or self.bot.command_manager.commands.get(lookup_name)
+            )
+            if not command:
+                mapped_name = mappings.get(normalized_name)
+                if mapped_name:
+                    command = self.bot.command_manager.commands.get(mapped_name)
+            if not command:
+                command = next(
+                    (
+                        cmd_instance
+                        for cmd_instance in self.bot.command_manager.commands.values()
+                        if hasattr(cmd_instance, 'keywords')
+                        and normalized_name in [keyword.lower() for keyword in cmd_instance.keywords]
+                    ),
+                    None,
+                )
+            if command:
+                break
 
         if command:
             # Pass message context to get_help_text if the method supports it
@@ -160,6 +166,28 @@ class HelpCommand(BaseCommand):
                 return False
         return True
 
+    def _is_command_enabled(self, cmd_name: str, cmd_instance: Any) -> bool:
+        """Return True if this command is enabled in config.
+
+        Each command stores its enabled flag under a name-specific attribute
+        (e.g. ``self.bbs_enabled``) or, for a few opt-in commands, a bare
+        ``self.enabled``. The name-specific attribute wins when present; the bare
+        ``enabled`` is only consulted as a fallback. A command that defines neither
+        is assumed always enabled. This lets the help list hide opt-in commands the
+        operator has switched off, matching the runtime behaviour where
+        ``can_execute`` refuses to run a disabled command.
+        """
+        # Only real booleans count. A plain ``getattr`` on a fresh object (or a
+        # mock without spec) auto-generates a truthy placeholder, which would
+        # wrongly mark a command enabled; requiring a bool filters those out.
+        specific = getattr(cmd_instance, f'{cmd_name}_enabled', None)
+        if isinstance(specific, bool):
+            return specific
+        generic = getattr(cmd_instance, 'enabled', None)
+        if isinstance(generic, bool):
+            return generic
+        return True
+
     # Reserved suffix appended by command_manager.get_general_help (must match there)
     HELP_LIST_SUFFIX = " | More: 'help <command>'"
 
@@ -189,9 +217,11 @@ class HelpCommand(BaseCommand):
             keyword_mappings = plugin_loader.keyword_mappings.copy() if hasattr(plugin_loader, 'keyword_mappings') else {}
 
             # Build a set of all primary command names and ensure they map to themselves
-            # Filter by channel when message is provided
+            # Filter by enabled flag and by channel (when message is provided)
             primary_names = set()
             for cmd_name, cmd_instance in self.bot.command_manager.commands.items():
+                if not self._is_command_enabled(cmd_name, cmd_instance):
+                    continue
                 if not self._is_command_valid_for_channel(cmd_name, cmd_instance, message):
                     continue
                 primary_name = cmd_instance.name if hasattr(cmd_instance, 'name') else cmd_name
@@ -249,9 +279,13 @@ class HelpCommand(BaseCommand):
                                 command_counts[primary_name] += count
             except Exception as e:
                 self.logger.debug(f"Error querying command stats: {e}")
-                # If stats table doesn't exist or query fails, fall back to all commands
+                # If stats table doesn't exist or query fails, fall back to all
+                # enabled commands (disabled ones are hidden, matching the main loop).
                 for cmd_name in self.bot.command_manager.commands:
-                    primary_name = self.bot.command_manager.commands[cmd_name].name if hasattr(self.bot.command_manager.commands[cmd_name], 'name') else cmd_name
+                    cmd_instance = self.bot.command_manager.commands[cmd_name]
+                    if not self._is_command_enabled(cmd_name, cmd_instance):
+                        continue
+                    primary_name = cmd_instance.name if hasattr(cmd_instance, 'name') else cmd_name
                     command_counts[primary_name] = 0
 
             # Ensure every channel-valid command appears even if it has no usage stats
@@ -272,11 +306,12 @@ class HelpCommand(BaseCommand):
                 # Extract just the command names (only primary names, no aliases)
                 command_names = [name for name, _ in sorted_commands]
             else:
-                # Fallback: use all primary command names (filtered by channel)
+                # Fallback: use all primary command names (filtered by enabled + channel)
                 command_names = sorted([
                     cmd.name if hasattr(cmd, 'name') else name
                     for name, cmd in self.bot.command_manager.commands.items()
-                    if self._is_command_valid_for_channel(name, cmd, message)
+                    if self._is_command_enabled(name, cmd)
+                    and self._is_command_valid_for_channel(name, cmd, message)
                 ])
 
             # Apply max_length truncation when reserved for suffix (e.g. " | More: 'help <command>'")
@@ -284,11 +319,12 @@ class HelpCommand(BaseCommand):
 
         except Exception as e:
             self.logger.error(f"Error getting available commands list: {e}")
-            # Fallback to simple list of all command names (filtered by channel)
+            # Fallback to simple list of all command names (filtered by enabled + channel)
             command_names = sorted([
                 cmd.name if hasattr(cmd, 'name') else name
                 for name, cmd in self.bot.command_manager.commands.items()
-                if self._is_command_valid_for_channel(name, cmd, message)
+                if self._is_command_enabled(name, cmd)
+                and self._is_command_valid_for_channel(name, cmd, message)
             ])
             return self._format_commands_list_to_length(command_names, max_length)
 
@@ -313,5 +349,3 @@ class HelpCommand(BaseCommand):
                         return ', '.join(result) + suffix
                 break
         return ', '.join(result)
-
-

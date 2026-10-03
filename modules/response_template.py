@@ -72,7 +72,6 @@ def _filter_prefix_if_nonempty(value: str, ctx: dict[str, Any], args: str) -> st
         return ''
     return args + value
 
-
 # The event-loop warning below is worth saying once, not once per reply.
 _warned_blocking_render = False
 
