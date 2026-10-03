@@ -245,7 +245,7 @@
                     mesh et le bot cessera de vous envoyer l'avertissement. Si vous pensez que le
                     message est une erreur, la même page qu'un administrateur utilise pour
                     configurer cela se trouve sous <a href="/region-warnings">Paramètres région</a>
-		    dans la zone d'administration. Vous trouverez plus d'infos sur <a href="https://wiki.mesh-idf.fr/fr/meshcore/regions_et_canaux">le WIKI</a>
+		    dans la zone d'administration. Vous trouverez plus d'infos sur <a href="https://wiki.meshcore.bzh">le WIKI</a>
                 </p>
             </div>
         </div>
@@ -256,16 +256,18 @@
 <div class="row">
     <div class="col-12">
         <div class="card">
-            <div class="card-header"><i class="fas fa-gears"></i> Comment faire en France/ What to do </div>
+            <div class="card-header"><i class="fas fa-gears"></i> Configuration des répéteurs en Bretagne </div>
             <div class="card-body">
-            <p class="has-text-align-left wp-block-paragraph">set flood.max.unscoped 5</p>
-            <p class="has-text-align-left wp-block-paragraph">set flood.max.advert 6</p>
-            <p class="has-text-align-left wp-block-paragraph">region def eu fr</p>
-            <p class="has-text-align-left wp-block-paragraph">region default fr</p>
-            <p class="has-text-align-left wp-block-paragraph">region home fr</p>
-            <p class="has-text-align-left wp-block-paragraph">region put fr-idf</p>
-            <p class="has-text-align-left wp-block-paragraph">region allowf fr-idf</p>
-            <p class="has-text-align-left wp-block-paragraph">region save</p>
+            <pre class="mb-0"><code>set advert.interval 240
+set flood.advert.interval 24
+set agc.reset.interval 4
+set loop.detect minimal
+set path.hash.mode 1
+set multi.acks 1
+set flood.max.unscoped 5
+region def eu fr fr-bre fr-29|fr bzh|* europe
+region default fr
+region save</code></pre>
             </div>
         </div>
     </div>
