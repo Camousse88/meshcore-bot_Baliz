@@ -19,6 +19,10 @@ class AssistantDispatcher:
         self.semantic_router = SemanticRouter(owner)
         self._rf_lock = asyncio.Lock()
 
+    def record_function(self, function: str) -> None:
+        from .usage import record
+        record(self.owner.bot, function)
+
     def _command(self, name: str) -> Any:
         return self.owner.bot.command_manager.commands.get(name)
 
@@ -61,6 +65,7 @@ class AssistantDispatcher:
         command = self._command("llm")
         if not self._allowed(command, message, service=True):
             return f"La fonction {route.value} est indisponible ou non autorisée ici."
+        self.record_function("llm.chat" if route is Route.LLM else "wiki.lookup")
         command.record_execution(message.sender_id or None)
         mode = "general" if route is Route.LLM else "wiki"
         return await command.service.answer(decision.question, message, mode=mode, **({"max_length": self.owner.get_max_message_length(message)} if mode == "general" else {}))
@@ -95,6 +100,7 @@ class AssistantDispatcher:
             cloned.capture_sink = []
             if not self._allowed(command, cloned, service=True):
                 return f"L'outil {name} est désactivé, limité ou non autorisé ici."
+            self.record_function("test.receive" if name == "test" else "path.message")
             command.record_execution(message.sender_id or None)
             await command.execute(cloned)
             if cloned.capture_sink:
@@ -312,6 +318,7 @@ class AssistantDispatcher:
             cloned.content = command_without_default
             if uses_default_location:
                 cloned.content = " ".join(p for p in ("wx", default_location, "tomorrow" if "tomorrow" in command_without_default else "") if p)
+            self.record_function("weather.forecast")
             command.record_execution(message.sender_id or None)
             cloned.content_lower = cloned.content.casefold()
             cloned.prefix_normalized = True

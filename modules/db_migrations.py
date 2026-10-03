@@ -967,6 +967,11 @@ def _m0028_battery_observations(cursor: sqlite3.Cursor) -> None:
 
 MigrationEntry = tuple[int, str, Callable[[sqlite3.Cursor], None]]
 
+def _m0030_assistant_function_usage(cursor: sqlite3.Cursor) -> None:
+    cursor.execute("CREATE TABLE IF NOT EXISTS assistant_function_usage (timestamp REAL NOT NULL, function TEXT NOT NULL)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_assistant_function_usage_time ON assistant_function_usage(timestamp)")
+
+
 MIGRATIONS: list[MigrationEntry] = [
     (1, "initial schema", _m0001_initial_schema),
     (2, "feed_subscriptions: output_format, message_send_interval_seconds", _m0002_feed_subscriptions_output_format),
@@ -997,6 +1002,7 @@ MIGRATIONS: list[MigrationEntry] = [
     (27, "clock_sync_targets: auto_clkreboot_enabled, last_clkreboot_at", _m0027_clock_sync_targets_auto_clkreboot),
     (28, "battery_observations table", _m0028_battery_observations),
     (29, "region_scope_daily table", _m0029_region_scope_tables),
+    (30, "assistant function usage", _m0030_assistant_function_usage),
 ]
 
 

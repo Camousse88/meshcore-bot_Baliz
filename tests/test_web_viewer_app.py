@@ -2856,3 +2856,16 @@ class TestClockSyncTargetsAdminBatteryEnrichment:
             data = json.loads(response.data)
             target = next(t for t in data['targets'] if t['target'] == pubkey)
             assert 'battery_voltage' not in target
+
+
+def test_dashboard_assistant_function_counts(viewer_with_db):
+    viewer = viewer_with_db
+    with sqlite3.connect(viewer.db_path) as conn:
+        conn.execute('INSERT INTO assistant_function_usage VALUES (?, ?)',
+                     (time.time(), 'mesh.stats.channels'))
+        conn.execute('INSERT INTO assistant_function_usage VALUES (?, ?)',
+                     (time.time() - 90000, 'weather.forecast'))
+    data = viewer.app.test_client().get('/api/stats?top_commands_window=24h').get_json()
+    assert data['top_functions'] == [
+        {'command': 'Statistiques : canaux', 'function': 'mesh.stats.channels', 'count': 1}
+    ]

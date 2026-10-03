@@ -211,6 +211,7 @@ class BotDataViewer:
         'packet_stream',
         'message_stats',
         'command_stats',
+        'assistant_function_usage',
         'greeted_users',
         'repeater_contacts',
         'complete_contact_tracking',
@@ -6743,6 +6744,11 @@ class BotDataViewer:
                 """
                 cursor.execute(query)
                 stats['top_users'] = [{'user': row[0], 'count': row[1]} for row in cursor.fetchall()]
+
+            stats['top_functions'] = []
+            if 'assistant_function_usage' in tables:
+                from modules.assistant.usage import top_functions
+                stats['top_functions'] = top_functions(cursor, top_commands_window)
 
             if 'command_stats' in tables:
                 cursor.execute("SELECT COUNT(*) FROM command_stats")

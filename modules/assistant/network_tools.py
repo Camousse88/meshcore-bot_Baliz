@@ -2,6 +2,7 @@
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from .router import normalize
+from .usage import record
 from ..multibyte_detection import find_onebyte_repeaters
 
 
@@ -97,6 +98,7 @@ async def answer_network(dispatcher, decision, message):
     try:
         if op == 'relay_connectivity':
             from .relay_connectivity import connectivity
+            record(dispatcher.owner.bot, "mesh." + op)
             parent.record_execution(message.sender_id or None)
             with dispatcher.owner.bot.db_manager.connection() as conn:
                 return connectivity(conn, args['hours'], args['limit'], dispatcher.owner.get_max_message_length(message))
@@ -114,12 +116,14 @@ async def answer_network(dispatcher, decision, message):
                     if len(content.split(' ',1))>1 and len(content.split(' ',1)[1].split(','))>command.maximum_hops:
                         return 'Ce chemin dépasse le nombre de sauts autorisé pour trace.'
                 cloned=deepcopy(message);cloned.content=content;cloned.content_lower=content.casefold();cloned.prefix_normalized=True;cloned.capture_sink=[]
+                record(dispatcher.owner.bot, "mesh." + op + ("." + args.get("topic", "general") if op == "stats" else ""))
                 command.record_execution(message.sender_id or None)
                 parent.record_execution(message.sender_id or None)
                 execute=getattr(command,'execute_service',command.execute)
                 await execute(cloned)
                 source='\n'.join(cloned.capture_sink) or 'La fonction n’a renvoyé aucun résultat.'
         else:
+            record(dispatcher.owner.bot, "mesh." + op)
             parent.record_execution(message.sender_id or None)
             with dispatcher.owner.bot.db_manager.connection() as conn:
                 source=observation_answer(conn,op,args,dispatcher.owner.logger)
