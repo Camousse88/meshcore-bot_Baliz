@@ -7,6 +7,45 @@ revérifiées dans la console Proxmox du 103 via Safari le même jour, après
 le redémarrage du service à 21:37:48 CEST.
 Ce profil est propre au fork Baliz. Il ne remplace pas `config.ini.example`.
 
+## Présentation publique de Baliz
+
+Baliz est un assistant accessible par radio sur le réseau MeshCore en Bretagne.
+Les utilisateurs posent leurs questions en langage naturel en commençant par
+**Baliz**, en message privé ou sur un canal surveillé par le bot.
+
+Son intelligence artificielle interprète la demande, sélectionne une fonction
+disponible, puis formule une réponse à partir des données obtenues : météo,
+réception et chemin radio, observations du réseau ou documentation MeshCore.
+
+Exemples :
+
+- « Baliz, quelle météo demain à Brest ? »
+- « Baliz, tu me reçois ? »
+- « Baliz, comment ajouter les régions à un répéteur ? »
+
+Les statistiques reflètent ce que Baliz observe depuis sa position, pas
+l’ensemble du réseau. Le projet s’appuie sur le bot de Tigro et dispose de sa
+propre version adaptée à la Bretagne.
+
+### Liens de référence
+
+La rubrique **Useful Links** de la page Infos contient uniquement :
+
+- [Wiki Bretagne](https://wiki.meshcore.bzh)
+- [CoreScope Bretagne](https://corescope.meshcore.bzh/#/live)
+- [Source Code — Tigro](https://github.com/Tigro14/meshcore-bot/)
+- [This bot fork — Baliz](https://github.com/Camousse88/meshcore-bot_Baliz)
+- [MeshCore Project](https://meshcore.io)
+
+Cette présentation est publiée dans `modules/web_viewer/templates/infos.html`
+sur la branche `baliz` (commit `198600c`). Elle remplace la présentation du
+matériel de Tigro et les liens propres au réseau parisien. Il s’agit de
+l’identité publique de Baliz ; elle ne modifie pas le prompt système du LLM.
+
+Les sections techniques ci-dessous décrivent le profil historique relevé en
+septembre 2026 ; elles ne constituent pas un inventaire de la configuration
+actuelle de production.
+
 ## Identité et fonctionnement conservés
 
 - Nom `[BOT] Baliz`, français, fuseau `Europe/Paris` et coordonnées de Morlaix.
