@@ -2,6 +2,7 @@
 import time
 
 LABELS = {
+    'mesh.hfcond': 'Conditions radio HF',
     'weather.forecast': 'Météo', 'wiki.lookup': 'Documentation',
     'llm.chat': 'Conversation', 'test.receive': 'Test de réception',
     'path.message': 'Chemin radio', 'mesh.count_nodes': 'Nombre de nœuds',

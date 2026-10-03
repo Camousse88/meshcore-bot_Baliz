@@ -85,6 +85,7 @@ def trace_content(conn, args):
 
 
 async def answer_network(dispatcher, decision, message):
+    from ..commands.hfcond_command import HfcondCommand
     from ..commands.near_command import NearCommand
     from ..commands.stats_command import StatsCommand
     from ..commands.neighbors_command import NeighborsCommand
@@ -102,7 +103,7 @@ async def answer_network(dispatcher, decision, message):
             parent.record_execution(message.sender_id or None)
             with dispatcher.owner.bot.db_manager.connection() as conn:
                 return connectivity(conn, args['hours'], args['limit'], dispatcher.owner.get_max_message_length(message))
-        adapters={'near':NearCommand,'stats':StatsCommand,'neighbors':NeighborsCommand,'trace':TraceCommand,'advert':AdvertCommand}
+        adapters={'hfcond':HfcondCommand,'near':NearCommand,'stats':StatsCommand,'neighbors':NeighborsCommand,'trace':TraceCommand,'advert':AdvertCommand}
         if op in adapters:
             command=dispatcher._command(op)
             async with dispatcher._rf_lock:
@@ -127,6 +128,11 @@ async def answer_network(dispatcher, decision, message):
             parent.record_execution(message.sender_id or None)
             with dispatcher.owner.bot.db_manager.connection() as conn:
                 source=observation_answer(conn,op,args,dispatcher.owner.logger)
+        if op == 'hfcond':
+            return await dispatcher._render_tool(
+                decision.question, source, message,
+                context="Conditions HF globales HamQSL uniquement. d=jour, n=nuit; bandes en mètres. Aucune prévision tropo locale ni mesure à 869 MHz. Indique HF dans la réponse.",
+            )
         budget=dispatcher.owner.get_max_message_length(message)
         if len(source.encode('utf-8')) > budget:
             separator='\n' if '\n' in source else ', '

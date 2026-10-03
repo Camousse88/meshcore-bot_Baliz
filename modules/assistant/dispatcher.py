@@ -70,13 +70,13 @@ class AssistantDispatcher:
         mode = "general" if route is Route.LLM else "wiki"
         return await command.service.answer(decision.question, message, mode=mode, **({"max_length": self.owner.get_max_message_length(message)} if mode == "general" else {}))
 
-    async def _render_tool(self, question, source, message):
+    async def _render_tool(self, question, source, message, context=""):
         budget = self.owner.get_max_message_length(message)
         llm = self._command("llm")
         if self._allowed(llm, message, service=True):
             result = await llm.service.rephrase_tool_result(
                 question, source,
-                context=f"Faits mesurés localement. Ne change aucun nom ni mesure. Un message, {budget} octets UTF-8 maximum.",
+                context=(context or "Faits mesurés localement.") + f" Ne change aucun nom ni mesure. Un message, {budget} octets UTF-8 maximum.",
                 max_length=budget,
             )
             if result and len(result.encode("utf-8")) <= budget:
@@ -195,7 +195,7 @@ class AssistantDispatcher:
         # Preserve the meaning carried by the rain icon before stripping it.
         expanded = re.sub(r"🌦\ufe0f?\s*(\d+(?:[.,]\d+)?)\s*%", r"probabilité de pluie : \1 %", expanded)
         # Remove decorative weather symbols before handing the text to the LLM.
-        expanded = re.sub(r"[\U0001F000-\U0001FAFF\u2600-\u26FF\u2700-\u27BF]\ufe0f?", "", expanded)
+        expanded = re.sub(r"[\U0001F000-\U0001FAFF\u2600-\u26FF\u2700-\u27BF\u2190-\u21FF]\ufe0f?", "", expanded)
         expanded = re.sub(
             r"\bH\s*:\s*(-?\d+(?:[.,]\d+)?\s*°[CF]?)",
             r"température maximale : \1",
@@ -294,6 +294,22 @@ class AssistantDispatcher:
             label = f"{label} {period.group(1)}"
         return f"{label} :{tail}"
 
+    @staticmethod
+    def _weather_fallback(source: str, budget: int) -> str:
+        """Fit complete factual clauses instead of slicing expanded labels."""
+        text = re.sub(r"température actuelle\s*:\s*", "", source, flags=re.I)
+        text = re.sub(r"température maximale\s*:\s*", "T° Max ", text, flags=re.I)
+        text = re.sub(r"température minimale\s*:\s*", "T° Min ", text, flags=re.I)
+        text = re.sub(r"\bkmh\b", "km/h", text, flags=re.I)
+        text = re.sub(r"\b(vent|rafales|humidité)\s*:\s*", r"\1 ", text, flags=re.I)
+        clauses = [p.strip(" .;|") for p in re.split(r"[;|]|(?=T° (?:Max|Min)|\bvent |\brafales |\bhumidité )", text) if p.strip(" .;|")]
+        answer = ""
+        for clause in clauses:
+            candidate = (answer + ", " if answer else "") + clause
+            if len((candidate + ".").encode("utf-8")) <= budget:
+                answer = candidate
+        return answer + "." if answer else "Prévision trop longue pour un message. Précise température, vent ou pluie."
+
     async def _weather_tool(self, question: str, message: MeshMessage, args: dict | None = None) -> str:
         """Invoke wx as an internal ASK capability, even when direct wx is hidden."""
         from ..commands.wx_command import WxCommand
@@ -382,8 +398,7 @@ class AssistantDispatcher:
                     self.owner.get_max_message_length(message),
                     max_pages=1,
                 )[0]
-        return split_reply(
+        return self._weather_fallback(
             self._expand_weather_notation(self._select_weather_period(question, raw_answer), getattr(getattr(command, "delegate_command", None), "wind_speed_unit", "")),
             self.owner.get_max_message_length(message),
-            max_pages=1,
-        )[0]
+        )
