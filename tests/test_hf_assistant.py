@@ -68,3 +68,16 @@ async def test_hf_adapter_calls_llm(command_mock_bot):
     command.execute.assert_awaited_once()
     renderer.assert_awaited_once()
     assert 'HF globales' in renderer.call_args.kwargs['context']
+
+
+@pytest.mark.parametrize('question,route,operation', [
+    ('condition radio', 'mesh', 'hfcond'),
+    ('tropo', 'mesh', 'hfcond'),
+    ('quels sont les canaux utilisés en Bretagne ?', 'wiki', 'lookup'),
+    ('statistique des canaux', 'mesh', 'stats'),
+])
+def test_catalog_examples_keep_documentation_and_radio_distinct(question, route, operation):
+    from modules.assistant.catalog import ROUTING_EXAMPLES
+    example = dict(ROUTING_EXAMPLES)[question]
+    plan = parse_plan(json.dumps(example), question, set(CATALOG))
+    assert (plan.route.value, plan.operation) == (route, operation)

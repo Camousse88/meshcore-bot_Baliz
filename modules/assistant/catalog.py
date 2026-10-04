@@ -8,29 +8,33 @@ CATALOG = {
     'test': {'receive': 'Measure reception of THIS message: tu me reçois, SNR, RSSI.'},
     'path': {'message': 'Show the actual path of THIS message, default sender: quelle est la route, chemin entre toi et moi. Not a definition.'},
     'mesh': {
-        'hfcond': 'Current HF radio propagation conditions by amateur band (HF, ondes courtes, conditions radio HF). Executes hfcond. NOT local tropospheric propagation, NOT MeshCore 869 MHz reception, NOT weather.',
+        'hfcond': 'Radio propagation conditions by amateur HF band. Requests: conditions radio, propagation, HF, ondes courtes. Bare shorthand tropo also selects this available report, which MUST be labelled HF. Executes hfcond. NOT local tropospheric propagation, NOT MeshCore 869 MHz reception, NOT weather.',
         'relay_connectivity': 'Rank important, most connected or most solicited relays by observed graph degree, the map dot-size metric. Counts attached directed links, NOT packets or load. Default hours=24, limit=3.',
         'count_nodes': 'Count ALL locally observed nodes, all roles. Active means heard in last 24 hours by default; hours=0 means all known nodes, country empty unless specified.',
         'count_repeaters': 'How many locally tracked repeaters (not a list).',
         'list_repeaters': 'List locally tracked repeaters. activity sorts cumulative advert counts, NOT forwarded traffic or relay utilization.',
         'onebyte': 'Who uses 1 octet / 1 byte routing? Use measured encoding evidence.',
         'near': 'Nearest nodes using sender GPS or first incoming relay as an approximate origin.',
-        'stats': 'Tigro statistics over 24 hours. topic=channels ranks channels by message count and unique users; messages ranks senders; paths shows longest observed paths; adverts counts advertisements; general summarizes traffic. Does NOT measure forwarded traffic per relay.',
+        'stats': 'Measured local traffic statistics, rankings or message volumes over a time window. NOT the documented list of channels used in a region. topic=channels ranks channels by message count and unique users; messages ranks senders; paths shows longest observed paths; adverts counts advertisements; general summarizes traffic. Does NOT measure forwarded traffic per relay.',
         'neighbors': 'Discover directly reachable neighbors. Active radio, DM only.',
         'trace': 'Actively test radio path, roundtrip by default; explicit hex path or named target.',
         'advert': 'User explicitly requests the bot to announce itself by radio. DM only.',
         'unsupported': 'Observed-network requests not measurable by available operations, outside the available observations. Never substitute advert count or documentation.'},
     'weather': {'forecast': 'Weather forecast (temperature, rain, wind) for a place and date. Never radio propagation, tropo or HF conditions. Args location (exact place from question or empty), period (today or tomorrow).'},
-    'wiki': {'lookup': 'Documentation: explain, configure, commands, regions, repeater/companion setup, how routing works.'},
+    'wiki': {'lookup': 'Documentation: explain, configure, commands, regions, repeater/companion setup, how routing works, and documented regional channel names / which channels to join or use. Questions like quels sont les canaux utilisés en Bretagne request documentation, not traffic counts.'},
     'llm': {'chat': 'Greeting, identity, thanks, complaints about the bot or response delay, creative and general conversation. Never search documentation for casual remarks.'},
 }
 
 
 # Few-shot examples teach intent, never execute lexical overrides.
 ROUTING_EXAMPLES = [
+    ('condition radio', {'route': 'mesh', 'operation': 'hfcond', 'args': {}}),
+    ('quels sont les canaux utilisés en Bretagne ?', {'route': 'wiki', 'operation': 'lookup', 'args': {}}),
+    ('quels canaux rejoindre dans ma région ?', {'route': 'wiki', 'operation': 'lookup', 'args': {}}),
+
     ('conditions radio HF', {'route': 'mesh', 'operation': 'hfcond', 'args': {}}),
     ('propagation sur les bandes décamétriques', {'route': 'mesh', 'operation': 'hfcond', 'args': {}}),
-    ('tropo', {'route': 'mesh', 'operation': 'unsupported', 'args': {}}),
+    ('tropo', {'route': 'mesh', 'operation': 'hfcond', 'args': {}}),
 
     ("nombre de nœuds actifs", {"route": "mesh", "operation": "count_nodes", "args": {"hours": 24, "country": ""}}),
     ('météo demain à Lyon', {'route': 'weather', 'operation': 'forecast', 'args': {'location': 'Lyon', 'period': 'tomorrow'}}),
