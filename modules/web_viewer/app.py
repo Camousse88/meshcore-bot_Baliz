@@ -3490,6 +3490,22 @@ class BotDataViewer:
                 self.logger.error(f"Error optimizing database: {e}")
                 return jsonify({'success': False, 'error': str(e)}), 500
 
+        @self.app.route('/mesh-entry-points')
+        def mesh_entry_points_page():
+            return render_template('mesh_entry_points.html')
+
+        @self.app.route('/api/mesh/entry-points')
+        def api_mesh_entry_points():
+            from modules.web_viewer.entry_points import entry_points
+            days = request.args.get('days', default=1, type=int)
+            if days not in (1, 7, 30):
+                return jsonify({'error': 'Période invalide'}), 400
+            country = request.args.get('country', '').strip()
+            if len(country) > 100:
+                return jsonify({'error': 'Pays invalide'}), 400
+            with self._with_db_connection() as conn:
+                return jsonify(entry_points(conn, days, country))
+
         @self.app.route('/api/mesh/nodes')
         def api_mesh_nodes():
             """Get repeater nodes with locations and metadata.

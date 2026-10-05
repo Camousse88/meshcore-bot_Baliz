@@ -2869,3 +2869,13 @@ def test_dashboard_assistant_function_counts(viewer_with_db):
     assert data['top_functions'] == [
         {'command': 'Statistiques : canaux', 'function': 'mesh.stats.channels', 'count': 1}
     ]
+
+
+def test_mesh_entry_points_api_and_page(viewer_with_db):
+    client = viewer_with_db.app.test_client()
+    response = client.get('/api/mesh/entry-points?days=1')
+    assert response.status_code == 200
+    assert response.get_json()['ranking'] == []
+    assert client.get('/api/mesh/entry-points?days=999').status_code == 400
+    assert client.get('/mesh-entry-points').status_code == 200
+    assert b'/mesh-entry-points' in client.get('/mesh').data

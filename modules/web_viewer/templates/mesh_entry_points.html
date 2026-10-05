@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Points d’entrée · Baliz{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>#entry-map{height:62vh;min-height:340px}.entry-arrow{font-size:20px;color:#b45309;text-shadow:0 0 2px white}.entry-row{cursor:pointer}</style>
+{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap gap-2 mb-3"><h1 class="h3">Points d’entrée — Étranger → France</h1><a href="/mesh" class="btn btn-outline-secondary">Retour au Mesh Graph</a></div>
+<p>Passages observés par Baliz dans les chemins radio reçus. Les relais français sont en orange, les relais étrangers en bleu. Les flèches indiquent le sens du passage.</p>
+<div class="d-flex flex-wrap gap-3 align-items-end mb-3">
+<div><label for="entry-days" class="form-label">Période</label><select id="entry-days" class="form-select"><option value="1">24 heures</option><option value="7">7 jours</option><option value="30">30 jours</option></select></div>
+<div><label for="entry-country" class="form-label">Pays du relais précédent</label><select id="entry-country" class="form-select"><option value="">Tous les pays étrangers</option></select></div>
+<button id="entry-refresh" class="btn btn-primary">Actualiser</button></div>
+<p class="small text-muted">Paquets distincts, tous types confondus, dédupliqués par relais d’entrée. Un même paquet peut avoir plusieurs entrées observées. Seuls les chemins flood à identifiants de 2 ou 3 octets résolus sans ambiguïté sont retenus. Pas de filtre « sans région » à ce stade.</p>
+<div id="entry-status" role="status" class="mb-3"></div>
+<div class="row g-3"><div class="col-lg-8"><div id="entry-map" class="rounded border"></div></div>
+<div class="col-lg-4"><h2 class="h5">Relais français d’entrée</h2><p class="small">Clique sur un relais pour le situer. Ce classement dépend de ce que reçoit Baliz, pas de tout le trafic du réseau.</p><div id="entry-ranking"></div></div></div>
+{% endblock %}
+{% block extra_js %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(() => {
+    const map = L.map('entry-map').setView([48.5, -3], 7);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {attribution:'© OpenStreetMap contributors'}).addTo(map);
+    const layer = L.layerGroup().addTo(map);
+    const status = document.getElementById('entry-status');
+    const country = document.getElementById('entry-country');
+    const days = document.getElementById('entry-days');
+    let generation = 0;
+    const located = n => Number.isFinite(n.latitude) && Number.isFinite(n.longitude) && Math.abs(n.latitude)<=90 && Math.abs(n.longitude)<=180 && !(n.latitude===0 && n.longitude===0);
+    const point = n => [n.latitude,n.longitude];
+    const label = text => {const el=document.createElement('span');el.textContent=text;return el;};
+    async function load() {
+        const current = ++generation;
+        status.textContent='Chargement des observations…';
+        layer.clearLayers();
+        document.getElementById('entry-ranking').replaceChildren();
+        try {
+            const resp=await fetch('/api/mesh/entry-points?'+new URLSearchParams({days:days.value,country:country.value}));
+            if(!resp.ok) throw new Error('Chargement impossible');
+            const data=await resp.json();
+            if(current!==generation) return;
+            const selected=country.value;
+            country.replaceChildren(new Option('Tous les pays étrangers',''));
+            data.countries.forEach(c=>country.add(new Option(c,c)));
+            country.value=data.countries.includes(selected)?selected:'';
+            const nodes=new Map();const bounds=[];
+            data.edges.forEach(e=>{
+                nodes.set(e.source.public_key,e.source);nodes.set(e.target.public_key,e.target);
+                if(!located(e.source)||!located(e.target))return;
+                const a=point(e.source),b=point(e.target);
+                L.polyline([a,b],{color:'#d97706',weight:Math.min(7,1+Math.log2(e.count+1)),opacity:0.65}).bindPopup(label(`${e.source.name} → ${e.target.name} : ${e.count} paquets distincts`)).addTo(layer);
+                const pa=map.project(a,8),pb=map.project(b,8);
+                const angle=Math.atan2(pb.y-pa.y,pb.x-pa.x)*180/Math.PI;
+                L.marker([(a[0]+b[0])/2,(a[1]+b[1])/2],{interactive:false,icon:L.divIcon({className:'entry-arrow',html:`<span style="display:block;transform:rotate(${angle}deg)">➤</span>`,iconSize:[20,20],iconAnchor:[10,10]})}).addTo(layer);
+            });
+            const targets=new Map(data.ranking.map(n=>[n.public_key,n]));
+            nodes.forEach(n=>{
+                if(!located(n))return;
+                const t=targets.get(n.public_key);bounds.push(point(n));
+                L.circleMarker(point(n),{radius:t?Math.min(17,6+Math.log2(t.count+1)):5,color:'#fff',weight:1,fillColor:t?'#f59e0b':'#1687ec',fillOpacity:0.9}).bindPopup(label(`${n.name} (${n.country})${t?' — '+t.count+' paquets distincts':''}`)).addTo(layer);
+            });
+            if(bounds.length)map.fitBounds(bounds,{padding:[25,25],maxZoom:10});
+            const ranking=document.getElementById('entry-ranking');
+            data.ranking.forEach((n,i)=>{
+                const button=document.createElement('button');button.className='btn btn-outline-secondary text-start w-100 mb-2 entry-row';
+                button.textContent=`${i+1}. ${n.name} — ${n.count} paquets · ${n.origins.join(', ')} · dernier passage ${new Date(n.last_seen).toLocaleString('fr-FR')}${located(n)?'':' · position inconnue'}`;
+                button.disabled=!located(n);button.onclick=()=>map.setView(point(n),11);ranking.appendChild(button);
+            });
+            if(!data.ranking.length) ranking.appendChild(label('Aucun passage identifiable sur cette période.'));
+            status.textContent=`${data.ranking.length} relais d’entrée · ${data.edges.length} liaisons · ${data.scanned} paquets examinés. ${data.excluded} observations ou segments non exploitables (identifiants courts, ambigus, pays inconnus ou données incomplètes). Historique conservé depuis ${data.retained_since?new Date(data.retained_since).toLocaleString('fr-FR'):'aucune donnée'}.`;
+        } catch(e) {if(current===generation)status.textContent='Impossible de charger les points d’entrée. Réessaie plus tard.';}
+    }
+    days.onchange=()=>{country.value='';load();};country.onchange=load;
+    document.getElementById('entry-refresh').onclick=load;load();
+})();
+</script>
+{% endblock %}
