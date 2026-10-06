@@ -2408,6 +2408,12 @@
             edgeToNodes.set(edgeKey, { fromNode: fromNode, toNode: toNode, edge: edge });
         });
         
+        // Dedicated pane keeps one-byte repeaters above all regular markers,
+        // independently of insertion order, zoom updates and edge highlights.
+        if (!map.getPane('oneBytePane')) {
+            map.createPane('oneBytePane');
+            map.getPane('oneBytePane').style.zIndex = '625';
+        }
         // Add markers for nodes AFTER edges (so they appear on top and are easier to click)
         filteredNodes.forEach(node => {
             // Zoom-scaled size based on current filtered edges (changes with filters/zoom)
@@ -2423,7 +2429,7 @@
                 weight: borderWeight,
                 opacity: 1,
                 fillOpacity: 0.8,
-                pane: 'markerPane' // Use markerPane for nodes (higher z-index than overlayPane)
+                pane: isOneByteHighlighted(node) ? 'oneBytePane' : 'markerPane'
             });
             
             // Create information-rich tooltip with all node details
@@ -3049,7 +3055,9 @@
             const marker = nodeMarkers.get(nodeId);
             if (!marker) return;
             
-            if (nodeId === clickedNodeId) {
+            if (isOneByteHighlighted(node) && nodeId !== clickedNodeId) {
+                marker.setStyle({radius: getMapNodeSize(node), fillColor: getNodeFillColor(node), fillOpacity: 1});
+            } else if (nodeId === clickedNodeId) {
                 // Highlight the clicked node - make it larger
                 const highlightSize = getMapNodeSize(node) + 3;
                 const highlightBorderWeight = getBorderWeight(highlightSize, node.is_starred);
