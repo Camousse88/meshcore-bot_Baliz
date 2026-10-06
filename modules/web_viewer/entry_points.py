@@ -6,7 +6,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 
-def entry_points(conn, days=1, country='', now=None):
+def entry_points(conn, days=1, country='', now=None, unscoped_only=False):
     now = time.time() if now is None else now
     cutoff = now - days * 86400
     contacts = {}
@@ -33,6 +33,9 @@ def entry_points(conn, days=1, country='', now=None):
             data = json.loads(raw)
             if data.get('route_type_name') not in ('FLOOD', 'TRANSPORT_FLOOD'):
                 continue
+            # FLOOD has no transport region header; TRANSPORT_FLOOD does.
+            if unscoped_only and data.get('route_type_name') != 'FLOOD':
+                continue
             routing = data.get('routing_info') or {}
             packet = data.get('packet_hash') or routing.get('packet_hash')
             path = data.get('path_hex') or routing.get('path_hex')
@@ -44,7 +47,7 @@ def entry_points(conn, days=1, country='', now=None):
                 excluded += 1
                 continue
             hops = [prefixes.get(path[i:i+width*2].lower(), set()) for i in range(0, len(path), width*2)]
-            for source, dest in zip(hops, hops[1:], strict=False):
+            for arrival_hops, (source, dest) in enumerate(zip(hops, hops[1:], strict=False), start=1):
                 if len(source) != 1 or len(dest) != 1:
                     excluded += 1
                     continue
@@ -62,18 +65,28 @@ def entry_points(conn, days=1, country='', now=None):
                 edge = pairs.setdefault((a, b), {'packets': set(), 'last_seen': timestamp})
                 edge['packets'].add(packet)
                 edge['last_seen'] = max(timestamp, edge['last_seen'])
-                node = gateways.setdefault(b, {'packets': set(), 'last_seen': timestamp, 'countries': set()})
+                node = gateways.setdefault(b, {'packets': set(), 'last_seen': timestamp, 'countries': set(), 'arrival_hops': {}})
                 node['packets'].add(packet)
+                # Destination's index counts preceding repeaters, not the full
+                # path to Baliz. Keep the shortest observed arrival per packet.
+                node['arrival_hops'][packet] = min(arrival_hops, node['arrival_hops'].get(packet, arrival_hops))
                 node['countries'].add(ca['country'])
                 node['last_seen'] = max(timestamp, node['last_seen'])
         except (ValueError, TypeError, AttributeError):
             excluded += 1
     def date(value):
         return datetime.fromtimestamp(value, timezone.utc).isoformat() if value is not None else None
-    ranking = [dict(contacts[key], count=len(v['packets']), last_seen=date(v['last_seen']), origins=sorted(v['countries'])) for key, v in gateways.items()]
+    ranking = []
+    for key, value in gateways.items():
+        histogram = defaultdict(int)
+        for hops_count in value['arrival_hops'].values():
+            histogram[hops_count] += 1
+        ranking.append(dict(contacts[key], count=len(value['packets']),
+                            last_seen=date(value['last_seen']), origins=sorted(value['countries']),
+                            arrival_hops=[dict(hops=h, count=n) for h, n in sorted(histogram.items())]))
     ranking.sort(key=lambda r: (-r['count'], r['public_key']))
     edges = [dict(source=contacts[a], target=contacts[b], count=len(v['packets']), last_seen=date(v['last_seen'])) for (a,b),v in pairs.items()]
     edges.sort(key=lambda e: (-e['count'], e['source']['public_key'], e['target']['public_key']))
     return dict(ranking=ranking, edges=edges, countries=sorted(countries), days=days,
                 retained_since=date(retained_since), scanned=scanned, excluded=excluded,
-                generated_at=date(now))
+                generated_at=date(now), unscoped_only=unscoped_only)

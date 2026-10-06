@@ -3503,8 +3503,11 @@ class BotDataViewer:
             country = request.args.get('country', '').strip()
             if len(country) > 100:
                 return jsonify({'error': 'Pays invalide'}), 400
+            unscoped = request.args.get('unscoped', '0')
+            if unscoped not in ('0', '1'):
+                return jsonify({'error': 'Filtre de région invalide'}), 400
             with self._with_db_connection() as conn:
-                return jsonify(entry_points(conn, days, country))
+                return jsonify(entry_points(conn, days, country, unscoped_only=unscoped == '1'))
 
         @self.app.route('/api/mesh/nodes')
         def api_mesh_nodes():

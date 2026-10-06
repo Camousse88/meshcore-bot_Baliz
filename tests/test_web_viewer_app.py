@@ -2877,5 +2877,7 @@ def test_mesh_entry_points_api_and_page(viewer_with_db):
     assert response.status_code == 200
     assert response.get_json()['ranking'] == []
     assert client.get('/api/mesh/entry-points?days=999').status_code == 400
+    assert client.get('/api/mesh/entry-points?unscoped=1').get_json()['unscoped_only'] is True
+    assert client.get('/api/mesh/entry-points?unscoped=bad').status_code == 400
     assert client.get('/mesh-entry-points').status_code == 200
     assert b'/mesh-entry-points' in client.get('/mesh').data
