@@ -8,6 +8,7 @@ CATALOG = {
     'test': {'receive': 'Measure reception of THIS message: tu me reçois, SNR, RSSI.'},
     'path': {'message': 'Show the actual path of THIS message, default sender: quelle est la route, chemin entre toi et moi. Not a definition.'},
     'mesh': {
+        'summary': 'General overview of the locally observed network: réseau, état du réseau, résumé du mesh, network overview. Known nodes, nodes and repeaters heard in 24h, recorded messages in 24h. No arguments. Prefer this for short general network requests, not unsupported.',
         'hfcond': 'Radio propagation conditions by amateur HF band. Requests: conditions radio, propagation, HF, ondes courtes. Bare shorthand tropo also selects this available report, which MUST be labelled HF. Executes hfcond. NOT local tropospheric propagation, NOT MeshCore 869 MHz reception, NOT weather.',
         'relay_connectivity': 'Rank important, most connected or most solicited relays by observed graph degree, the map dot-size metric. Counts attached directed links, NOT packets or load. Default hours=24, limit=3.',
         'count_nodes': 'Count ALL locally observed nodes, all roles. Active means heard in last 24 hours by default; hours=0 means all known nodes, country empty unless specified.',
@@ -28,6 +29,9 @@ CATALOG = {
 
 # Few-shot examples teach intent, never execute lexical overrides.
 ROUTING_EXAMPLES = [
+    ('reseau', {'route': 'mesh', 'operation': 'summary', 'args': {}}),
+    ('état du réseau', {'route': 'mesh', 'operation': 'summary', 'args': {}}),
+    ('résumé du mesh', {'route': 'mesh', 'operation': 'summary', 'args': {}}),
     ('condition radio', {'route': 'mesh', 'operation': 'hfcond', 'args': {}}),
     ('quels sont les canaux utilisés en Bretagne ?', {'route': 'wiki', 'operation': 'lookup', 'args': {}}),
     ('quels canaux rejoindre dans ma région ?', {'route': 'wiki', 'operation': 'lookup', 'args': {}}),

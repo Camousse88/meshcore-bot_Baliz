@@ -41,6 +41,9 @@ def count_nodes(conn, args):
 
 
 def observation_answer(conn, op, args, logger):
+    if op == 'summary':
+        from .network_summary import network_summary
+        return network_summary(conn)
     if op == 'count_nodes':
         return count_nodes(conn, args)
     clauses=["LOWER(role) = 'repeater'"];values=[]

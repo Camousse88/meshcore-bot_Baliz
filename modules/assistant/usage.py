@@ -2,6 +2,7 @@
 import time
 
 LABELS = {
+    'mesh.summary': 'Résumé du réseau',
     'mesh.hfcond': 'Conditions radio HF',
     'weather.forecast': 'Météo', 'wiki.lookup': 'Documentation',
     'llm.chat': 'Conversation', 'test.receive': 'Test de réception',
