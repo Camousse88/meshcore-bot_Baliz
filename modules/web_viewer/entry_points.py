@@ -59,6 +59,22 @@ def entry_points(conn, days=1, country='', now=None, unscoped_only=False, packet
             records.append((width, timestamp, packet.lower(), path))
         except (ValueError, TypeError, AttributeError):
             excluded_packets += 1
+    # Require two consecutive French links witnessed in a single multi-byte
+    # path. Match the complete triple, never assemble unrelated graph edges.
+    french_suffixes = defaultdict(set)
+    for width, _, _, path in records:
+        if width == 1:
+            continue
+        resolved = [prefixes.get(path[i:i+width*2].lower(), set())
+                    for i in range(0, len(path), width*2)]
+        for i in range(len(resolved)-2):
+            triple = resolved[i:i+3]
+            if any(len(candidates) != 1 for candidates in triple):
+                continue
+            keys = tuple(next(iter(candidates)) for candidates in triple)
+            if len(set(keys)) != 3 or not all(is_fr(contacts[k]['country']) for k in keys):
+                continue
+            french_suffixes[tuple(k[:2] for k in keys)].add(keys)
     # Resolve multi-byte evidence first, regardless of reception order.
     for width, timestamp, packet, path in sorted(records, key=lambda r: r[0], reverse=True):
         try:
@@ -98,9 +114,18 @@ def entry_points(conn, days=1, country='', now=None, unscoped_only=False, packet
                               latitude=None, longitude=None, ambiguous=True,
                               candidate_count=len(source))
                 evidence = (packet, b, path[(arrival_hops-1)*width*2:(arrival_hops-1)*width*2+2].lower(), arrival_hops)
+                inferred = False
                 if width == 1 and evidence not in confirmed:
-                    uncorroborated += 1
-                    continue
+                    suffix = tuple(path[i:i+2].lower() for i in range(arrival_hops*2, min(len(path), (arrival_hops+3)*2), 2))
+                    matches = french_suffixes.get(suffix, set())
+                    # All three short identifiers must also resolve uniquely in
+                    # our catalogue: a competing candidate stays unassigned.
+                    suffix_hops = hops[arrival_hops:arrival_hops+3]
+                    if (len(suffix_hops) != 3 or any(len(h) != 1 for h in suffix_hops)
+                            or len(matches) != 1 or next(iter(matches))[0] != b):
+                        uncorroborated += 1
+                        continue
+                    inferred = True
                 if width > 1:
                     confirmed.add(evidence)
                 sources[a] = ca
@@ -108,8 +133,10 @@ def entry_points(conn, days=1, country='', now=None, unscoped_only=False, packet
                 if country and ca['country'].casefold() != country.casefold():
                     continue
                 packet = packet.lower()
-                edge = pairs.setdefault((a, b), {'packets': set(), 'last_seen': timestamp, 'short_packets': set(), 'multi_packets': set()})
+                edge = pairs.setdefault((a, b), {'packets': set(), 'last_seen': timestamp, 'short_packets': set(), 'multi_packets': set(), 'inferred_packets': set()})
                 edge['packets'].add(packet)
+                if inferred:
+                    edge['inferred_packets'].add(packet)
                 edge['short_packets' if width == 1 else 'multi_packets'].add(packet)
                 edge['last_seen'] = max(timestamp, edge['last_seen'])
                 node = gateways.setdefault(b, {'packets': set(), 'last_seen': timestamp, 'countries': set(), 'arrival_hops': {}})
@@ -135,7 +162,7 @@ def entry_points(conn, days=1, country='', now=None, unscoped_only=False, packet
                             last_seen=date(value['last_seen']), origins=sorted(value['countries']),
                             arrival_hops=[dict(hops=h, count=n) for h, n in sorted(histogram.items())]))
     ranking.sort(key=lambda r: (-r['count'], r['public_key']))
-    edges = [dict(source=sources[a], target=contacts[b], count=len(v['packets']), short_only_count=len(v['short_packets'] - v['multi_packets']), multi_byte_count=len(v['multi_packets']), last_seen=date(v['last_seen'])) for (a,b),v in pairs.items()]
+    edges = [dict(source=sources[a], target=contacts[b], count=len(v['packets']), inferred_count=len(v['inferred_packets'] - v['multi_packets']), short_only_count=len(v['short_packets'] - v['multi_packets']), multi_byte_count=len(v['multi_packets']), last_seen=date(v['last_seen'])) for (a,b),v in pairs.items()]
     edges.sort(key=lambda e: (-e['count'], e['source']['public_key'], e['target']['public_key']))
     global_histogram = defaultdict(int)
     for hops_count in global_packets.values():

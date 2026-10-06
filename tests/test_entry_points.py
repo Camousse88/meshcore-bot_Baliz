@@ -129,3 +129,23 @@ def test_excluded_units_and_short_path_evidence():
     assert d['uncorroborated_segments']==1
     assert d['edges'][0]['multi_byte_count']==1
     assert d['edges'][0]['short_only_count']==0
+
+
+def test_short_entry_inferred_from_unique_french_suffix_in_period():
+    c=sqlite3.connect(':memory:')
+    c.execute('CREATE TABLE complete_contact_tracking(public_key,name,country,latitude,longitude,role)')
+    c.execute('CREATE TABLE packet_stream(timestamp,type,data)')
+    for key,nation in [('aa11','United Kingdom'),('bb11','France'),('cc11','France'),('dd11','France')]:
+        c.execute('INSERT INTO complete_contact_tracking VALUES(?,?,?,?,?,?)',(key,key,nation,48,-3,'repeater'))
+    def add(path,width,hash,time=99999):
+        c.execute('INSERT INTO packet_stream VALUES(?,?,?)',(time,'packet',json.dumps(dict(path_hex=path,bytes_per_hop=width,packet_hash=hash,route_type_name='FLOOD'))))
+    add('aabbccdd',1,'123')
+    add('bb11cc11dd11',2,'456',1)  # expired evidence cannot corroborate
+    assert entry_points(c,now=100000)['ranking']==[]
+    add('bb11cc11dd11',2,'789')
+    d=entry_points(c,now=100000)
+    assert d['ranking'][0]['count']==1
+    assert d['edges'][0]['inferred_count']==1
+    assert d['edges'][0]['multi_byte_count']==0
+    c.execute('INSERT INTO complete_contact_tracking VALUES(?,?,?,?,?,?)',('cc22','Other','France',48,-3,'repeater'))
+    assert entry_points(c,now=100000)['ranking']==[]
