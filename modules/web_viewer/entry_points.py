@@ -36,7 +36,7 @@ def entry_points(conn, days=1, country='', now=None, unscoped_only=False, packet
             # FLOOD has no transport region header; TRANSPORT_FLOOD does.
             if unscoped_only and data.get('route_type_name') != 'FLOOD':
                 continue
-            payload = data.get('payload_type')
+            payload = data.get('payload_type_name') or data.get('payload_type')
             if packet_type == 'messages' and payload not in ('TXT_MSG', 'GRP_TXT'):
                 continue
             if packet_type == 'adverts' and payload != 'ADVERT':
