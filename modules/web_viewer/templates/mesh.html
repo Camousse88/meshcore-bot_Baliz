@@ -133,6 +133,8 @@
         min-height: 0;
         flex: 1;
     }
+    .onebyte-focus .leaflet-tile-pane {filter: grayscale(0.85) saturate(0.3);opacity:0.65}
+    .leaflet-tooltip.onebyte-label {background:#fff;color:#991b1b;border:1px solid #fca5a5;border-radius:5px;padding:4px 7px;font-size:12px;font-weight:700;box-shadow:0 2px 5px #0003}
 </style>
 
 <div id="mesh-graph-container" class="d-flex flex-column">
@@ -1966,6 +1968,7 @@
     
     // Apply filters
     function applyFilters() {
+        document.getElementById('map-view').classList.toggle('onebyte-focus', document.getElementById('filter-one-byte').checked);
         // Preserve highlighted node before filtering/re-rendering
         const preservedHighlightedNode = highlightedNodeObject;
         // Preserve path highlight if active (will be re-applied in renderMap if still valid)
@@ -2514,7 +2517,7 @@
                     marker.bindTooltip(escapeHtml(shortLabel), {
                         permanent: true,
                         direction: 'top',
-                        className: 'mesh-node-label',
+                        className: isOneByteHighlighted(node) ? 'mesh-node-label onebyte-label' : 'mesh-node-label',
                         opacity: 1
                     });
                 }
@@ -3357,7 +3360,8 @@
         // enough to click, small enough that dense clusters stay readable.
         const degree = nodeDegrees.get(getNodeId(node)) || 0;
         const baseSize = Math.max(5, Math.min(13, 5 + degree * 0.4));
-        return isOneByteHighlighted(node) ? Math.max(14, baseSize * 1.6) : baseSize;
+        if (document.getElementById('filter-one-byte').checked) return isOneByteHighlighted(node) ? 16 : 4;
+        return baseSize;
     }
 
     // Map dots and lines shrink as you zoom out so dense areas stay readable;
@@ -3376,6 +3380,7 @@
 
     // Shared edge width: log-scaled, capped so heavy edges don't blanket dense areas
     function getEdgeWeight(edge) {
+        if (document.getElementById('filter-one-byte').checked) return 1;
         const weight = Math.max(1, Math.min(5, Math.log10(Math.max(1, edge.observation_count || 1)) * 1.5));
         // Confirmed zero-hop links are the strongest evidence class, but they
         // accumulate observations slowly (one per cycle, cycles are >=12h apart).
@@ -3439,6 +3444,7 @@
     }
     
     function getEdgeColor(edge) {
+        if (document.getElementById('filter-one-byte').checked) return '#94a3b8';
         if (edgeColorMode === 'heat') return heatColor(edge);
 
         if (!edge.last_seen) return '#6c757d'; // Gray for unknown
@@ -3454,6 +3460,7 @@
     }
 
     function getEdgeOpacity(edge) {
+        if (document.getElementById('filter-one-byte').checked) return 0.18;
         // Heat mode: hot edges pop, cold edges recede (recency shown by color mode 'age')
         if (edgeColorMode === 'heat') return 0.45 + 0.5 * heatT(edge);
 
