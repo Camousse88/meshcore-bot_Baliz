@@ -21,6 +21,7 @@ def entry_points(conn, days=1, country='', now=None, unscoped_only=False, packet
             prefixes[key[:width]].add(key)
     def is_fr(nation):
         return nation.casefold() in {'france', 'fr', 'français', 'francais'}
+    sources = {}
     pairs = {}
     gateways = {}
     countries = set()
@@ -46,23 +47,47 @@ def entry_points(conn, days=1, country='', now=None, unscoped_only=False, packet
             path = data.get('path_hex') or routing.get('path_hex')
             width = data.get('bytes_per_hop', routing.get('bytes_per_hop'))
             if (not isinstance(packet, str) or not re.fullmatch(r'[0-9a-fA-F]+', packet) or not packet.strip('0')
-                    or type(width) is not int or width not in (2, 3)
+                    or type(width) is not int or width not in (1, 2, 3)
                     or not isinstance(path, str) or not re.fullmatch(r'[0-9a-fA-F]+', path)
                     or len(path) % (width * 2)):
                 excluded += 1
                 continue
             hops = [prefixes.get(path[i:i+width*2].lower(), set()) for i in range(0, len(path), width*2)]
             for arrival_hops, (source, dest) in enumerate(zip(hops, hops[1:], strict=False), start=1):
-                if len(source) != 1 or len(dest) != 1:
+                if not source or len(dest) != 1:
                     excluded += 1
                     continue
-                a, b = next(iter(source)), next(iter(dest))
-                ca, cb = contacts[a], contacts[b]
-                if not ca['country'] or not cb['country']:
+                b = next(iter(dest))
+                cb = contacts[b]
+                if not cb['country']:
                     excluded += 1
                     continue
-                if is_fr(ca['country']) or not is_fr(cb['country']):
+                if not is_fr(cb['country']):
                     continue
+                candidates = [contacts[key] for key in sorted(source)]
+                if any(not c['country'] for c in candidates):
+                    excluded += 1
+                    continue
+                french = [is_fr(c['country']) for c in candidates]
+                if all(french):
+                    continue
+                if any(french):
+                    excluded += 1
+                    continue
+                if len(source) == 1:
+                    a = next(iter(source))
+                    ca = contacts[a]
+                else:
+                    # Synthetic identity is only a bucket for this prefix, never
+                    # an invented repeater or an inferred geographic position.
+                    prefix = path[(arrival_hops-1)*width*2:arrival_hops*width*2].lower()
+                    a = f'ambiguous:{width}:{prefix}'
+                    nations = sorted({c['country'] for c in candidates})
+                    ca = dict(public_key=a, name='Relais étranger non identifié',
+                              country=nations[0] if len(nations) == 1 else 'Pays étranger indéterminé',
+                              latitude=None, longitude=None, ambiguous=True,
+                              candidate_count=len(source))
+                sources[a] = ca
                 countries.add(ca['country'])
                 if country and ca['country'].casefold() != country.casefold():
                     continue
@@ -93,7 +118,7 @@ def entry_points(conn, days=1, country='', now=None, unscoped_only=False, packet
                             last_seen=date(value['last_seen']), origins=sorted(value['countries']),
                             arrival_hops=[dict(hops=h, count=n) for h, n in sorted(histogram.items())]))
     ranking.sort(key=lambda r: (-r['count'], r['public_key']))
-    edges = [dict(source=contacts[a], target=contacts[b], count=len(v['packets']), last_seen=date(v['last_seen'])) for (a,b),v in pairs.items()]
+    edges = [dict(source=sources[a], target=contacts[b], count=len(v['packets']), last_seen=date(v['last_seen'])) for (a,b),v in pairs.items()]
     edges.sort(key=lambda e: (-e['count'], e['source']['public_key'], e['target']['public_key']))
     global_histogram = defaultdict(int)
     for hops_count in global_packets.values():

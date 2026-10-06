@@ -20,17 +20,17 @@ def test_entry_points_direction_dedup_collision_and_time():
     packet('eeeeaaaa','5678')  # unknown country
     packet('aaaabbbb','6789',time=1)  # outside 24 h
     packet('aaaabbbb','7890',route='DIRECT')  # planned path
-    packet('aabb','8901',width=1)  # single byte
+    packet('aabb','8901',width=1)  # unambiguous single byte is accepted
     packet('aaaaeeeebbbb','9012')  # never bridge across unknown relay
     d=entry_points(c,1,now=100000)
     assert len(d['ranking'])==1
     assert d['ranking'][0]['public_key']=='bbbb22'
-    assert d['ranking'][0]['count']==2
+    assert d['ranking'][0]['count']==3
     assert len(d['edges'])==2
     assert d['countries']==['Guernsey','United Kingdom']
     assert d['excluded']>0
     assert entry_points(c,1,'Guernsey',now=100000)['ranking'][0]['count']==1
-    assert entry_points(c,7,now=100000)['ranking'][0]['count']==3
+    assert entry_points(c,7,now=100000)['ranking'][0]['count']==4
 
 
 def test_arrival_hops_shortest_path_and_unscoped_filter():
@@ -91,3 +91,28 @@ def test_packet_type_filters():
         assert result['global_summary']['count'] == expected
         assert result['ranking'][0]['count'] == expected
         assert result['edges'][0]['count'] == expected
+
+
+def test_foreign_ambiguity_without_inventing_identity_or_location():
+    c = sqlite3.connect(':memory:')
+    c.execute('CREATE TABLE complete_contact_tracking(public_key,name,country,latitude,longitude,role)')
+    c.execute('CREATE TABLE packet_stream(timestamp,type,data)')
+    for key, country in [('aa11', 'United Kingdom'), ('aa22', 'United Kingdom'),
+                         ('bb11', 'France'), ('cc11', 'Guernsey'), ('cc22', 'United Kingdom'),
+                         ('dd11', 'France'), ('dd22', 'United Kingdom'),
+                         ('ee11', None), ('ee22', 'United Kingdom'), ('bb22', 'France')]:
+        c.execute('INSERT INTO complete_contact_tracking VALUES(?,?,?,?,?,?)', (key, key, country, 48, -3, 'repeater'))
+    # Two-byte destination bb11 is unique, source aa is ambiguous at one byte:
+    # use a different unique French prefix for the one-byte paths.
+    c.execute('INSERT INTO complete_contact_tracking VALUES(?,?,?,?,?,?)', ('ff11', 'French', 'France', 48, -3, 'repeater'))
+    for i, path in enumerate(['aaff', 'ccff', 'ddff', 'eeff', 'aabb'], 1):
+        c.execute('INSERT INTO packet_stream VALUES(?,?,?)', (99999, 'packet', json.dumps(dict(
+            path_hex=path, packet_hash=str(i), route_type_name='FLOOD', bytes_per_hop=1))))
+    result = entry_points(c, now=100000)
+    assert result['global_summary']['count'] == 2
+    assert result['ranking'][0]['count'] == 2
+    assert result['ranking'][0]['arrival_hops'] == [{'hops': 1, 'count': 2}]
+    assert result['countries'] == ['Pays étranger indéterminé', 'United Kingdom']
+    assert all(e['source']['latitude'] is None and e['source']['ambiguous'] for e in result['edges'])
+    assert entry_points(c, now=100000, country='United Kingdom')['global_summary']['count'] == 1
+    assert entry_points(c, now=100000, country='Guernsey')['global_summary']['count'] == 0
