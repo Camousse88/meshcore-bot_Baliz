@@ -258,7 +258,7 @@
                     </div>
                     <div class="col-md-2">
                         <label class="form-label">&nbsp;</label>
-                        <div class="form-check"><input type="checkbox" class="form-check-input" id="filter-one-byte"><label class="form-check-label" for="filter-one-byte" title="Relais 1 octet en rose avec leur nom. Les autres nœuds et liaisons restent visibles. Statut déduit des observations.">Repérer les relais 1 byte</label></div>
+                        <div class="form-check"><input type="checkbox" class="form-check-input" id="filter-one-byte"><label class="form-check-label" for="filter-one-byte" title="Relais 1 octet en rouge et agrandis, autres nœuds en gris. Les liaisons restent visibles. Statut déduit des observations.">Repérer les relais 1 byte</label></div>
                     </div>
                     <div class="col-md-2">
                         <label for="filter-starred" class="form-label">&nbsp;</label>
@@ -1062,7 +1062,9 @@
     }
 
     function getNodeFillColor(node) {
-        if (isOneByteHighlighted(node)) return '#e83e8c';
+        if (document.getElementById('filter-one-byte').checked) {
+            return isOneByteHighlighted(node) ? '#dc2626' : '#9ca3af';
+        }
         if (edgeColorMode === 'heat') {
             return viridisThemed(nodeHeatT(node));
         }
@@ -3346,7 +3348,8 @@
         // resolve endpoints the same way edges are drawn. Base 5, cap 13: large
         // enough to click, small enough that dense clusters stay readable.
         const degree = nodeDegrees.get(getNodeId(node)) || 0;
-        return Math.max(5, Math.min(13, 5 + degree * 0.4));
+        const baseSize = Math.max(5, Math.min(13, 5 + degree * 0.4));
+        return isOneByteHighlighted(node) ? Math.max(14, baseSize * 1.6) : baseSize;
     }
 
     // Map dots and lines shrink as you zoom out so dense areas stay readable;
