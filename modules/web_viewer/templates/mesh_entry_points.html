@@ -2,7 +2,7 @@
 {% block title %}Points d’entrée · Baliz{% endblock %}
 {% block extra_css %}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<style>#entry-map{height:62vh;min-height:340px}.entry-arrow{font-size:20px;color:#b45309;text-shadow:0 0 2px white}.entry-row{cursor:pointer}</style>
+<style>#entry-map{height:62vh;min-height:340px}.entry-arrow{font-size:20px;color:#b45309;text-shadow:0 0 2px white}.entry-row{cursor:pointer}.entry-row::marker{color:#6c757d}.entry-heading{display:inline;font-weight:600;overflow-wrap:anywhere}.entry-meta{display:block;margin:0.4rem 0 0 1rem;font-size:.85rem;color:var(--bs-secondary-color,#6c757d);line-height:1.5}.entry-count{float:right;margin-left:.5rem;font-size:.8rem}.hop-caption{display:flex;justify-content:space-between;gap:1rem;margin-bottom:.3rem}</style>
 {% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between flex-wrap gap-2 mb-3"><h1 class="h3">Points d’entrée — Étranger → France</h1><a href="/mesh" class="btn btn-outline-secondary">Retour au Mesh Graph</a></div>
@@ -32,20 +32,20 @@
     const relayPanels = new Map();
     let generation = 0;
     function renderHops(details, n, onlyUnscoped) {
-        const title=document.createElement('h3');title.className='h6';title.textContent=n.name;details.appendChild(title);
-        const subtitle=document.createElement('p');subtitle.className='small';
+        const subtitle=document.createElement('p');subtitle.className='small fw-semibold mb-3';
         subtitle.textContent='Sauts déjà parcourus à l’arrivée · '+(onlyUnscoped?'paquets sans région':'tous les paquets flood');details.appendChild(subtitle);
-        const max=Math.max(1,...n.arrival_hops.map(b=>b.count));
         n.arrival_hops.forEach(bin=>{
-            const row=document.createElement('div');row.className='mb-2';
-            const caption=document.createElement('div');caption.className='small';
-            caption.textContent=`${bin.hops} saut${bin.hops>1?'s':''} : ${bin.count} paquet${bin.count>1?'s':''} (${Math.round(100*bin.count/n.count)} %)`;
+            const row=document.createElement('div');row.className='mb-3';
+            const caption=document.createElement('div');caption.className='small hop-caption';
+            const hops=document.createElement('span');hops.textContent=`${bin.hops} saut${bin.hops>1?'s':''}`;
+            const count=document.createElement('span');count.textContent=`${bin.count} paquet${bin.count>1?'s':''} · ${Math.round(100*bin.count/n.count)} %`;
+            caption.append(hops,count);
             const track=document.createElement('div');track.className='progress';track.style.height='12px';
-            const bar=document.createElement('div');bar.className='progress-bar bg-warning';bar.style.width=(100*bin.count/max)+'%';
+            const bar=document.createElement('div');bar.className='progress-bar bg-warning';bar.style.width=(100*bin.count/n.count)+'%';
             track.appendChild(bar);row.append(caption,track);details.appendChild(row);
         });
         const note=document.createElement('p');note.className='small text-muted mb-0';
-        note.textContent='Minimum observé par paquet, sur la période et les pays sélectionnés. Un passage étranger → France implique au moins un relais précédent.';details.appendChild(note);
+        note.textContent='Chemin le plus court observé pour chaque paquet.';details.appendChild(note);
     }
     const located = n => Number.isFinite(n.latitude) && Number.isFinite(n.longitude) && Math.abs(n.latitude)<=90 && Math.abs(n.longitude)<=180 && !(n.latitude===0 && n.longitude===0);
     const point = n => [n.latitude,n.longitude];
@@ -86,7 +86,12 @@
             data.ranking.forEach((n,i)=>{
                 const panel=document.createElement('details');panel.className='border rounded mb-2';
                 const button=document.createElement('summary');button.className='p-2 entry-row';
-                button.textContent=`${i+1}. ${n.name} — ${n.count} paquets · ${n.origins.join(', ')} · dernier passage ${new Date(n.last_seen).toLocaleString('fr-FR')}${located(n)?'':' · position inconnue'}`;
+                const heading=document.createElement('span');heading.className='entry-heading';heading.textContent=`${i+1}. ${n.name}`;
+                const total=document.createElement('span');total.className='badge bg-secondary entry-count';total.textContent=`${n.count} paquet${n.count>1?'s':''}`;
+                const meta=document.createElement('span');meta.className='entry-meta';
+                const origins=document.createElement('span');origins.textContent='Depuis : '+n.origins.map(c=>c==='United Kingdom'?'Royaume-Uni':c).join(', ');
+                const last=document.createElement('span');last.className='d-block';last.textContent='Dernier passage : '+new Date(n.last_seen).toLocaleString('fr-FR')+(located(n)?'':' · position inconnue');
+                meta.append(origins,last);button.append(heading,total,meta);
                 const content=document.createElement('div');content.className='border-top p-3';
                 renderHops(content,n,data.unscoped_only);
                 panel.append(button,content);ranking.appendChild(panel);relayPanels.set(n.public_key,panel);
