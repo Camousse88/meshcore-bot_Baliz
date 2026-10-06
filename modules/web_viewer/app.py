@@ -3506,8 +3506,11 @@ class BotDataViewer:
             unscoped = request.args.get('unscoped', '0')
             if unscoped not in ('0', '1'):
                 return jsonify({'error': 'Filtre de région invalide'}), 400
+            packet_type = request.args.get('packet_type', 'all')
+            if packet_type not in ('all', 'messages', 'adverts'):
+                return jsonify({'error': 'Type de paquet invalide'}), 400
             with self._with_db_connection() as conn:
-                return jsonify(entry_points(conn, days, country, unscoped_only=unscoped == '1'))
+                return jsonify(entry_points(conn, days, country, unscoped_only=unscoped == '1', packet_type=packet_type))
 
         @self.app.route('/api/mesh/nodes')
         def api_mesh_nodes():

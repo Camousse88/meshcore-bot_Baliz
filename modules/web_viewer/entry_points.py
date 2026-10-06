@@ -6,7 +6,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 
-def entry_points(conn, days=1, country='', now=None, unscoped_only=False):
+def entry_points(conn, days=1, country='', now=None, unscoped_only=False, packet_type="all"):
     now = time.time() if now is None else now
     cutoff = now - days * 86400
     contacts = {}
@@ -35,6 +35,11 @@ def entry_points(conn, days=1, country='', now=None, unscoped_only=False):
                 continue
             # FLOOD has no transport region header; TRANSPORT_FLOOD does.
             if unscoped_only and data.get('route_type_name') != 'FLOOD':
+                continue
+            payload = data.get('payload_type')
+            if packet_type == 'messages' and payload not in ('TXT_MSG', 'GRP_TXT'):
+                continue
+            if packet_type == 'adverts' and payload != 'ADVERT':
                 continue
             routing = data.get('routing_info') or {}
             packet = data.get('packet_hash') or routing.get('packet_hash')
@@ -97,4 +102,4 @@ def entry_points(conn, days=1, country='', now=None, unscoped_only=False):
                           arrival_hops=[dict(hops=h, count=n) for h, n in sorted(global_histogram.items())])
     return dict(global_summary=global_summary, ranking=ranking, edges=edges, countries=sorted(countries), days=days,
                 retained_since=date(retained_since), scanned=scanned, excluded=excluded,
-                generated_at=date(now), unscoped_only=unscoped_only)
+                generated_at=date(now), unscoped_only=unscoped_only, packet_type=packet_type)

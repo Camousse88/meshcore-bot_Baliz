@@ -75,3 +75,19 @@ def test_global_histogram_deduplicates_across_gateways_and_respects_filters():
     filtered = entry_points(c, now=100000, country='United Kingdom', unscoped_only=True)
     assert filtered['global_summary'] == {'count': 1, 'arrival_hops': [{'hops': 2, 'count': 1}]}
     assert entry_points(c, now=100000, country='Spain')['global_summary'] == {'count': 0, 'arrival_hops': []}
+
+
+def test_packet_type_filters():
+    c = sqlite3.connect(':memory:')
+    c.execute('CREATE TABLE complete_contact_tracking(public_key,name,country,latitude,longitude,role)')
+    c.execute('CREATE TABLE packet_stream(timestamp,type,data)')
+    for key, country in [('aaaa11', 'United Kingdom'), ('bbbb22', 'France')]:
+        c.execute('INSERT INTO complete_contact_tracking VALUES(?,?,?,?,?,?)', (key, key, country, 48, -3, 'repeater'))
+    for i, payload in enumerate(['TXT_MSG', 'GRP_TXT', 'ADVERT', 'ACK', 'UNKNOWN'], 1):
+        c.execute('INSERT INTO packet_stream VALUES(?,?,?)', (99999, 'packet', json.dumps(dict(
+            path_hex='aaaabbbb', packet_hash=str(i), route_type_name='FLOOD', bytes_per_hop=2, payload_type=payload))))
+    for kind, expected in [('all', 5), ('messages', 2), ('adverts', 1)]:
+        result = entry_points(c, now=100000, packet_type=kind, unscoped_only=True)
+        assert result['global_summary']['count'] == expected
+        assert result['ranking'][0]['count'] == expected
+        assert result['edges'][0]['count'] == expected
