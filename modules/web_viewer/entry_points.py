@@ -76,8 +76,11 @@ def entry_points(conn, days=1, country='', now=None, unscoped_only=False):
             excluded += 1
     def date(value):
         return datetime.fromtimestamp(value, timezone.utc).isoformat() if value is not None else None
+    global_packets = {}
     ranking = []
     for key, value in gateways.items():
+        for packet, hops_count in value['arrival_hops'].items():
+            global_packets[packet] = min(hops_count, global_packets.get(packet, hops_count))
         histogram = defaultdict(int)
         for hops_count in value['arrival_hops'].values():
             histogram[hops_count] += 1
@@ -87,6 +90,11 @@ def entry_points(conn, days=1, country='', now=None, unscoped_only=False):
     ranking.sort(key=lambda r: (-r['count'], r['public_key']))
     edges = [dict(source=contacts[a], target=contacts[b], count=len(v['packets']), last_seen=date(v['last_seen'])) for (a,b),v in pairs.items()]
     edges.sort(key=lambda e: (-e['count'], e['source']['public_key'], e['target']['public_key']))
-    return dict(ranking=ranking, edges=edges, countries=sorted(countries), days=days,
+    global_histogram = defaultdict(int)
+    for hops_count in global_packets.values():
+        global_histogram[hops_count] += 1
+    global_summary = dict(count=len(global_packets),
+                          arrival_hops=[dict(hops=h, count=n) for h, n in sorted(global_histogram.items())])
+    return dict(global_summary=global_summary, ranking=ranking, edges=edges, countries=sorted(countries), days=days,
                 retained_since=date(retained_since), scanned=scanned, excluded=excluded,
                 generated_at=date(now), unscoped_only=unscoped_only)

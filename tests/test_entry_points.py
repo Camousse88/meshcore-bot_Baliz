@@ -57,3 +57,21 @@ def test_arrival_hops_shortest_path_and_unscoped_filter():
     assert node['count'] == 3
     assert node['arrival_hops'] == [{'hops': 1, 'count': 2}, {'hops': 2, 'count': 1}]
     assert sum(b['count'] for b in node['arrival_hops']) == node['count']
+
+
+def test_global_histogram_deduplicates_across_gateways_and_respects_filters():
+    c = sqlite3.connect(':memory:')
+    c.execute('CREATE TABLE complete_contact_tracking(public_key,name,country,latitude,longitude,role)')
+    c.execute('CREATE TABLE packet_stream(timestamp,type,data)')
+    for key, country in [('aaaa11', 'United Kingdom'), ('bbbb22', 'France'), ('cccc33', 'Guernsey'), ('dddd44', 'France')]:
+        c.execute('INSERT INTO complete_contact_tracking VALUES(?,?,?,?,?,?)',
+                  (key, key, country, 48, -3, 'repeater'))
+    for path, packet, route in [('ccccaaaabbbb', '1234', 'FLOOD'), ('ccccdddd', '1234', 'FLOOD'), ('aaaabbbb', '2345', 'TRANSPORT_FLOOD')]:
+        c.execute('INSERT INTO packet_stream VALUES(?,?,?)', (99999, 'packet', json.dumps(dict(
+            path_hex=path, packet_hash=packet, route_type_name=route, bytes_per_hop=2))))
+    result = entry_points(c, now=100000)
+    assert sum(n['count'] for n in result['ranking']) == 3
+    assert result['global_summary'] == {'count': 2, 'arrival_hops': [{'hops': 1, 'count': 2}]}
+    filtered = entry_points(c, now=100000, country='United Kingdom', unscoped_only=True)
+    assert filtered['global_summary'] == {'count': 1, 'arrival_hops': [{'hops': 2, 'count': 1}]}
+    assert entry_points(c, now=100000, country='Spain')['global_summary'] == {'count': 0, 'arrival_hops': []}

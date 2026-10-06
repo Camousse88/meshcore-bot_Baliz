@@ -15,7 +15,7 @@
 <p class="small text-muted">Paquets distincts, tous types confondus, dédupliqués par relais d’entrée. Un même paquet peut avoir plusieurs entrées observées. Seuls les chemins flood à identifiants de 2 ou 3 octets résolus sans ambiguïté sont retenus.</p>
 <p class="small text-muted">Les sauts à l’arrivée comptent les relais précédents, avant le relais français. Pour chaque paquet, le chemin le plus court observé est retenu. Baliz ne voit pas les paquets déjà bloqués ou ceux qui ne lui parviennent pas.</p>
 <div id="entry-status" role="status" class="mb-3"></div>
-<div class="row g-3"><div class="col-lg-8"><div id="entry-map" class="rounded border"></div></div>
+<div class="row g-3"><div class="col-lg-8"><div id="entry-map" class="rounded border"></div><section class="border rounded p-3 mt-3"><h2 class="h5">Sauts à l’arrivée — vue globale</h2><div id="entry-global" role="status"></div></section></div>
 <div class="col-lg-4"><h2 class="h5">Relais français d’entrée</h2><p class="small">Clique sur un relais pour voir ses sauts à l’arrivée et le situer. Ce classement dépend de ce que reçoit Baliz, pas de tout le trafic du réseau.</p><div id="entry-ranking"></div></div></div>
 {% endblock %}
 {% block extra_js %}
@@ -29,6 +29,7 @@
     const country = document.getElementById('entry-country');
     const days = document.getElementById('entry-days');
     const unscoped = document.getElementById('entry-unscoped');
+    const globalPanel = document.getElementById('entry-global');
     const relayPanels = new Map();
     let generation = 0;
     function renderHops(details, n, onlyUnscoped) {
@@ -55,12 +56,20 @@
         status.textContent='Chargement des observations…';
         layer.clearLayers();
         relayPanels.clear();
+        globalPanel.textContent='Chargement…';
         document.getElementById('entry-ranking').replaceChildren();
         try {
             const resp=await fetch('/api/mesh/entry-points?'+new URLSearchParams({days:days.value,country:country.value,unscoped:unscoped.checked?'1':'0'}));
             if(!resp.ok) throw new Error('Chargement impossible');
             const data=await resp.json();
             if(current!==generation) return;
+            globalPanel.replaceChildren();
+            if(data.global_summary.count){
+                const total=document.createElement('p');total.className='fw-semibold';
+                total.textContent=`${data.global_summary.count} paquets distincts · tous les relais d’entrée retenus`;
+                globalPanel.appendChild(total);renderHops(globalPanel,data.global_summary,data.unscoped_only);
+                globalPanel.lastChild.textContent='Chaque paquet compte une seule fois, au plus petit nombre de sauts observé parmi les relais et les pays sélectionnés.';
+            } else globalPanel.textContent='Aucun passage identifiable avec ces filtres.';
             const selected=country.value;
             country.replaceChildren(new Option('Tous les pays étrangers',''));
             data.countries.forEach(c=>country.add(new Option(c,c)));
@@ -99,7 +108,7 @@
             });
             if(!data.ranking.length) ranking.appendChild(label('Aucun passage identifiable sur cette période.'));
             status.textContent=`${data.unscoped_only?'Sans région uniquement · ':''}${data.ranking.length} relais d’entrée · ${data.edges.length} liaisons · ${data.scanned} paquets examinés. ${data.excluded} observations ou segments non exploitables (identifiants courts, ambigus, pays inconnus ou données incomplètes). Historique conservé depuis ${data.retained_since?new Date(data.retained_since).toLocaleString('fr-FR'):'aucune donnée'}.`;
-        } catch(e) {if(current===generation)status.textContent='Impossible de charger les points d’entrée. Réessaie plus tard.';}
+        } catch(e) {if(current===generation){status.textContent='Impossible de charger les points d’entrée. Réessaie plus tard.';globalPanel.textContent='Données indisponibles.';}}
     }
     days.onchange=()=>{country.value='';load();};country.onchange=load;unscoped.onchange=()=>{country.value='';load();};
     document.getElementById('entry-refresh').onclick=load;load();
