@@ -257,6 +257,10 @@
                         </select>
                     </div>
                     <div class="col-md-2">
+                        <label class="form-label">&nbsp;</label>
+                        <div class="form-check"><input type="checkbox" class="form-check-input" id="filter-one-byte"><label class="form-check-label" for="filter-one-byte" title="Same observed encoding classification as Contacts; unknown nodes are excluded.">Show only 1 byte</label></div>
+                    </div>
+                    <div class="col-md-2">
                         <label for="filter-starred" class="form-label">&nbsp;</label>
                         <div class="d-flex align-items-center" style="min-height: 38px;">
                             <div class="form-check mb-0">
@@ -1524,6 +1528,7 @@
             loadData({ reloadEdges: false })
                 .catch(error => console.error('Error reloading node window:', error));
         });
+        document.getElementById('filter-one-byte').addEventListener('change', () => {applyFilters();saveFilters();});
         document.getElementById('filter-starred').addEventListener('change', () => {
             applyFilters();
             saveFilters();
@@ -1858,6 +1863,7 @@
                 minObs: minObsValue, // threshold, not slider position
                 edgeDays: document.getElementById('filter-edge-days').value,
                 nodeDays: document.getElementById('filter-node-days').value,
+                oneByteOnly: document.getElementById('filter-one-byte').checked,
                 starredOnly: document.getElementById('filter-starred').checked,
                 nodeLabels: document.getElementById('filter-node-labels').checked,
                 evidence: document.getElementById('filter-evidence').value,
@@ -1891,6 +1897,7 @@
                 if (filters.nodeDays !== undefined) {
                     document.getElementById('filter-node-days').value = filters.nodeDays;
                 }
+                document.getElementById('filter-one-byte').checked = filters.oneByteOnly === true;
                 if (filters.starredOnly !== undefined) {
                     document.getElementById('filter-starred').checked = filters.starredOnly;
                 }
@@ -1992,6 +1999,7 @@
         // Filter nodes: include all repeaters with location that pass filters (not only those in edge set),
         // so e0 nodes with no edges still appear on the map (with 0 connections).
         filteredNodes = candidateNodes.filter(node => {
+            if (document.getElementById('filter-one-byte').checked && node.path_encoding_badge !== 'one_byte') return false;
             if (starredOnly && !node.is_starred) return false;
             if (selectedCountry && normalizeCountryName(node.country) !== selectedCountry) return false;
             // Only apply text search if it's not a path (path resolution is handled separately)

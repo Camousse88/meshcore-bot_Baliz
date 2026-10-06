@@ -3553,7 +3553,7 @@ class BotDataViewer:
                         is_starred,
                         last_heard,
                         last_advert_timestamp,
-                        raw_advert_data
+                        raw_advert_data, out_bytes_per_hop, out_path_len, advert_count
                     FROM complete_contact_tracking
                     WHERE role IN ('repeater', 'roomserver')
                     AND latitude IS NOT NULL
@@ -3567,6 +3567,10 @@ class BotDataViewer:
                 cursor.execute(query, query_params)
                 rows = cursor.fetchall()
 
+                chunks = self._get_cached_contact_multibyte_hop_chunks(cursor)
+                advert_paths = {}
+                for observed in cursor.execute("SELECT DISTINCT public_key, bytes_per_hop FROM observed_paths WHERE packet_type='advert'"):
+                    advert_paths.setdefault(observed[0], []).append({'bytes_per_hop': observed[1]})
                 nodes = []
                 for row in rows:
                     # adv_name (Meshcore short name) is stored inside raw_advert_data JSON.
@@ -3583,6 +3587,7 @@ class BotDataViewer:
                         except (ValueError, TypeError):
                             adv_name = None
                     nodes.append({
+                        'path_encoding_badge': compute_path_encoding_badge(row, advert_paths.get(row['public_key'], []), chunks),
                         'public_key': row['public_key'],
                         'prefix': row['prefix'].lower(),
                         'name': row['name'] or f"Node {row['prefix']}",
