@@ -6,19 +6,18 @@
 {% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between flex-wrap gap-2 mb-3"><h1 class="h3">Points d’entrée — Étranger → France</h1><a href="/mesh" class="btn btn-outline-secondary">Retour au Mesh Graph</a></div>
-<p>Passages observés par Baliz dans les chemins radio reçus. Les relais français sont en orange, les relais étrangers en bleu. Les flèches indiquent le sens du passage.</p>
+<p class="small text-muted mb-2">Étranger en bleu → France en orange · Observations de Baliz</p>
 <div class="d-flex flex-wrap gap-3 align-items-end mb-3">
 <div><label for="entry-days" class="form-label">Période</label><select id="entry-days" class="form-select"><option value="1">24 heures</option><option value="7">7 jours</option><option value="30">30 jours</option></select></div>
 <div><label for="entry-country" class="form-label">Pays du relais précédent</label><select id="entry-country" class="form-select"><option value="">Tous les pays étrangers</option></select></div>
 <div><label for="entry-type" class="form-label">Type de trafic</label><select id="entry-type" class="form-select"><option value="all">Tout</option><option value="messages">Messages</option><option value="adverts">Annonces</option></select></div>
 <div class="form-check mb-2"><input id="entry-unscoped" class="form-check-input" type="checkbox" checked><label for="entry-unscoped" class="form-check-label">Sans région uniquement</label></div>
 <button id="entry-refresh" class="btn btn-primary">Actualiser</button></div>
-<div class="border rounded p-3 mb-3">
-<strong>Comment lire la carte</strong>
-<ul class="mb-2"><li><strong>Trait continu :</strong> liaison identifiée à 2 ou 3 octets, avec une suite française.</li><li><strong>Pointillés :</strong> liaison probable (1 octet, identité étrangère ambiguë ou suite inconnue).</li><li><strong>Exclu :</strong> passage suivi d’un relais identifié hors de France.</li></ul>
-<p class="small mb-0">Les sauts sont comptés avant l’arrivée au relais français. Chaque paquet est compté une fois par relais, au minimum de sauts observé. Baliz ne voit que les chemins qui lui parviennent. Une source étrangère sans position certaine est comptée, sans liaison tracée.</p>
-</div>
-<div id="entry-status" role="status" class="mb-3"></div>
+<div class="small mb-2"><strong>Trait continu :</strong> liaison identifiée · <strong>Pointillés :</strong> liaison probable</div>
+<div id="entry-status" role="status" class="small mb-1"></div>
+<details class="small text-muted mb-2"><summary>Détails des observations</summary>
+<p class="my-1">Sauts avant l’arrivée en France, chemin le plus court par paquet et par relais. Une source sans position connue est comptée mais non tracée.</p>
+<div id="entry-diagnostics"></div></details>
 <div class="row g-3"><div class="col-lg-8"><div id="entry-map" class="rounded border"></div><section class="border rounded p-3 mt-3"><h2 class="h5">Sauts à l’arrivée — vue globale</h2><div id="entry-global" role="status"></div></section></div>
 <div class="col-lg-4"><h2 class="h5">Relais français d’entrée</h2><p class="small">Clique sur un relais pour voir ses sauts à l’arrivée et le situer. Ce classement dépend de ce que reçoit Baliz, pas de tout le trafic du réseau.</p><div id="entry-ranking"></div></div></div>
 {% endblock %}
@@ -59,6 +58,7 @@
     async function load() {
         const current = ++generation;
         status.textContent='Chargement des observations…';
+        document.getElementById('entry-diagnostics').textContent='';
         layer.clearLayers();
         relayPanels.clear();
         globalPanel.textContent='Chargement…';
@@ -114,7 +114,9 @@
                 panel.addEventListener('toggle',()=>{if(panel.open&&located(n))map.setView(point(n),11);});
             });
             if(!data.ranking.length) ranking.appendChild(label('Aucun passage identifiable sur cette période.'));
-            status.textContent=`${data.unscoped_only?'Sans région uniquement · ':''}${data.ranking.length} relais d’entrée · ${data.edges.length} liaisons · ${data.scanned} paquets examinés. ${data.foreign_suffix_segments} passages exclus car suivis d’un relais étranger · ${data.excluded_packets} paquets exclus pour données invalides ou incomplètes · ${data.excluded_segments} segments non identifiables (identifiants inconnus, ambiguïtés ou pays inconnus). Un paquet peut contenir plusieurs segments non identifiables. Historique conservé depuis ${data.retained_since?new Date(data.retained_since).toLocaleString('fr-FR'):'aucune donnée'}.`;
+            status.textContent=`${data.ranking.length} relais d’entrée · ${data.edges.length} liaisons · ${data.scanned} paquets examinés`;
+            document.getElementById('entry-diagnostics').textContent=`Écartés : ${data.excluded_packets} paquets invalides, ${data.excluded_segments} segments non identifiables, ${data.foreign_suffix_segments} passages suivis d’un relais étranger. Historique depuis le ${data.retained_since?new Date(data.retained_since).toLocaleDateString('fr-FR'):'—'}.`;
+
         } catch(e) {if(current===generation){status.textContent='Impossible de charger les points d’entrée. Réessaie plus tard.';globalPanel.textContent='Données indisponibles.';}}
     }
     days.onchange=()=>{country.value='';load();};country.onchange=load;packetType.onchange=()=>{country.value='';load();};unscoped.onchange=()=>{country.value='';load();};
