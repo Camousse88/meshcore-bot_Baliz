@@ -25,13 +25,13 @@ def test_entry_points_direction_dedup_collision_and_time():
     d=entry_points(c,1,now=100000)
     assert len(d['ranking'])==1
     assert d['ranking'][0]['public_key']=='bbbb22'
-    assert d['ranking'][0]['count']==2
+    assert d['ranking'][0]['count']==3
     assert len(d['edges'])==2
     assert d['countries']==['Guernsey','United Kingdom']
     assert d['excluded_segments']>0
     assert d['excluded_packets']==0
     assert entry_points(c,1,'Guernsey',now=100000)['ranking'][0]['count']==1
-    assert entry_points(c,7,now=100000)['ranking'][0]['count']==3
+    assert entry_points(c,7,now=100000)['ranking'][0]['count']==4
 
 
 def test_arrival_hops_shortest_path_and_unscoped_filter():
@@ -110,8 +110,8 @@ def test_foreign_ambiguity_without_inventing_identity_or_location():
         c.execute('INSERT INTO packet_stream VALUES(?,?,?)', (99999, 'packet', json.dumps(dict(
             path_hex=path, packet_hash=str(i), route_type_name='FLOOD', bytes_per_hop=1))))
     result = entry_points(c, now=100000)
-    assert result['global_summary']['count'] == 0
-    assert result['uncorroborated_segments'] == 2
+    assert result['global_summary']['count'] == 2
+    assert all(e['reliable_count']==0 for e in result['edges'])
 
 
 def test_excluded_units_and_short_path_evidence():
@@ -125,27 +125,26 @@ def test_excluded_units_and_short_path_evidence():
     d=entry_points(c,now=100000)
     assert d['excluded_packets']==1
     assert d['excluded_segments']==3
-    assert d['edges'][0]['count']==1
-    assert d['uncorroborated_segments']==1
+    assert d['edges'][0]['count']==2
     assert d['edges'][0]['multi_byte_count']==1
-    assert d['edges'][0]['short_only_count']==0
+    assert d['edges'][0]['short_only_count']==1
 
 
-def test_short_entry_inferred_from_unique_french_suffix_in_period():
+def test_foreign_following_relay_excludes_entry_but_unknown_is_dashed():
     c=sqlite3.connect(':memory:')
     c.execute('CREATE TABLE complete_contact_tracking(public_key,name,country,latitude,longitude,role)')
     c.execute('CREATE TABLE packet_stream(timestamp,type,data)')
-    for key,nation in [('aa11','United Kingdom'),('bb11','France'),('cc11','France'),('dd11','France')]:
+    for key,nation in [('aa11','United Kingdom'),('bb11','France'),('cc11','France'),('dd11','United Kingdom')]:
         c.execute('INSERT INTO complete_contact_tracking VALUES(?,?,?,?,?,?)',(key,key,nation,48,-3,'repeater'))
-    def add(path,width,hash,time=99999):
-        c.execute('INSERT INTO packet_stream VALUES(?,?,?)',(time,'packet',json.dumps(dict(path_hex=path,bytes_per_hop=width,packet_hash=hash,route_type_name='FLOOD'))))
-    add('aabbccdd',1,'123')
-    add('bb11cc11dd11',2,'456',1)  # expired evidence cannot corroborate
+    def add(path,width,hash):
+        c.execute('INSERT INTO packet_stream VALUES(?,?,?)',(99999,'packet',json.dumps(dict(path_hex=path,bytes_per_hop=width,packet_hash=hash,route_type_name='FLOOD'))))
+    add('aabbdd',1,'123')
     assert entry_points(c,now=100000)['ranking']==[]
-    add('bb11cc11dd11',2,'789')
+    assert entry_points(c,now=100000)['foreign_suffix_segments']==1
+    add('aabbcc',1,'456')
     d=entry_points(c,now=100000)
-    assert d['ranking'][0]['count']==1
-    assert d['edges'][0]['inferred_count']==1
-    assert d['edges'][0]['multi_byte_count']==0
-    c.execute('INSERT INTO complete_contact_tracking VALUES(?,?,?,?,?,?)',('cc22','Other','France',48,-3,'repeater'))
-    assert entry_points(c,now=100000)['ranking']==[]
+    assert d['edges'][0]['reliable_count']==0
+    add('aa11bb11cc11',2,'789')
+    assert entry_points(c,now=100000)['edges'][0]['reliable_count']==1
+    add('aa11bb11eeee',2,'abc')
+    assert entry_points(c,now=100000)['edges'][0]['inferred_count']==2

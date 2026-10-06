@@ -13,9 +13,11 @@
 <div><label for="entry-type" class="form-label">Type de trafic</label><select id="entry-type" class="form-select"><option value="all">Tout</option><option value="messages">Messages</option><option value="adverts">Annonces</option></select></div>
 <div class="form-check mb-2"><input id="entry-unscoped" class="form-check-input" type="checkbox" checked><label for="entry-unscoped" class="form-check-label">Sans région uniquement</label></div>
 <button id="entry-refresh" class="btn btn-primary">Actualiser</button></div>
-<p class="small text-muted">Paquets distincts correspondant aux filtres, dédupliqués par relais d’entrée. Messages : textes directs et de canal. Annonces : annonces de nœuds. Tout inclut aussi les autres types de paquets. Un même paquet peut avoir plusieurs entrées observées. Les chemins flood à identifiants de 1, 2 ou 3 octets sont analysés. Le relais français doit être identifié. Un passage à 1 octet exige une confirmation du même paquet ou une suite de trois relais français identifiables, observée à 2 ou 3 octets sur la période avec les mêmes filtres. Un relais étranger ambigu est compté si tous ses candidats sont étrangers et de pays connus, sans tracer de liaison depuis une position incertaine.</p>
-<p class="small text-muted">Les sauts à l’arrivée comptent les relais précédents, avant le relais français. Pour chaque paquet, le chemin le plus court observé est retenu. Baliz ne voit pas les paquets déjà bloqués ou ceux qui ne lui parviennent pas.</p>
-<p class="small text-muted">Liaisons en pointillés : identifiants à 1 octet uniquement, attribution à confirmer. Liaisons continues : au moins un paquet à identifiants de 2 ou 3 octets. Clique sur une liaison pour voir le détail.</p>
+<div class="border rounded p-3 mb-3">
+<strong>Comment lire la carte</strong>
+<ul class="mb-2"><li><strong>Trait continu :</strong> liaison identifiée à 2 ou 3 octets, avec une suite française.</li><li><strong>Pointillés :</strong> liaison probable (1 octet, identité étrangère ambiguë ou suite inconnue).</li><li><strong>Exclu :</strong> passage suivi d’un relais identifié hors de France.</li></ul>
+<p class="small mb-0">Les sauts sont comptés avant l’arrivée au relais français. Chaque paquet est compté une fois par relais, au minimum de sauts observé. Baliz ne voit que les chemins qui lui parviennent. Une source étrangère sans position certaine est comptée, sans liaison tracée.</p>
+</div>
 <div id="entry-status" role="status" class="mb-3"></div>
 <div class="row g-3"><div class="col-lg-8"><div id="entry-map" class="rounded border"></div><section class="border rounded p-3 mt-3"><h2 class="h5">Sauts à l’arrivée — vue globale</h2><div id="entry-global" role="status"></div></section></div>
 <div class="col-lg-4"><h2 class="h5">Relais français d’entrée</h2><p class="small">Clique sur un relais pour voir ses sauts à l’arrivée et le situer. Ce classement dépend de ce que reçoit Baliz, pas de tout le trafic du réseau.</p><div id="entry-ranking"></div></div></div>
@@ -82,8 +84,8 @@
                 nodes.set(e.source.public_key,e.source);nodes.set(e.target.public_key,e.target);
                 if(!located(e.source)||!located(e.target))return;
                 const a=point(e.source),b=point(e.target);
-                const shortOnly=e.multi_byte_count===0;
-                const evidence=e.inferred_count>0?` · ${e.inferred_count} paquet(s) : arrivée déduite du chemin suivant, attribution probable` : shortOnly?(e.count===1?' · 1 octet, un seul paquet : attribution fragile':' · 1 octet uniquement : attribution à confirmer'):` · ${e.multi_byte_count} paquet(s) à identifiants de 2 ou 3 octets`;
+                const shortOnly=e.reliable_count===0;
+                const evidence=e.inferred_count>0?` · ${e.inferred_count} paquet(s) : arrivée probable` : shortOnly?(e.count===1?' · 1 octet, un seul paquet : attribution fragile':' · 1 octet uniquement : attribution à confirmer'):` · ${e.multi_byte_count} paquet(s) à identifiants de 2 ou 3 octets`;
                 L.polyline([a,b],{color:'#d97706',weight:Math.min(7,1+Math.log2(e.count+1)),opacity:shortOnly?0.45:0.75,dashArray:shortOnly?'6 6':null}).bindPopup(label(`${e.source.name} → ${e.target.name} : ${e.count} paquets distincts${evidence}`)).addTo(layer);
                 const pa=map.project(a,8),pb=map.project(b,8);
                 const angle=Math.atan2(pb.y-pa.y,pb.x-pa.x)*180/Math.PI;
@@ -112,7 +114,7 @@
                 panel.addEventListener('toggle',()=>{if(panel.open&&located(n))map.setView(point(n),11);});
             });
             if(!data.ranking.length) ranking.appendChild(label('Aucun passage identifiable sur cette période.'));
-            status.textContent=`${data.unscoped_only?'Sans région uniquement · ':''}${data.ranking.length} relais d’entrée · ${data.edges.length} liaisons · ${data.scanned} paquets examinés. ${data.uncorroborated_segments} passages à 1 octet non corroborés, non attribués · ${data.excluded_packets} paquets exclus pour données invalides ou incomplètes · ${data.excluded_segments} segments non identifiables (identifiants inconnus, ambiguïtés ou pays inconnus). Un paquet peut contenir plusieurs segments non identifiables. Historique conservé depuis ${data.retained_since?new Date(data.retained_since).toLocaleString('fr-FR'):'aucune donnée'}.`;
+            status.textContent=`${data.unscoped_only?'Sans région uniquement · ':''}${data.ranking.length} relais d’entrée · ${data.edges.length} liaisons · ${data.scanned} paquets examinés. ${data.foreign_suffix_segments} passages exclus car suivis d’un relais étranger · ${data.excluded_packets} paquets exclus pour données invalides ou incomplètes · ${data.excluded_segments} segments non identifiables (identifiants inconnus, ambiguïtés ou pays inconnus). Un paquet peut contenir plusieurs segments non identifiables. Historique conservé depuis ${data.retained_since?new Date(data.retained_since).toLocaleString('fr-FR'):'aucune donnée'}.`;
         } catch(e) {if(current===generation){status.textContent='Impossible de charger les points d’entrée. Réessaie plus tard.';globalPanel.textContent='Données indisponibles.';}}
     }
     days.onchange=()=>{country.value='';load();};country.onchange=load;packetType.onchange=()=>{country.value='';load();};unscoped.onchange=()=>{country.value='';load();};
