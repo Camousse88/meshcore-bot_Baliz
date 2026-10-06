@@ -184,6 +184,7 @@
         </div>
         <div class="btn-group mesh-tool-group" role="group" aria-label="Tools">
             <a class="btn btn-sm btn-outline-warning" href="/mesh-entry-points" title="Passages observés depuis l’étranger vers la France">Points d’entrée</a>
+            <button type="button" id="btn-one-byte" class="btn btn-sm btn-outline-danger" aria-pressed="false" title="Mettre en évidence les relais à 1 octet">Relais 1 byte</button>
             <button class="btn btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#filterPanel" title="Filters">
                 <i class="fas fa-filter"></i>
             </button>
@@ -257,10 +258,6 @@
                         <select class="form-select" id="filter-country">
                             <option value="">All Countries</option>
                         </select>
-                    </div>
-                    <div class="col-md-2">
-                        <label class="form-label">&nbsp;</label>
-                        <div class="form-check"><input type="checkbox" class="form-check-input" id="filter-one-byte"><label class="form-check-label" for="filter-one-byte" title="Relais 1 octet en rouge et agrandis, autres nœuds en gris. Les liaisons restent visibles. Statut déduit des observations.">Repérer les relais 1 byte</label></div>
                     </div>
                     <div class="col-md-2">
                         <label for="filter-starred" class="form-label">&nbsp;</label>
@@ -1059,12 +1056,24 @@
         return Math.min(1, Math.max(0, (Math.log(total) - lo) / (hi - lo)));
     }
 
+    function oneByteModeEnabled() {
+        return document.getElementById('btn-one-byte').getAttribute('aria-pressed') === 'true';
+    }
+
+    function setOneByteMode(enabled) {
+        const button = document.getElementById('btn-one-byte');
+        button.setAttribute('aria-pressed', String(enabled));
+        button.classList.toggle('active', enabled);
+        button.classList.toggle('btn-danger', enabled);
+        button.classList.toggle('btn-outline-danger', !enabled);
+    }
+
     function isOneByteHighlighted(node) {
-        return document.getElementById('filter-one-byte').checked && node.path_encoding_badge === 'one_byte';
+        return oneByteModeEnabled() && node.path_encoding_badge === 'one_byte';
     }
 
     function getNodeFillColor(node) {
-        if (document.getElementById('filter-one-byte').checked) {
+        if (oneByteModeEnabled()) {
             return isOneByteHighlighted(node) ? '#dc2626' : '#9ca3af';
         }
         if (edgeColorMode === 'heat') {
@@ -1537,7 +1546,7 @@
             loadData({ reloadEdges: false })
                 .catch(error => console.error('Error reloading node window:', error));
         });
-        document.getElementById('filter-one-byte').addEventListener('change', () => {applyFilters();saveFilters();});
+        document.getElementById('btn-one-byte').addEventListener('click', () => {setOneByteMode(!oneByteModeEnabled());applyFilters();saveFilters();});
         document.getElementById('filter-starred').addEventListener('change', () => {
             applyFilters();
             saveFilters();
@@ -1872,7 +1881,7 @@
                 minObs: minObsValue, // threshold, not slider position
                 edgeDays: document.getElementById('filter-edge-days').value,
                 nodeDays: document.getElementById('filter-node-days').value,
-                oneByteOnly: document.getElementById('filter-one-byte').checked,
+                oneByteOnly: oneByteModeEnabled(),
                 starredOnly: document.getElementById('filter-starred').checked,
                 nodeLabels: document.getElementById('filter-node-labels').checked,
                 evidence: document.getElementById('filter-evidence').value,
@@ -1906,7 +1915,7 @@
                 if (filters.nodeDays !== undefined) {
                     document.getElementById('filter-node-days').value = filters.nodeDays;
                 }
-                document.getElementById('filter-one-byte').checked = filters.oneByteOnly === true;
+                setOneByteMode(filters.oneByteOnly === true);
                 if (filters.starredOnly !== undefined) {
                     document.getElementById('filter-starred').checked = filters.starredOnly;
                 }
@@ -1968,7 +1977,7 @@
     
     // Apply filters
     function applyFilters() {
-        document.getElementById('map-view').classList.toggle('onebyte-focus', document.getElementById('filter-one-byte').checked);
+        document.getElementById('map-view').classList.toggle('onebyte-focus', oneByteModeEnabled());
         // Preserve highlighted node before filtering/re-rendering
         const preservedHighlightedNode = highlightedNodeObject;
         // Preserve path highlight if active (will be re-applied in renderMap if still valid)
@@ -3360,7 +3369,7 @@
         // enough to click, small enough that dense clusters stay readable.
         const degree = nodeDegrees.get(getNodeId(node)) || 0;
         const baseSize = Math.max(5, Math.min(13, 5 + degree * 0.4));
-        if (document.getElementById('filter-one-byte').checked) return isOneByteHighlighted(node) ? 16 : 4;
+        if (oneByteModeEnabled()) return isOneByteHighlighted(node) ? 16 : 4;
         return baseSize;
     }
 
@@ -3380,7 +3389,7 @@
 
     // Shared edge width: log-scaled, capped so heavy edges don't blanket dense areas
     function getEdgeWeight(edge) {
-        if (document.getElementById('filter-one-byte').checked) return 1;
+        if (oneByteModeEnabled()) return 1;
         const weight = Math.max(1, Math.min(5, Math.log10(Math.max(1, edge.observation_count || 1)) * 1.5));
         // Confirmed zero-hop links are the strongest evidence class, but they
         // accumulate observations slowly (one per cycle, cycles are >=12h apart).
@@ -3444,7 +3453,7 @@
     }
     
     function getEdgeColor(edge) {
-        if (document.getElementById('filter-one-byte').checked) return '#94a3b8';
+        if (oneByteModeEnabled()) return '#94a3b8';
         if (edgeColorMode === 'heat') return heatColor(edge);
 
         if (!edge.last_seen) return '#6c757d'; // Gray for unknown
@@ -3460,7 +3469,7 @@
     }
 
     function getEdgeOpacity(edge) {
-        if (document.getElementById('filter-one-byte').checked) return 0.18;
+        if (oneByteModeEnabled()) return 0.18;
         // Heat mode: hot edges pop, cold edges recede (recency shown by color mode 'age')
         if (edgeColorMode === 'heat') return 0.45 + 0.5 * heatT(edge);
 
