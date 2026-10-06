@@ -28,6 +28,9 @@ def entry_points(conn, days=1, country='', now=None, unscoped_only=False, packet
     excluded_packets = 0
     excluded_segments = 0
     scanned = 0
+    uncorroborated = 0
+    confirmed = set()
+    records = []
     retained_since = conn.execute("SELECT MIN(timestamp) FROM packet_stream WHERE type='packet'").fetchone()[0]
     for timestamp, raw in conn.execute("SELECT timestamp,data FROM packet_stream WHERE type='packet' AND timestamp>=? AND timestamp<=? ORDER BY timestamp", (cutoff, now)):
         scanned += 1
@@ -53,6 +56,12 @@ def entry_points(conn, days=1, country='', now=None, unscoped_only=False, packet
                     or len(path) % (width * 2)):
                 excluded_packets += 1
                 continue
+            records.append((width, timestamp, packet.lower(), path))
+        except (ValueError, TypeError, AttributeError):
+            excluded_packets += 1
+    # Resolve multi-byte evidence first, regardless of reception order.
+    for width, timestamp, packet, path in sorted(records, key=lambda r: r[0], reverse=True):
+        try:
             hops = [prefixes.get(path[i:i+width*2].lower(), set()) for i in range(0, len(path), width*2)]
             for arrival_hops, (source, dest) in enumerate(zip(hops, hops[1:], strict=False), start=1):
                 if not source or len(dest) != 1:
@@ -88,6 +97,12 @@ def entry_points(conn, days=1, country='', now=None, unscoped_only=False, packet
                               country=nations[0] if len(nations) == 1 else 'Pays étranger indéterminé',
                               latitude=None, longitude=None, ambiguous=True,
                               candidate_count=len(source))
+                evidence = (packet, b, path[(arrival_hops-1)*width*2:(arrival_hops-1)*width*2+2].lower(), arrival_hops)
+                if width == 1 and evidence not in confirmed:
+                    uncorroborated += 1
+                    continue
+                if width > 1:
+                    confirmed.add(evidence)
                 sources[a] = ca
                 countries.add(ca['country'])
                 if country and ca['country'].casefold() != country.casefold():
@@ -128,5 +143,5 @@ def entry_points(conn, days=1, country='', now=None, unscoped_only=False, packet
     global_summary = dict(count=len(global_packets),
                           arrival_hops=[dict(hops=h, count=n) for h, n in sorted(global_histogram.items())])
     return dict(global_summary=global_summary, ranking=ranking, edges=edges, countries=sorted(countries), days=days,
-                retained_since=date(retained_since), scanned=scanned, excluded_packets=excluded_packets, excluded_segments=excluded_segments,
+                retained_since=date(retained_since), scanned=scanned, excluded_packets=excluded_packets, excluded_segments=excluded_segments, uncorroborated_segments=uncorroborated,
                 generated_at=date(now), unscoped_only=unscoped_only, packet_type=packet_type)

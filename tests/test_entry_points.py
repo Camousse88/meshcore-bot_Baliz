@@ -25,13 +25,13 @@ def test_entry_points_direction_dedup_collision_and_time():
     d=entry_points(c,1,now=100000)
     assert len(d['ranking'])==1
     assert d['ranking'][0]['public_key']=='bbbb22'
-    assert d['ranking'][0]['count']==3
+    assert d['ranking'][0]['count']==2
     assert len(d['edges'])==2
     assert d['countries']==['Guernsey','United Kingdom']
     assert d['excluded_segments']>0
     assert d['excluded_packets']==0
     assert entry_points(c,1,'Guernsey',now=100000)['ranking'][0]['count']==1
-    assert entry_points(c,7,now=100000)['ranking'][0]['count']==4
+    assert entry_points(c,7,now=100000)['ranking'][0]['count']==3
 
 
 def test_arrival_hops_shortest_path_and_unscoped_filter():
@@ -110,13 +110,8 @@ def test_foreign_ambiguity_without_inventing_identity_or_location():
         c.execute('INSERT INTO packet_stream VALUES(?,?,?)', (99999, 'packet', json.dumps(dict(
             path_hex=path, packet_hash=str(i), route_type_name='FLOOD', bytes_per_hop=1))))
     result = entry_points(c, now=100000)
-    assert result['global_summary']['count'] == 2
-    assert result['ranking'][0]['count'] == 2
-    assert result['ranking'][0]['arrival_hops'] == [{'hops': 1, 'count': 2}]
-    assert result['countries'] == ['Pays étranger indéterminé', 'United Kingdom']
-    assert all(e['source']['latitude'] is None and e['source']['ambiguous'] for e in result['edges'])
-    assert entry_points(c, now=100000, country='United Kingdom')['global_summary']['count'] == 1
-    assert entry_points(c, now=100000, country='Guernsey')['global_summary']['count'] == 0
+    assert result['global_summary']['count'] == 0
+    assert result['uncorroborated_segments'] == 2
 
 
 def test_excluded_units_and_short_path_evidence():
@@ -130,6 +125,7 @@ def test_excluded_units_and_short_path_evidence():
     d=entry_points(c,now=100000)
     assert d['excluded_packets']==1
     assert d['excluded_segments']==3
-    assert d['edges'][0]['count']==2
+    assert d['edges'][0]['count']==1
+    assert d['uncorroborated_segments']==1
     assert d['edges'][0]['multi_byte_count']==1
-    assert d['edges'][0]['short_only_count']==1
+    assert d['edges'][0]['short_only_count']==0
