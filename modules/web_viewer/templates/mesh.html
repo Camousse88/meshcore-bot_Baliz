@@ -258,7 +258,7 @@
                     </div>
                     <div class="col-md-2">
                         <label class="form-label">&nbsp;</label>
-                        <div class="form-check"><input type="checkbox" class="form-check-input" id="filter-one-byte"><label class="form-check-label" for="filter-one-byte" title="Same observed encoding classification as Contacts; unknown nodes are excluded.">Show only 1 byte</label></div>
+                        <div class="form-check"><input type="checkbox" class="form-check-input" id="filter-one-byte"><label class="form-check-label" for="filter-one-byte" title="Relais 1 octet en rose avec leur nom. Les autres nœuds et liaisons restent visibles. Statut déduit des observations.">Repérer les relais 1 byte</label></div>
                     </div>
                     <div class="col-md-2">
                         <label for="filter-starred" class="form-label">&nbsp;</label>
@@ -1057,7 +1057,12 @@
         return Math.min(1, Math.max(0, (Math.log(total) - lo) / (hi - lo)));
     }
 
+    function isOneByteHighlighted(node) {
+        return document.getElementById('filter-one-byte').checked && node.path_encoding_badge === 'one_byte';
+    }
+
     function getNodeFillColor(node) {
+        if (isOneByteHighlighted(node)) return '#e83e8c';
         if (edgeColorMode === 'heat') {
             return viridisThemed(nodeHeatT(node));
         }
@@ -1999,7 +2004,6 @@
         // Filter nodes: include all repeaters with location that pass filters (not only those in edge set),
         // so e0 nodes with no edges still appear on the map (with 0 connections).
         filteredNodes = candidateNodes.filter(node => {
-            if (document.getElementById('filter-one-byte').checked && node.path_encoding_badge !== 'one_byte') return false;
             if (starredOnly && !node.is_starred) return false;
             if (selectedCountry && normalizeCountryName(node.country) !== selectedCountry) return false;
             // Only apply text search if it's not a path (path resolution is handled separately)
@@ -2496,8 +2500,8 @@
 
             // Optional visible label (short name / adv_name), same behavior as the graph view
             const labelsToggle = document.getElementById('filter-node-labels');
-            if (labelsToggle && labelsToggle.checked) {
-                const shortLabel = getNodeShortLabel(node);
+            if ((labelsToggle && labelsToggle.checked) || isOneByteHighlighted(node)) {
+                const shortLabel = isOneByteHighlighted(node) ? `${node.name} · 1 byte` : getNodeShortLabel(node);
                 if (shortLabel) {
                     marker.bindTooltip(escapeHtml(shortLabel), {
                         permanent: true,
@@ -2603,7 +2607,7 @@
                 }
                 nodeMapById.set(nodeId, {
                     id: nodeId,
-                    label: shortLabel,
+                    label: isOneByteHighlighted(node) ? `${shortLabel} · 1 byte` : shortLabel,
                     title: `${escapeHtml(node.name)} (${escapeHtml(node.prefix)})`, // Full name in tooltip (rendered as HTML by vis-network)
                     prefix: node.prefix, // Store prefix for reference
                     color: {
