@@ -28,7 +28,8 @@ def test_entry_points_direction_dedup_collision_and_time():
     assert d['ranking'][0]['count']==3
     assert len(d['edges'])==2
     assert d['countries']==['Guernsey','United Kingdom']
-    assert d['excluded']>0
+    assert d['excluded_segments']>0
+    assert d['excluded_packets']==0
     assert entry_points(c,1,'Guernsey',now=100000)['ranking'][0]['count']==1
     assert entry_points(c,7,now=100000)['ranking'][0]['count']==4
 
@@ -116,3 +117,19 @@ def test_foreign_ambiguity_without_inventing_identity_or_location():
     assert all(e['source']['latitude'] is None and e['source']['ambiguous'] for e in result['edges'])
     assert entry_points(c, now=100000, country='United Kingdom')['global_summary']['count'] == 1
     assert entry_points(c, now=100000, country='Guernsey')['global_summary']['count'] == 0
+
+
+def test_excluded_units_and_short_path_evidence():
+    c = sqlite3.connect(':memory:')
+    c.execute('CREATE TABLE complete_contact_tracking(public_key,name,country,latitude,longitude,role)')
+    c.execute('CREATE TABLE packet_stream(timestamp,type,data)')
+    for key, country in [('aaaa', 'United Kingdom'), ('bbbb', 'France')]:
+        c.execute('INSERT INTO complete_contact_tracking VALUES(?,?,?,?,?,?)', (key, key, country, 48, -3, 'repeater'))
+    for path, width, packet in [('aabb',1,'12'), ('aaaabbbb',2,'12'), ('aabb',1,'13'), ('ccddeeff',1,'14'), ('x',1,'15')]:
+        c.execute('INSERT INTO packet_stream VALUES(?,?,?)', (99999,'packet',json.dumps(dict(path_hex=path,bytes_per_hop=width,packet_hash=packet,route_type_name='FLOOD'))))
+    d=entry_points(c,now=100000)
+    assert d['excluded_packets']==1
+    assert d['excluded_segments']==3
+    assert d['edges'][0]['count']==2
+    assert d['edges'][0]['multi_byte_count']==1
+    assert d['edges'][0]['short_only_count']==1

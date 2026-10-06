@@ -25,7 +25,8 @@ def entry_points(conn, days=1, country='', now=None, unscoped_only=False, packet
     pairs = {}
     gateways = {}
     countries = set()
-    excluded = 0
+    excluded_packets = 0
+    excluded_segments = 0
     scanned = 0
     retained_since = conn.execute("SELECT MIN(timestamp) FROM packet_stream WHERE type='packet'").fetchone()[0]
     for timestamp, raw in conn.execute("SELECT timestamp,data FROM packet_stream WHERE type='packet' AND timestamp>=? AND timestamp<=? ORDER BY timestamp", (cutoff, now)):
@@ -50,29 +51,29 @@ def entry_points(conn, days=1, country='', now=None, unscoped_only=False, packet
                     or type(width) is not int or width not in (1, 2, 3)
                     or not isinstance(path, str) or not re.fullmatch(r'[0-9a-fA-F]+', path)
                     or len(path) % (width * 2)):
-                excluded += 1
+                excluded_packets += 1
                 continue
             hops = [prefixes.get(path[i:i+width*2].lower(), set()) for i in range(0, len(path), width*2)]
             for arrival_hops, (source, dest) in enumerate(zip(hops, hops[1:], strict=False), start=1):
                 if not source or len(dest) != 1:
-                    excluded += 1
+                    excluded_segments += 1
                     continue
                 b = next(iter(dest))
                 cb = contacts[b]
                 if not cb['country']:
-                    excluded += 1
+                    excluded_segments += 1
                     continue
                 if not is_fr(cb['country']):
                     continue
                 candidates = [contacts[key] for key in sorted(source)]
                 if any(not c['country'] for c in candidates):
-                    excluded += 1
+                    excluded_segments += 1
                     continue
                 french = [is_fr(c['country']) for c in candidates]
                 if all(french):
                     continue
                 if any(french):
-                    excluded += 1
+                    excluded_segments += 1
                     continue
                 if len(source) == 1:
                     a = next(iter(source))
@@ -92,8 +93,9 @@ def entry_points(conn, days=1, country='', now=None, unscoped_only=False, packet
                 if country and ca['country'].casefold() != country.casefold():
                     continue
                 packet = packet.lower()
-                edge = pairs.setdefault((a, b), {'packets': set(), 'last_seen': timestamp})
+                edge = pairs.setdefault((a, b), {'packets': set(), 'last_seen': timestamp, 'short_packets': set(), 'multi_packets': set()})
                 edge['packets'].add(packet)
+                edge['short_packets' if width == 1 else 'multi_packets'].add(packet)
                 edge['last_seen'] = max(timestamp, edge['last_seen'])
                 node = gateways.setdefault(b, {'packets': set(), 'last_seen': timestamp, 'countries': set(), 'arrival_hops': {}})
                 node['packets'].add(packet)
@@ -103,7 +105,7 @@ def entry_points(conn, days=1, country='', now=None, unscoped_only=False, packet
                 node['countries'].add(ca['country'])
                 node['last_seen'] = max(timestamp, node['last_seen'])
         except (ValueError, TypeError, AttributeError):
-            excluded += 1
+            excluded_packets += 1
     def date(value):
         return datetime.fromtimestamp(value, timezone.utc).isoformat() if value is not None else None
     global_packets = {}
@@ -118,7 +120,7 @@ def entry_points(conn, days=1, country='', now=None, unscoped_only=False, packet
                             last_seen=date(value['last_seen']), origins=sorted(value['countries']),
                             arrival_hops=[dict(hops=h, count=n) for h, n in sorted(histogram.items())]))
     ranking.sort(key=lambda r: (-r['count'], r['public_key']))
-    edges = [dict(source=sources[a], target=contacts[b], count=len(v['packets']), last_seen=date(v['last_seen'])) for (a,b),v in pairs.items()]
+    edges = [dict(source=sources[a], target=contacts[b], count=len(v['packets']), short_only_count=len(v['short_packets'] - v['multi_packets']), multi_byte_count=len(v['multi_packets']), last_seen=date(v['last_seen'])) for (a,b),v in pairs.items()]
     edges.sort(key=lambda e: (-e['count'], e['source']['public_key'], e['target']['public_key']))
     global_histogram = defaultdict(int)
     for hops_count in global_packets.values():
@@ -126,5 +128,5 @@ def entry_points(conn, days=1, country='', now=None, unscoped_only=False, packet
     global_summary = dict(count=len(global_packets),
                           arrival_hops=[dict(hops=h, count=n) for h, n in sorted(global_histogram.items())])
     return dict(global_summary=global_summary, ranking=ranking, edges=edges, countries=sorted(countries), days=days,
-                retained_since=date(retained_since), scanned=scanned, excluded=excluded,
+                retained_since=date(retained_since), scanned=scanned, excluded_packets=excluded_packets, excluded_segments=excluded_segments,
                 generated_at=date(now), unscoped_only=unscoped_only, packet_type=packet_type)
