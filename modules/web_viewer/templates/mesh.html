@@ -134,7 +134,10 @@
         flex: 1;
     }
     #mesh-graph-container:not(.mesh-dark) .leaflet-tile-pane,
-    .mesh-dark .onebyte-focus .leaflet-tile-pane {filter: grayscale(0.85) saturate(0.3);opacity:0.65}
+    .mesh-dark .onebyte-focus .leaflet-tile-pane {opacity:0.65}
+    /* Filter actual images, not Leaflet's zero-sized positioning pane. */
+    #mesh-graph-container:not(.mesh-dark) .leaflet-tile,
+    .mesh-dark .onebyte-focus .maplibregl-canvas {filter:grayscale(0.85) saturate(0.3)}
     .leaflet-tooltip.onebyte-label {background:#fff;color:#6b21a8;border:1px solid #d8b4fe;border-radius:5px;padding:4px 7px;font-size:12px;font-weight:700;box-shadow:0 2px 5px #0003}
     .leaflet-tooltip.region-warning-label {color:#991b1b;border-color:#fca5a5}
     .leaflet-tooltip.combined-warning-label {color:#000;border-color:#737373}
@@ -583,6 +586,9 @@
        function here is pointwise, so filtering per tile leaves no visible seams. */
     .mesh-basemap-fallback .leaflet-tile {
         filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9);
+    }
+    .mesh-basemap-fallback .onebyte-focus .leaflet-tile {
+        filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9) grayscale(0.85) saturate(0.3);
     }
     .mesh-dark .leaflet-popup-content-wrapper,
     .mesh-dark .leaflet-popup-tip {
