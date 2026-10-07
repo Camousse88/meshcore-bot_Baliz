@@ -136,6 +136,8 @@
     #mesh-graph-container:not(.mesh-dark) .leaflet-tile-pane,
     .mesh-dark .onebyte-focus .leaflet-tile-pane {filter: grayscale(0.85) saturate(0.3);opacity:0.65}
     .leaflet-tooltip.onebyte-label {background:#fff;color:#991b1b;border:1px solid #fca5a5;border-radius:5px;padding:4px 7px;font-size:12px;font-weight:700;box-shadow:0 2px 5px #0003}
+    .leaflet-tooltip.region-warning-label {color:#9a3412;border-color:#fdba74}
+    .leaflet-tooltip.combined-warning-label {color:#6b21a8;border-color:#d8b4fe}
     .leaflet-tooltip.onebyte-warning {background:transparent;border:0;box-shadow:none;padding:0;font-size:17px;line-height:1.2;text-shadow:0 0 3px white}
     .leaflet-tooltip.onebyte-warning::before {display:none}
 </style>
@@ -187,7 +189,7 @@
         </div>
         <div class="btn-group mesh-tool-group" role="group" aria-label="Tools">
             <a class="btn btn-sm btn-outline-warning" href="/mesh-entry-points" title="Passages observés depuis l’étranger vers la France">Points d’entrée</a>
-            <button type="button" id="btn-one-byte" class="btn btn-sm btn-outline-danger" aria-pressed="false" title="Mettre en évidence les relais à 1 octet">Relais 1 byte</button>
+            <button type="button" id="btn-one-byte" class="btn btn-sm btn-outline-danger" aria-pressed="false" title="Repérer les relais à 1 octet ou observés uniquement sans région">Configurations à vérifier</button>
             <button class="btn btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#filterPanel" title="Filters">
                 <i class="fas fa-filter"></i>
             </button>
@@ -1084,13 +1086,18 @@
         return `<div style="margin-top:8px;padding:8px;border:1px solid #eab308;border-radius:5px;"><strong>⚠️ Configuration à vérifier</strong><ul style="margin:5px 0 0;padding-left:18px;">${reasons.map(reason => `<li>${escapeHtml(reason)}</li>`).join('')}</ul></div>`;
     }
 
-    function isOneByteHighlighted(node) {
-        return oneByteModeEnabled() && node.path_encoding_badge === 'one_byte';
+    function nodeWarningLabel(node) {
+        return [node.path_encoding_badge === 'one_byte' ? '1 octet' : '', node.unscoped_only_observed ? 'sans région observée' : ''].filter(Boolean).join(' · ');
+    }
+
+    function isWarningHighlighted(node) {
+        return oneByteModeEnabled() && nodeWarningReasons(node).length > 0;
     }
 
     function getNodeFillColor(node) {
         if (oneByteModeEnabled()) {
-            return isOneByteHighlighted(node) ? '#dc2626' : '#9ca3af';
+            if (node.path_encoding_badge === 'one_byte') return node.unscoped_only_observed ? '#9333ea' : '#dc2626';
+            return node.unscoped_only_observed ? '#ea580c' : '#9ca3af';
         }
         if (edgeColorMode === 'heat') {
             return viridisThemed(nodeHeatT(node));
@@ -2540,10 +2547,10 @@
             const labelsToggle = document.getElementById('filter-node-labels');
             const oneByte = node.path_encoding_badge === 'one_byte';
             const warning = nodeWarningReasons(node).length > 0;
-            const showName = (labelsToggle && labelsToggle.checked) || isOneByteHighlighted(node);
+            const showName = (labelsToggle && labelsToggle.checked) || isWarningHighlighted(node);
             if (showName || warning) {
                 const label = document.createElement('span');
-                const name = isOneByteHighlighted(node) ? `${node.name} · 1 byte` : getNodeShortLabel(node);
+                const name = isWarningHighlighted(node) ? `${node.name} · ${nodeWarningLabel(node)}` : getNodeShortLabel(node);
                 label.textContent = showName ? `${name || node.name}${warning ? ' ⚠️' : ''}` : '⚠️';
                 if (warning) {
                     label.title = nodeWarningReasons(node).join(' ');
@@ -2569,7 +2576,7 @@
                     interactive: warning,
                     direction: showName ? 'top' : 'right',
                     offset: showName ? [0, 0] : [6, 0],
-                    className: !showName ? 'onebyte-warning' : (isOneByteHighlighted(node) ? 'mesh-node-label onebyte-label' : 'mesh-node-label'),
+                    className: !showName ? 'onebyte-warning' : (isWarningHighlighted(node) ? `mesh-node-label onebyte-label ${node.unscoped_only_observed ? (oneByte ? 'combined-warning-label' : 'region-warning-label') : ''}` : 'mesh-node-label'),
                     opacity: 1
                 });
             }
@@ -2669,7 +2676,7 @@
                 }
                 nodeMapById.set(nodeId, {
                     id: nodeId,
-                    label: isOneByteHighlighted(node) ? `${shortLabel} · 1 byte` : shortLabel,
+                    label: isWarningHighlighted(node) ? `${shortLabel} · ${nodeWarningLabel(node)}` : shortLabel,
                     title: `${escapeHtml(node.name)} (${escapeHtml(node.prefix)})`, // Full name in tooltip (rendered as HTML by vis-network)
                     prefix: node.prefix, // Store prefix for reference
                     color: {
@@ -3109,7 +3116,7 @@
             const marker = nodeMarkers.get(nodeId);
             if (!marker) return;
             
-            if (isOneByteHighlighted(node) && nodeId !== clickedNodeId) {
+            if (isWarningHighlighted(node) && nodeId !== clickedNodeId) {
                 marker.setStyle({radius: getMapNodeSize(node), fillColor: getNodeFillColor(node), fillOpacity: 1});
             } else if (nodeId === clickedNodeId) {
                 // Highlight the clicked node - make it larger
@@ -3411,7 +3418,7 @@
         // enough to click, small enough that dense clusters stay readable.
         const degree = nodeDegrees.get(getNodeId(node)) || 0;
         const baseSize = Math.max(5, Math.min(13, 5 + degree * 0.4));
-        if (oneByteModeEnabled()) return isOneByteHighlighted(node) ? 16 : 4;
+        if (oneByteModeEnabled()) return isWarningHighlighted(node) ? 16 : 4;
         return baseSize;
     }
 
