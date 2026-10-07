@@ -133,7 +133,8 @@
         min-height: 0;
         flex: 1;
     }
-    .onebyte-focus .leaflet-tile-pane {filter: grayscale(0.85) saturate(0.3);opacity:0.65}
+    #mesh-graph-container:not(.mesh-dark) .leaflet-tile-pane,
+    .mesh-dark .onebyte-focus .leaflet-tile-pane {filter: grayscale(0.85) saturate(0.3);opacity:0.65}
     .leaflet-tooltip.onebyte-label {background:#fff;color:#991b1b;border:1px solid #fca5a5;border-radius:5px;padding:4px 7px;font-size:12px;font-weight:700;box-shadow:0 2px 5px #0003}
     .leaflet-tooltip.onebyte-warning {background:transparent;border:0;box-shadow:none;padding:0;font-size:17px;line-height:1.2;text-shadow:0 0 3px white}
     .leaflet-tooltip.onebyte-warning::before {display:none}
