@@ -2588,8 +2588,8 @@
                     clearPathHighlight();
                 }
                 highlightNodeConnectionsForNode(node);
-                // Close hover tooltip if it's open (though nodes don't have hover tooltips, this is for consistency)
-                marker.closeTooltip();
+                // Node labels and warning icons are permanent; keep them
+                // visible when opening or dismissing the node popup.
                 // Open popup on click
                 marker.openPopup();
             });
