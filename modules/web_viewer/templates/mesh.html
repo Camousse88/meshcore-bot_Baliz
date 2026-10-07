@@ -2545,9 +2545,25 @@
                 if (warning) {
                     label.title = nodeWarningReasons(node).join(' ');
                     label.setAttribute('aria-label', `${node.name} : relais à vérifier`);
+                    label.setAttribute('role', 'button');
+                    label.tabIndex = 0;
+                    label.style.cursor = 'pointer';
+                    // Co-located repeaters can cover one another: target this
+                    // marker explicitly instead of passing the click to the map.
+                    L.DomEvent.disableClickPropagation(label);
+                    const openWarning = () => marker.fire('click');
+                    label.addEventListener('click', openWarning);
+                    label.addEventListener('keydown', (event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            openWarning();
+                        }
+                    });
                 }
                 marker.bindTooltip(label, {
                     permanent: true,
+                    interactive: warning,
                     direction: showName ? 'top' : 'right',
                     offset: showName ? [0, 0] : [6, 0],
                     className: !showName ? 'onebyte-warning' : (isOneByteHighlighted(node) ? 'mesh-node-label onebyte-label' : 'mesh-node-label'),
