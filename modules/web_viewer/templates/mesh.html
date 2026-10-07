@@ -136,8 +136,8 @@
     #mesh-graph-container:not(.mesh-dark) .leaflet-tile-pane,
     .mesh-dark .onebyte-focus .leaflet-tile-pane {filter: grayscale(0.85) saturate(0.3);opacity:0.65}
     .leaflet-tooltip.onebyte-label {background:#fff;color:#991b1b;border:1px solid #fca5a5;border-radius:5px;padding:4px 7px;font-size:12px;font-weight:700;box-shadow:0 2px 5px #0003}
-    .leaflet-tooltip.region-warning-label {color:#9a3412;border-color:#fdba74}
-    .leaflet-tooltip.combined-warning-label {color:#6b21a8;border-color:#d8b4fe}
+    .leaflet-tooltip.region-warning-label {color:#6b21a8;border-color:#d8b4fe}
+    .leaflet-tooltip.combined-warning-label {color:#000;border-color:#737373}
     .leaflet-tooltip.onebyte-warning {background:transparent;border:0;box-shadow:none;padding:0;font-size:17px;line-height:1.2;text-shadow:0 0 3px white}
     .leaflet-tooltip.onebyte-warning::before {display:none}
 </style>
@@ -1087,7 +1087,7 @@
     }
 
     function nodeWarningLabel(node) {
-        return [node.path_encoding_badge === 'one_byte' ? '1 octet' : '', node.unscoped_only_observed ? 'sans région observée' : ''].filter(Boolean).join(' · ');
+        return [node.path_encoding_badge === 'one_byte' ? '1 octet' : '', node.unscoped_only_observed ? 'Sans région' : ''].filter(Boolean).join(' & ');
     }
 
     function isWarningHighlighted(node) {
@@ -1096,8 +1096,8 @@
 
     function getNodeFillColor(node) {
         if (oneByteModeEnabled()) {
-            if (node.path_encoding_badge === 'one_byte') return node.unscoped_only_observed ? '#9333ea' : '#dc2626';
-            return node.unscoped_only_observed ? '#ea580c' : '#9ca3af';
+            if (node.path_encoding_badge === 'one_byte') return node.unscoped_only_observed ? '#000000' : '#dc2626';
+            return node.unscoped_only_observed ? '#9333ea' : '#9ca3af';
         }
         if (edgeColorMode === 'heat') {
             return viridisThemed(nodeHeatT(node));
@@ -2550,8 +2550,8 @@
             const showName = (labelsToggle && labelsToggle.checked) || isWarningHighlighted(node);
             if (showName || warning) {
                 const label = document.createElement('span');
-                const name = isWarningHighlighted(node) ? `${node.name} · ${nodeWarningLabel(node)}` : getNodeShortLabel(node);
-                label.textContent = showName ? `${name || node.name}${warning ? ' ⚠️' : ''}` : '⚠️';
+                const name = isWarningHighlighted(node) ? `${node.name} - ${nodeWarningLabel(node)}` : getNodeShortLabel(node);
+                label.textContent = showName ? (name || node.name) : '⚠️';
                 if (warning) {
                     label.title = nodeWarningReasons(node).join(' ');
                     label.setAttribute('aria-label', `${node.name} : relais à vérifier`);
@@ -2676,7 +2676,7 @@
                 }
                 nodeMapById.set(nodeId, {
                     id: nodeId,
-                    label: isWarningHighlighted(node) ? `${shortLabel} · ${nodeWarningLabel(node)}` : shortLabel,
+                    label: isWarningHighlighted(node) ? `${shortLabel} - ${nodeWarningLabel(node)}` : shortLabel,
                     title: `${escapeHtml(node.name)} (${escapeHtml(node.prefix)})`, // Full name in tooltip (rendered as HTML by vis-network)
                     prefix: node.prefix, // Store prefix for reference
                     color: {
