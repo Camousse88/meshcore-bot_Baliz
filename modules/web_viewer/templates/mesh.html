@@ -135,6 +135,8 @@
     }
     .onebyte-focus .leaflet-tile-pane {filter: grayscale(0.85) saturate(0.3);opacity:0.65}
     .leaflet-tooltip.onebyte-label {background:#fff;color:#991b1b;border:1px solid #fca5a5;border-radius:5px;padding:4px 7px;font-size:12px;font-weight:700;box-shadow:0 2px 5px #0003}
+    .leaflet-tooltip.onebyte-warning {background:transparent;border:0;box-shadow:none;padding:0;font-size:17px;line-height:1.2;text-shadow:0 0 3px white}
+    .leaflet-tooltip.onebyte-warning::before {display:none}
 </style>
 
 <div id="mesh-graph-container" class="d-flex flex-column">
@@ -2518,18 +2520,24 @@
                 autoPan: false  // Prevent bounding box/auto-pan when popup opens
             });
 
-            // Optional visible label (short name / adv_name), same behavior as the graph view
             const labelsToggle = document.getElementById('filter-node-labels');
-            if ((labelsToggle && labelsToggle.checked) || isOneByteHighlighted(node)) {
-                const shortLabel = isOneByteHighlighted(node) ? `${node.name} · 1 byte` : getNodeShortLabel(node);
-                if (shortLabel) {
-                    marker.bindTooltip(escapeHtml(shortLabel), {
-                        permanent: true,
-                        direction: 'top',
-                        className: isOneByteHighlighted(node) ? 'mesh-node-label onebyte-label' : 'mesh-node-label',
-                        opacity: 1
-                    });
+            const oneByte = node.path_encoding_badge === 'one_byte';
+            const showName = (labelsToggle && labelsToggle.checked) || isOneByteHighlighted(node);
+            if (showName || oneByte) {
+                const label = document.createElement('span');
+                const name = isOneByteHighlighted(node) ? `${node.name} · 1 byte` : getNodeShortLabel(node);
+                label.textContent = showName ? `${name || node.name}${oneByte ? ' ⚠️' : ''}` : '⚠️';
+                if (oneByte) {
+                    label.title = 'Relais classé 1 octet selon les observations de Baliz';
+                    label.setAttribute('aria-label', `${node.name} : relais classé 1 octet selon les observations`);
                 }
+                marker.bindTooltip(label, {
+                    permanent: true,
+                    direction: showName ? 'top' : 'right',
+                    offset: showName ? [0, 0] : [6, 0],
+                    className: !showName ? 'onebyte-warning' : (isOneByteHighlighted(node) ? 'mesh-node-label onebyte-label' : 'mesh-node-label'),
+                    opacity: 1
+                });
             }
 
             // Add click handler to highlight connections - pass the actual node object
