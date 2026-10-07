@@ -1072,15 +1072,15 @@
 
     function nodeWarningReasons(node) {
         const reasons = [];
-        if (node.path_encoding_badge === 'one_byte') reasons.push('Identifiants à 1 octet : risque de confusion entre relais.');
-        if (node.unscoped_only_observed === true) reasons.push('Uniquement du trafic sans région observé sur la période sélectionnée. Configuration régionale à vérifier.');
+        if (node.path_encoding_badge === 'one_byte') reasons.push('Identifiants à 1 octet.');
+        if (node.unscoped_only_observed === true) reasons.push('Aucun trafic avec région observé sur cette période.');
         return reasons;
     }
 
     function nodeWarningHTML(node) {
         const reasons = nodeWarningReasons(node);
         if (!reasons.length) return '';
-        return `<div style="margin-top:8px;padding:8px;border:1px solid #eab308;border-radius:5px;"><strong>⚠️ À vérifier</strong><ul style="margin:5px 0 0;padding-left:18px;">${reasons.map(reason => `<li>${escapeHtml(reason)}</li>`).join('')}</ul><small>Selon les observations de Baliz.</small></div>`;
+        return `<div style="margin-top:8px;padding:8px;border:1px solid #eab308;border-radius:5px;"><strong>⚠️ Configuration à vérifier</strong><ul style="margin:5px 0 0;padding-left:18px;">${reasons.map(reason => `<li>${escapeHtml(reason)}</li>`).join('')}</ul></div>`;
     }
 
     function isOneByteHighlighted(node) {
