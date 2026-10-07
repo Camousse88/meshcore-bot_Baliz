@@ -6,9 +6,9 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 
-def entry_points(conn, days=1, country='', now=None, unscoped_only=False, packet_type="all"):
+def entry_points(conn, days=1, country='', now=None, unscoped_only=False, packet_type="all", target_keys=None, min_packets=1, evidence="all"):
     now = time.time() if now is None else now
-    cutoff = now - days * 86400
+    cutoff = now - days * 86400 if days else 0
     contacts = {}
     prefixes = defaultdict(set)
     for row in conn.execute('SELECT public_key,name,country,latitude,longitude FROM complete_contact_tracking WHERE lower(role) IN (\'repeater\',\'roomserver\')'):
@@ -107,8 +107,12 @@ def entry_points(conn, days=1, country='', now=None, unscoped_only=False, packet
                 countries.add(ca['country'])
                 if country and ca['country'].casefold() != country.casefold():
                     continue
+                if target_keys is not None and b not in target_keys:
+                    continue
+                if evidence == 'multibyte' and width == 1:
+                    continue
                 packet = packet.lower()
-                edge = pairs.setdefault((a, b), {'packets': set(), 'last_seen': timestamp, 'short_packets': set(), 'multi_packets': set(), 'inferred_packets': set(), 'reliable_packets': set()})
+                edge = pairs.setdefault((a, b), {'packets': set(), 'last_seen': timestamp, 'short_packets': set(), 'multi_packets': set(), 'inferred_packets': set(), 'reliable_packets': set(), 'arrival_hops': {}})
                 edge['packets'].add(packet)
                 if inferred:
                     edge['inferred_packets'].add(packet)
@@ -116,15 +120,19 @@ def entry_points(conn, days=1, country='', now=None, unscoped_only=False, packet
                 if not inferred:
                     edge['reliable_packets'].add(packet)
                 edge['last_seen'] = max(timestamp, edge['last_seen'])
-                node = gateways.setdefault(b, {'packets': set(), 'last_seen': timestamp, 'countries': set(), 'arrival_hops': {}})
-                node['packets'].add(packet)
-                # Destination's index counts preceding repeaters, not the full
-                # path to Baliz. Keep the shortest observed arrival per packet.
-                node['arrival_hops'][packet] = min(arrival_hops, node['arrival_hops'].get(packet, arrival_hops))
-                node['countries'].add(ca['country'])
-                node['last_seen'] = max(timestamp, node['last_seen'])
+                edge['arrival_hops'][packet] = min(arrival_hops, edge['arrival_hops'].get(packet, arrival_hops))
         except (ValueError, TypeError, AttributeError):
             excluded_packets += 1
+    # Rebuild aggregates from retained links so ranking and histograms share filters.
+    pairs = {key: value for key, value in pairs.items() if len(value['packets']) >= min_packets}
+    gateways = {}
+    for (a, b), edge in pairs.items():
+        node = gateways.setdefault(b, {'packets': set(), 'last_seen': edge['last_seen'], 'countries': set(), 'arrival_hops': {}})
+        node['packets'].update(edge['packets'])
+        node['countries'].add(sources[a]['country'])
+        node['last_seen'] = max(node['last_seen'], edge['last_seen'])
+        for packet, hops_count in edge['arrival_hops'].items():
+            node['arrival_hops'][packet] = min(hops_count, node['arrival_hops'].get(packet, hops_count))
     def date(value):
         return datetime.fromtimestamp(value, timezone.utc).isoformat() if value is not None else None
     global_packets = {}

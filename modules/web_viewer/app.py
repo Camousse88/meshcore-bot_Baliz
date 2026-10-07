@@ -3494,11 +3494,11 @@ class BotDataViewer:
         def mesh_entry_points_page():
             return render_template('mesh_entry_points.html')
 
-        @self.app.route('/api/mesh/entry-points')
+        @self.app.route('/api/mesh/entry-points', methods=['GET', 'POST'])
         def api_mesh_entry_points():
             from modules.web_viewer.entry_points import entry_points
             days = request.args.get('days', default=1, type=int)
-            if days not in (1, 7, 30):
+            if days not in (0, 1, 2, 3, 7, 30, 90):
                 return jsonify({'error': 'Période invalide'}), 400
             country = request.args.get('country', '').strip()
             if len(country) > 100:
@@ -3509,8 +3509,20 @@ class BotDataViewer:
             packet_type = request.args.get('packet_type', 'all')
             if packet_type not in ('all', 'messages', 'adverts'):
                 return jsonify({'error': 'Type de paquet invalide'}), 400
+            payload = request.get_json(silent=True) if request.method == 'POST' else {}
+            if not isinstance(payload, dict):
+                return jsonify({'error': 'Filtres invalides'}), 400
+            keys = payload.get('target_keys')
+            if keys is not None and (not isinstance(keys, list) or len(keys) > 10000 or any(not isinstance(k, str) or len(k) > 128 for k in keys)):
+                return jsonify({'error': 'Relais invalides'}), 400
+            min_packets = request.args.get('min_packets', default=1, type=int)
+            evidence = request.args.get('evidence', 'all')
+            if min_packets is None or not 1 <= min_packets <= 100000 or evidence not in ('all', 'multibyte'):
+                return jsonify({'error': 'Filtre de liaison invalide'}), 400
             with self._with_db_connection() as conn:
-                return jsonify(entry_points(conn, days, country, unscoped_only=unscoped == '1', packet_type=packet_type))
+                return jsonify(entry_points(conn, days, country, unscoped_only=unscoped == '1', packet_type=packet_type,
+                                           target_keys={k.lower() for k in keys} if keys is not None else None,
+                                           min_packets=min_packets, evidence=evidence))
 
         @self.app.route('/api/mesh/nodes')
         def api_mesh_nodes():

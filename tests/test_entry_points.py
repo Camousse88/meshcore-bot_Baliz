@@ -148,3 +148,20 @@ def test_foreign_following_relay_excludes_entry_but_unknown_is_dashed():
     assert entry_points(c,now=100000)['edges'][0]['reliable_count']==1
     add('aa11bb11eeee',2,'abc')
     assert entry_points(c,now=100000)['edges'][0]['inferred_count']==2
+
+
+def test_integrated_filters_recompute_ranking_and_global_histogram():
+    c = sqlite3.connect(':memory:')
+    c.execute('CREATE TABLE complete_contact_tracking(public_key,name,country,latitude,longitude,role)')
+    c.execute('CREATE TABLE packet_stream(timestamp,type,data)')
+    for key, country in [('aaaa11', 'United Kingdom'), ('bbbb22', 'France'), ('cccc33', 'France')]:
+        c.execute('INSERT INTO complete_contact_tracking VALUES(?,?,?,?,?,?)', (key, key, country, 48, -3, 'repeater'))
+    for path, packet, width in [('aaaabbbbcccc','1111',2), ('aaaabbbbcccc','2222',2), ('aaaaccccbbbb','1111',2), ('aabbcc','3333',1)]:
+        c.execute('INSERT INTO packet_stream VALUES(?,?,?)', (99999, 'packet', json.dumps(dict(path_hex=path,packet_hash=packet,route_type_name='FLOOD',bytes_per_hop=width))))
+    result = entry_points(c, now=100000, target_keys={'bbbb22'}, evidence='multibyte', min_packets=2)
+    assert len(result['edges']) == len(result['ranking']) == 1
+    assert result['ranking'][0]['public_key'] == 'bbbb22'
+    assert result['global_summary'] == {'count':2, 'arrival_hops':[{'hops':1, 'count':2}]}
+    assert entry_points(c, now=100000, min_packets=4)['global_summary']['count'] == 0
+    assert entry_points(c, now=100000, target_keys=set())['ranking'] == []
+    assert entry_points(c, days=0, now=100000)['global_summary']['count'] == 3
