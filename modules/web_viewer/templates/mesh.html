@@ -135,8 +135,8 @@
     }
     #mesh-graph-container:not(.mesh-dark) .leaflet-tile-pane,
     .mesh-dark .onebyte-focus .leaflet-tile-pane {filter: grayscale(0.85) saturate(0.3);opacity:0.65}
-    .leaflet-tooltip.onebyte-label {background:#fff;color:#991b1b;border:1px solid #fca5a5;border-radius:5px;padding:4px 7px;font-size:12px;font-weight:700;box-shadow:0 2px 5px #0003}
-    .leaflet-tooltip.region-warning-label {color:#6b21a8;border-color:#d8b4fe}
+    .leaflet-tooltip.onebyte-label {background:#fff;color:#6b21a8;border:1px solid #d8b4fe;border-radius:5px;padding:4px 7px;font-size:12px;font-weight:700;box-shadow:0 2px 5px #0003}
+    .leaflet-tooltip.region-warning-label {color:#991b1b;border-color:#fca5a5}
     .leaflet-tooltip.combined-warning-label {color:#000;border-color:#737373}
     .leaflet-tooltip.onebyte-warning {background:transparent;border:0;box-shadow:none;padding:0;font-size:17px;line-height:1.2;text-shadow:0 0 3px white}
     .leaflet-tooltip.onebyte-warning::before {display:none}
@@ -1096,8 +1096,8 @@
 
     function getNodeFillColor(node) {
         if (oneByteModeEnabled()) {
-            if (node.path_encoding_badge === 'one_byte') return node.unscoped_only_observed ? '#000000' : '#dc2626';
-            return node.unscoped_only_observed ? '#9333ea' : '#9ca3af';
+            if (node.path_encoding_badge === 'one_byte') return node.unscoped_only_observed ? '#000000' : '#9333ea';
+            return node.unscoped_only_observed ? '#dc2626' : '#9ca3af';
         }
         if (edgeColorMode === 'heat') {
             return viridisThemed(nodeHeatT(node));
