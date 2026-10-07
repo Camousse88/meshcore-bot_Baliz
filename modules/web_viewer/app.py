@@ -3571,6 +3571,8 @@ class BotDataViewer:
                 advert_paths = {}
                 for observed in cursor.execute("SELECT DISTINCT public_key, bytes_per_hop FROM observed_paths WHERE packet_type='advert'"):
                     advert_paths.setdefault(observed[0], []).append({'bytes_per_hop': observed[1]})
+                from modules.web_viewer.relay_region_observations import unscoped_only_relays
+                unscoped_relays = unscoped_only_relays(conn, days=days)
                 nodes = []
                 for row in rows:
                     # adv_name (Meshcore short name) is stored inside raw_advert_data JSON.
@@ -3587,6 +3589,7 @@ class BotDataViewer:
                         except (ValueError, TypeError):
                             adv_name = None
                     nodes.append({
+                        'unscoped_only_observed': row['public_key'].lower() in unscoped_relays,
                         'path_encoding_badge': compute_path_encoding_badge(row, advert_paths.get(row['public_key'], []), chunks),
                         'public_key': row['public_key'],
                         'prefix': row['prefix'].lower(),

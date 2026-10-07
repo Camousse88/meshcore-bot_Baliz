@@ -2522,14 +2522,15 @@
 
             const labelsToggle = document.getElementById('filter-node-labels');
             const oneByte = node.path_encoding_badge === 'one_byte';
+            const warning = oneByte || node.unscoped_only_observed === true;
             const showName = (labelsToggle && labelsToggle.checked) || isOneByteHighlighted(node);
-            if (showName || oneByte) {
+            if (showName || warning) {
                 const label = document.createElement('span');
                 const name = isOneByteHighlighted(node) ? `${node.name} · 1 byte` : getNodeShortLabel(node);
-                label.textContent = showName ? `${name || node.name}${oneByte ? ' ⚠️' : ''}` : '⚠️';
-                if (oneByte) {
-                    label.title = 'Relais classé 1 octet selon les observations de Baliz';
-                    label.setAttribute('aria-label', `${node.name} : relais classé 1 octet selon les observations`);
+                label.textContent = showName ? `${name || node.name}${warning ? ' ⚠️' : ''}` : '⚠️';
+                if (warning) {
+                    label.title = 'Relais à vérifier selon les observations de Baliz';
+                    label.setAttribute('aria-label', `${node.name} : relais à vérifier`);
                 }
                 marker.bindTooltip(label, {
                     permanent: true,
