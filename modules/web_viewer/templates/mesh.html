@@ -139,6 +139,12 @@
     #mesh-graph-container:not(.mesh-dark) .leaflet-tile,
     .mesh-dark .onebyte-focus .maplibregl-canvas {filter:grayscale(0.85) saturate(0.3)}
     .leaflet-tooltip.onebyte-label {background:#fff;color:#6b21a8;border:1px solid #d8b4fe;border-radius:5px;padding:4px 7px;font-size:12px;font-weight:700;box-shadow:0 2px 5px #0003}
+    .visualization-row.warning-layout {display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:12px;margin:0}
+    .warning-layout > .col-12 {padding:0;min-width:0}
+    #warning-sidebar {overflow-y:auto;min-height:0;padding:12px;border:1px solid #ddd;border-radius:5px;background:var(--bs-body-bg,#fff)}
+    .warning-list-item {display:block;width:100%;text-align:left;border:1px solid #ddd;border-left:5px solid var(--warning-color);border-radius:5px;background:transparent;color:inherit;padding:9px;margin-bottom:8px}
+    .warning-list-item small {display:block;color:var(--bs-secondary-color,#666)}
+    @media(max-width:767px){.visualization-row.warning-layout {grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(300px,1fr) 240px}}
     .leaflet-tooltip.region-warning-label {color:#991b1b;border-color:#fca5a5}
     .leaflet-tooltip.combined-warning-label {color:#000;border-color:#737373}
     .leaflet-tooltip.onebyte-warning {background:transparent;border:0;box-shadow:none;padding:0;font-size:17px;line-height:1.2;text-shadow:0 0 3px white}
@@ -350,6 +356,8 @@
         </div>
     </div>
 </div>
+
+<aside id="warning-sidebar" hidden aria-label="Relais à vérifier"></aside>
 
 <!-- Node Details Modal -->
 <div class="modal fade" id="nodeDetailsModal" tabindex="-1">
@@ -1090,6 +1098,48 @@
         const reasons = nodeWarningReasons(node);
         if (!reasons.length) return '';
         return `<div style="margin-top:8px;padding:8px;border:1px solid #eab308;border-radius:5px;"><strong>⚠️ Configuration à vérifier</strong><ul style="margin:5px 0 0;padding-left:18px;">${reasons.map(reason => `<li>${escapeHtml(reason)}</li>`).join('')}</ul></div>`;
+    }
+
+    function renderWarningSidebar() {
+        const panel = document.getElementById('warning-sidebar');
+        const row = document.querySelector('.visualization-row');
+        if (panel.parentElement !== row) row.appendChild(panel);
+        const enabled = oneByteModeEnabled();
+        panel.hidden = !enabled;
+        row.classList.toggle('warning-layout', enabled);
+        panel.replaceChildren();
+        if (!enabled) return;
+        const rank = n => n.unscoped_only_observed ? (n.path_encoding_badge === 'one_byte' ? 0 : 1) : 2;
+        const nodes = filteredNodes.filter(n => nodeWarningReasons(n).length).sort((a,b) =>
+            rank(a)-rank(b) || (nodeDegrees.get(getNodeId(b)) || 0)-(nodeDegrees.get(getNodeId(a)) || 0) || (a.name || '').localeCompare(b.name || '', 'fr') || getNodeId(a).localeCompare(getNodeId(b)));
+        const title = document.createElement('h6');
+        title.textContent = `Relais à vérifier (${nodes.length})`;
+        const hint = document.createElement('p');
+        hint.className = 'small text-muted';
+        hint.textContent = 'Les deux alertes, puis sans région, puis 1 octet. Dans chaque groupe : connexions décroissantes sur la carte, puis nom.';
+        panel.append(title, hint);
+        if (!nodes.length) panel.append(document.createTextNode('Aucun relais signalé avec ces filtres.'));
+        nodes.forEach(node => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'warning-list-item';
+            button.style.setProperty('--warning-color', getNodeFillColor(node));
+            const name = document.createElement('strong');
+            name.textContent = node.name;
+            const detail = document.createElement('small');
+            detail.textContent = `${nodeWarningLabel(node)} · ${nodeDegrees.get(getNodeId(node)) || 0} connexion(s)`;
+            button.append(name, detail);
+            button.addEventListener('click', () => {
+                if (currentView !== 'map') switchView('map');
+                const marker = nodeMarkers.get(getNodeId(node));
+                if (marker) {
+                    map.panTo(marker.getLatLng(), {animate: false});
+                    marker.getPopup().options.autoPan = true;
+                    marker.fire('click');
+                }
+            });
+            panel.appendChild(button);
+        });
     }
 
     function nodeWarningLabel(node) {
@@ -2091,6 +2141,8 @@
         });
         heatObsRange = heatMax ? { min: heatMin, max: heatMax } : { min: 1, max: 1 };
         updateHeatLegend();
+
+        renderWarningSidebar();
 
         // Re-render current view
         if (currentView === 'map') {
