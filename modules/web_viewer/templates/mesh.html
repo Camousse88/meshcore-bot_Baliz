@@ -1070,6 +1070,19 @@
         button.classList.toggle('btn-outline-danger', !enabled);
     }
 
+    function nodeWarningReasons(node) {
+        const reasons = [];
+        if (node.path_encoding_badge === 'one_byte') reasons.push('Identifiants à 1 octet : risque de confusion entre relais.');
+        if (node.unscoped_only_observed === true) reasons.push('Uniquement du trafic sans région observé sur la période sélectionnée. Configuration régionale à vérifier.');
+        return reasons;
+    }
+
+    function nodeWarningHTML(node) {
+        const reasons = nodeWarningReasons(node);
+        if (!reasons.length) return '';
+        return `<div style="margin-top:8px;padding:8px;border:1px solid #eab308;border-radius:5px;"><strong>⚠️ À vérifier</strong><ul style="margin:5px 0 0;padding-left:18px;">${reasons.map(reason => `<li>${escapeHtml(reason)}</li>`).join('')}</ul><small>Selon les observations de Baliz.</small></div>`;
+    }
+
     function isOneByteHighlighted(node) {
         return oneByteModeEnabled() && node.path_encoding_badge === 'one_byte';
     }
@@ -2511,6 +2524,7 @@
                             <td style="padding: 2px 0;">${(nodeHeatTotals.get(getNodeId(node)) || 0).toLocaleString()}</td>
                         </tr>
                     </table>
+                    ${nodeWarningHTML(node)}
                 </div>
             `;
 
@@ -2522,14 +2536,14 @@
 
             const labelsToggle = document.getElementById('filter-node-labels');
             const oneByte = node.path_encoding_badge === 'one_byte';
-            const warning = oneByte || node.unscoped_only_observed === true;
+            const warning = nodeWarningReasons(node).length > 0;
             const showName = (labelsToggle && labelsToggle.checked) || isOneByteHighlighted(node);
             if (showName || warning) {
                 const label = document.createElement('span');
                 const name = isOneByteHighlighted(node) ? `${node.name} · 1 byte` : getNodeShortLabel(node);
                 label.textContent = showName ? `${name || node.name}${warning ? ' ⚠️' : ''}` : '⚠️';
                 if (warning) {
-                    label.title = 'Relais à vérifier selon les observations de Baliz';
+                    label.title = nodeWarningReasons(node).join(' ');
                     label.setAttribute('aria-label', `${node.name} : relais à vérifier`);
                 }
                 marker.bindTooltip(label, {
