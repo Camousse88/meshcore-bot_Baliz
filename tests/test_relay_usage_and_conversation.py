@@ -75,10 +75,32 @@ async def test_direct_conversation_preserves_short_unpunctuated_model_answer():
     service.endpoint = 'test'
     service.timeout_seconds = 2
     service._user_key = lambda message: None
-    service._build_payload = Mock(return_value={'messages': [{'role': 'user', 'content': 'merci'}]})
+    service._build_payload = Mock(return_value={'messages': [{'role': 'system', 'content': 'Tu es Baliz.'}, {'role': 'user', 'content': 'merci'}]})
     response = Mock(status_code=200)
     response.json.return_value = {'choices': [{'finish_reason': 'stop', 'message': {'content': 'Avec plaisir 🙂'}}]}
     with patch('modules.assistant.llm_service.post_chat', return_value=response) as post:
         result = await service._answer('merci', object(), mode='general', max_length=158)
     assert result == 'Avec plaisir 🙂'
     assert post.call_count == 1
+
+
+def test_conversation_payload_excludes_global_channel_context():
+    import logging
+    from unittest.mock import Mock
+    from modules.assistant.llm_service import LlmService
+    service = object.__new__(LlmService)
+    service.logger = logging.getLogger()
+    service.system_prompt = 'Tu es Baliz.'
+    service.datetime_format = '%Y-%m-%d'
+    service.max_tokens = 100
+    service.temperature = 0
+    service.top_p = 1
+    service.model = ''
+    service.reasoning_effort = 'none'
+    service._build_local_context = Mock(return_value='Un autre canal discute du bug merci.')
+    service._get_prompt_node_neighbors = Mock(return_value='Unrelated network observations')
+    payload = service._build_payload(prompt='merci', rag_context='', include_local_context=False)
+    assert payload['messages'][-1] == {'role':'user', 'content':'merci'}
+    assert 'bug' not in str(payload)
+    service._build_local_context.assert_not_called()
+    service._get_prompt_node_neighbors.assert_not_called()

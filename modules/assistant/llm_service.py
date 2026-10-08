@@ -870,7 +870,7 @@ class LlmService:
             return "Variable"
 
 
-    def _inject_current_time_into_prompt(self, prompt: str) -> str:
+    def _inject_current_time_into_prompt(self, prompt: str, include_local_context: bool = True) -> str:
         """Inject the current system time and local context into a system prompt.
 
         Uses the server's local time zone without explicit timezone conversion,
@@ -881,12 +881,12 @@ class LlmService:
             result = f"{prompt}\n[Current time: {current_time}]"
 
             # Add local context if enabled
-            local_context = self._build_local_context()
+            local_context = self._build_local_context() if include_local_context else ""
             if local_context:
                 result += f"\n[Local Context:\n{local_context}]"
 
             # Add specific node neighbors if a known node is mentioned in the prompt
-            node_neighbors = self._get_prompt_node_neighbors(prompt)
+            node_neighbors = self._get_prompt_node_neighbors(prompt) if include_local_context else ""
             if node_neighbors:
                 result += f"\n[Node neighbors: {node_neighbors}]"
 
@@ -944,6 +944,7 @@ class LlmService:
         messages: list[dict[str, Any]] | None = None,
         include_rag: bool = True,
         rag_context: str | None = None,
+        include_local_context: bool = True,
     ) -> dict[str, Any]:
         """Build the API payload for the LLM request.
 
@@ -1013,7 +1014,7 @@ class LlmService:
                 ]
                 rag_active = True
             else:
-                system_prompt = self._inject_current_time_into_prompt(self.system_prompt)
+                system_prompt = self._inject_current_time_into_prompt(self.system_prompt, include_local_context=include_local_context)
                 messages = [{"role": "system", "content": system_prompt}]
                 if history:
                     messages.extend(history)
@@ -1517,14 +1518,21 @@ class LlmService:
             prompt=prompt,
             history=history,
             rag_context=wiki_result.context if wiki_result else "",
+            include_local_context=mode != "general",
         )
         if mode == "general":
-            payload["messages"].insert(1, {"role": "system", "content": (
+            payload["messages"][0]["content"] = (
+                "Tu es Baliz. Réponds en français naturel. "
                 f"Réponds directement au dernier message, en une ou deux phrases complètes, au maximum {max_length} octets UTF-8. "
+                "Adapte la réponse à l’intention et à la simplicité du message. Une interaction sociale appelle une réaction sociale brève, "
+                "en une seule phrase de deux à huit mots, sans mentionner le réseau, ton lieu, tes capacités ou ta disponibilité. "
+                "Un remerciement appelle un accueil cordial, pas un accusé de réception. "
+                "Exemple de ton : utilisateur « c’est gentil de ta part » ; assistant « Avec plaisir ! ». "
+                "N’ajoute aucune offre de services. Les marques de politesse naturelles sont appropriées. "
                 "Pas de présentation ni de bonjour systématique, pas de question de relance. "
                 "À une remarque sur ton délai, reconnais simplement l'attente sans inventer sa cause. "
                 "N'annonce pas que tu ne peux pas vérifier tes réponses. Ne termine jamais par des points de suspension."
-            )})
+            )
         self.logger.debug(f"LLM prompt: {repr(prompt[:500])}")
 
         try:
