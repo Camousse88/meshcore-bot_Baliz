@@ -9,9 +9,7 @@ window.createMeshEntryView = function(map) {
     const packetType = document.getElementById('entry-type');
     const relayPanels = new Map();
     let generation = 0;
-    function renderHops(details, n, onlyUnscoped) {
-        const subtitle=document.createElement('p');subtitle.className='small fw-semibold mb-3';
-        subtitle.textContent='Sauts déjà parcourus à l’arrivée · '+packetType.options[packetType.selectedIndex].text+(onlyUnscoped?' · sans région':' · avec ou sans région');details.appendChild(subtitle);
+    function renderHops(details, n) {
         n.arrival_hops.forEach(bin=>{
             const row=document.createElement('div');row.className='mb-3';
             const caption=document.createElement('div');caption.className='small hop-caption';
@@ -22,8 +20,6 @@ window.createMeshEntryView = function(map) {
             const bar=document.createElement('div');bar.className='progress-bar bg-warning';bar.style.width=(100*bin.count/n.count)+'%';
             track.appendChild(bar);row.append(caption,track);details.appendChild(row);
         });
-        const note=document.createElement('p');note.className='small text-muted mb-0';
-        note.textContent='Chemin le plus court observé pour chaque paquet.';details.appendChild(note);
     }
     const located = n => Number.isFinite(n.latitude) && Number.isFinite(n.longitude) && Math.abs(n.latitude)<=90 && Math.abs(n.longitude)<=180 && !(n.latitude===0 && n.longitude===0);
     const point = n => [n.latitude,n.longitude];
@@ -34,7 +30,6 @@ window.createMeshEntryView = function(map) {
         controller = new AbortController();
         const current = ++generation;
         status.textContent='Chargement des observations…';
-        document.getElementById('entry-diagnostics').textContent='';
         layer.clearLayers();
         relayPanels.clear();
         globalPanel.textContent='Chargement…';
@@ -47,9 +42,8 @@ window.createMeshEntryView = function(map) {
             globalPanel.replaceChildren();
             if(data.global_summary.count){
                 const total=document.createElement('p');total.className='fw-semibold';
-                total.textContent=`${data.global_summary.count} paquets distincts · tous les relais d’entrée retenus`;
-                globalPanel.appendChild(total);renderHops(globalPanel,data.global_summary,data.unscoped_only);
-                globalPanel.lastChild.textContent='Chaque paquet compte une seule fois, au plus petit nombre de sauts observé parmi les relais et les pays sélectionnés.';
+                total.textContent=`${data.global_summary.count} paquets distincts`;
+                globalPanel.appendChild(total);renderHops(globalPanel,data.global_summary);
             } else globalPanel.textContent='Aucun passage identifiable avec ces filtres.';
             const selected=country.value;
             country.replaceChildren(new Option('Tous les pays étrangers',''));
@@ -88,14 +82,13 @@ window.createMeshEntryView = function(map) {
                 const last=document.createElement('span');last.className='d-block';last.textContent='Dernier passage : '+new Date(n.last_seen).toLocaleString('fr-FR')+(located(n)?'':' · position inconnue');
                 meta.append(origins,last);button.append(heading,total,meta);
                 const content=document.createElement('div');content.className='border-top p-3';
-                renderHops(content,n,data.unscoped_only);
+                renderHops(content,n);
                 panel.append(button,content);ranking.appendChild(panel);relayPanels.set(n.public_key,panel);
                 panel.addEventListener('toggle',()=>{if(panel.open&&located(n))map.setView(point(n),11);});
             });
             if(!data.ranking.length) ranking.appendChild(label('Aucun passage identifiable sur cette période.'));
             document.getElementById('label-min-obs').textContent=`≥ ${options.minPackets} paquets · ${data.edges.length} liaisons`;
             status.textContent=`${data.ranking.length} relais d’entrée · ${data.edges.length} liaisons · ${data.scanned} paquets examinés`;
-            document.getElementById('entry-diagnostics').textContent=`Écartés : ${data.excluded_packets} paquets invalides, ${data.excluded_segments} segments non identifiables, ${data.foreign_suffix_segments} passages suivis d’un relais étranger. Historique depuis le ${data.retained_since?new Date(data.retained_since).toLocaleDateString('fr-FR'):'—'}.`;
 
         } catch(e) {if(current===generation){status.textContent='Impossible de charger les points d’entrée. Réessaie plus tard.';globalPanel.textContent='Données indisponibles.';}}
     }
