@@ -2,8 +2,11 @@
 import re
 
 
-def complete_reply(text, budget):
+def complete_reply(text, budget, finish_reason=None):
     text = re.sub(r'\s+', ' ', text).strip()
+    unfinished = bool(re.search(r'(?:…|\.{3,})\s*$', text))
+    if text and not unfinished and finish_reason != 'length' and len(text.encode('utf-8')) <= budget:
+        return text
     text = re.sub(r'(?:…|\.{3,})\s*$', '', text).strip()
     # Never send a model fragment or a truncation marker.
     sentences = re.findall(r'.*?[.!?](?:[»”\"])?(?=\s|$)', text)

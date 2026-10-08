@@ -1549,6 +1549,7 @@ class LlmService:
                 return "LLM error: no response from model."
 
             choice = choices[0]
+            finish_reason = choice.get("finish_reason")
             assistant_message = choice.get("message", {})
             content = assistant_message.get("content", "")
             if not isinstance(content, str):
@@ -1573,6 +1574,7 @@ class LlmService:
                     retry_content = retry_data["choices"][0]["message"].get("content", "")
                     if isinstance(retry_content, str):
                         content = retry_content
+                        finish_reason = retry_data["choices"][0].get("finish_reason")
                         self.logger.debug(
                             "LLM retry response (%d chars): %r", len(content), content
                         )
@@ -1591,7 +1593,7 @@ class LlmService:
         if mode == "general":
             from .conversation import complete_reply
             # Compress before the final sentence boundary; never cut raw bytes mid-sentence.
-            if len(content.encode("utf-8")) > max_length:
+            if len(content.encode("utf-8")) > max_length or finish_reason == "length":
                 compact = dict(payload)
                 compact["messages"] = payload["messages"] + [
                     {"role": "assistant", "content": content},
@@ -1599,12 +1601,14 @@ class LlmService:
                 try:
                     response = await asyncio.to_thread(post_chat, self.endpoint, compact, self.timeout_seconds)
                     response.raise_for_status()
-                    candidate = response.json()["choices"][0]["message"]["content"]
+                    compact_choice = response.json()["choices"][0]
+                    candidate = compact_choice["message"]["content"]
                     if isinstance(candidate, str) and candidate.strip():
                         content = candidate
+                        finish_reason = compact_choice.get("finish_reason")
                 except (requests.RequestException, ValueError, KeyError, IndexError, TypeError):
                     self.logger.warning("Conversation compression unavailable; keeping complete sentences")
-            cleaned = complete_reply(content, max_length)
+            cleaned = complete_reply(content, max_length, finish_reason=finish_reason)
             if user_key:
                 self._store_context(user_key, prompt, cleaned)
             return cleaned

@@ -46,3 +46,39 @@ async def test_conversation_compresses_before_sending():
 
 def test_truncated_fragment_is_not_a_sentence():
     assert complete_reply('Merci. Je voulais aussi...',100)=='Merci.'
+
+
+def test_short_model_reply_does_not_require_punctuation():
+    assert complete_reply('Avec plaisir', 158, 'stop') == 'Avec plaisir'
+    assert complete_reply('De rien 🙂', 158, 'stop') == 'De rien 🙂'
+    assert complete_reply('  D’accord  ', 158) == 'D’accord'
+
+
+def test_truncated_model_reply_keeps_only_complete_sentences():
+    assert complete_reply('Bien reçu. Je voulais aussi', 158, 'length') == 'Bien reçu.'
+    assert complete_reply('Avec plaisir…', 158, 'stop') != 'Avec plaisir'
+    assert complete_reply('Une réponse interrompue', 158, 'length') != 'Une réponse interrompue'
+
+
+def test_conversation_budget_counts_utf8_bytes():
+    assert complete_reply('é' * 80, 158, 'stop') != 'é' * 80
+    assert complete_reply('é' * 79, 158, 'stop') == 'é' * 79
+
+@pytest.mark.asyncio
+async def test_direct_conversation_preserves_short_unpunctuated_model_answer():
+    import logging
+    from unittest.mock import Mock, patch
+    from modules.assistant.llm_service import LlmService
+    service = object.__new__(LlmService)
+    service.wiki_rag = None
+    service.logger = logging.getLogger()
+    service.endpoint = 'test'
+    service.timeout_seconds = 2
+    service._user_key = lambda message: None
+    service._build_payload = Mock(return_value={'messages': [{'role': 'user', 'content': 'merci'}]})
+    response = Mock(status_code=200)
+    response.json.return_value = {'choices': [{'finish_reason': 'stop', 'message': {'content': 'Avec plaisir 🙂'}}]}
+    with patch('modules.assistant.llm_service.post_chat', return_value=response) as post:
+        result = await service._answer('merci', object(), mode='general', max_length=158)
+    assert result == 'Avec plaisir 🙂'
+    assert post.call_count == 1
