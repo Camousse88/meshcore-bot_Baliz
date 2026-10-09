@@ -488,6 +488,16 @@ class TestContactRoutes:
         assert data['tracking_data'][0]['advert_count'] == 2
         assert data['server_stats']['advertisements_24h'] == 1
 
+    def test_contacts_load_when_viewer_runs_as_standalone_script(self, viewer):
+        import runpy
+        key = 'fa99' * 16
+        _insert_contact(viewer, key, 'StandaloneAdvert')
+        namespace = runpy.run_path(
+            str(Path(__file__).resolve().parents[1] / 'modules/web_viewer/app.py'),
+            run_name='standalone_viewer_test')
+        result = namespace['BotDataViewer']._get_tracking_data(viewer, since='all')
+        assert any(row['user_id'] == key for row in result['tracking_data'])
+
     def test_api_contacts_default(self, client):
         resp = client.get("/api/contacts")
         assert resp.status_code == 200
