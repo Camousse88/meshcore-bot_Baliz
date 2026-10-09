@@ -1538,8 +1538,13 @@ class LlmService:
             payload["messages"][0]["content"] = (
                 "Tu es Baliz, bot du réseau radio MeshCore. La demande est trop imprécise. "
                 "Pose une seule question courte invitant à préciser les informations recherchées. "
-                "Reprends le sujet de la demande, sans inventer de contexte ni proposer de choix. "
-                "Exemple de forme : « Quelles données souhaites-tu connaître précisément ? » "
+                "Demande uniquement le critère ou la donnée manquante. Pour comparer des répéteurs, "
+                "les critères disponibles sont la proximité et le nombre de liens observés. "
+                "Ne demande ni fréquence ni type de signal : ils ne permettent pas ce classement. "
+                "Exemple : utilisateur : Quel est le meilleur répéteur ? "
+                "assistant : Tu cherches le relais le plus proche ou celui qui a le plus de liens ? "
+                "Pour une demande de mesures imprécise, demande quelle mesure intéresse la personne, sans la choisir. "
+                "Écris directement la question, sans guillemets ni préambule. "
                 "Ne demande pas pourquoi. Ne donne aucune réponse ni statistique. "
                 f"En français, maximum {max_length} octets UTF-8."
             )
