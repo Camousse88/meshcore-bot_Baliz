@@ -70,7 +70,7 @@ def test_semantic_transport_uses_closed_schema_and_separate_timeout():
         payload=post.call_args.args[1]
         assert 22 < post.call_args.args[2] <= 23
         variants=payload['response_format']['json_schema']['schema']['anyOf']
-        assert {v['properties']['function']['const'] for v in variants}=={'llm.chat'}
+        assert {v['properties']['function']['const'] for v in variants}=={'llm.chat', 'llm.clarify'}
 
 
 @pytest.mark.parametrize('content', [
@@ -107,3 +107,62 @@ def test_http_timeout_is_not_retried():
     with patch('modules.assistant.semantic_router.post_chat',side_effect=requests.Timeout('busy')) as post:
         assert router._classify('bonjour',{'llm'}) is None
         assert post.call_count==1
+
+
+@pytest.mark.asyncio
+async def test_clarification_dispatches_only_conversation_service():
+    from unittest.mock import Mock
+    plan = parse_plan(json.dumps(dict(route='llm', operation='clarify', args={})),
+                      'statistiques de la télémétrie ?', set(CATALOG))
+    service = SimpleNamespace(answer=AsyncMock(return_value='Quelles mesures souhaites-tu ?'))
+    command = SimpleNamespace(service=service, can_use_service=lambda message: True,
+                              record_execution=Mock())
+    dispatcher = object.__new__(AssistantDispatcher)
+    dispatcher.owner = SimpleNamespace(enabled_routes=set(CATALOG),
+                                       get_max_message_length=lambda message: 158)
+    dispatcher._command = Mock(return_value=command)
+    dispatcher.record_function = Mock()
+    message = SimpleNamespace(sender_id='test')
+    assert await dispatcher._dispatch(plan, message) == 'Quelles mesures souhaites-tu ?'
+    dispatcher._command.assert_called_once_with('llm')
+    service.answer.assert_awaited_once_with(plan.question, message, mode='clarify', max_length=158)
+    dispatcher.record_function.assert_called_once_with('llm.clarify')
+
+@pytest.mark.parametrize('function,topic', [
+    ('bot_users', 'messages'), ('channel_traffic', 'channels'),
+    ('bot_usage', 'general'), ('longest_paths', 'paths'), ('advert_counts', 'adverts'),
+])
+@pytest.mark.parametrize('hashes', [False, True])
+def test_named_statistics_keep_existing_adapter(function, topic, hashes):
+    from unittest.mock import patch
+    from modules.assistant.semantic_router import SemanticRouter
+    router = SemanticRouter(SimpleNamespace(
+        logger=logging.getLogger(), get_config_value=lambda *a, fallback=None, **k: fallback))
+    response = SimpleNamespace(raise_for_status=lambda: None, json=lambda: {
+        'choices': [{'message': {'content': json.dumps({
+            'function': 'mesh.' + function, 'args': {'hashes': hashes}})}}]})
+    with patch('modules.assistant.semantic_router.post_chat', return_value=response) as post:
+        plan = router._classify('une demande', {'mesh', 'llm'})
+        assert plan.operation == 'stats'
+        assert plan.args == {'topic': topic, 'hashes': hashes}
+        variants = post.call_args.args[1]['response_format']['json_schema']['schema']['anyOf']
+        functions = {v['properties']['function']['const'] for v in variants}
+        assert 'mesh.stats' not in functions
+        assert 'mesh.' + function in functions
+
+
+@pytest.mark.parametrize('function,args', [
+    ('bot_users', {}), ('bot_users', {'hashes': 'false'}),
+    ('bot_users', {'hashes': False, 'topic': 'adverts'}),
+    ('stats', {'hashes': False, 'topic': 'messages'}),
+])
+def test_named_statistics_reject_unexposed_or_invalid_calls(function, args):
+    from unittest.mock import patch
+    from modules.assistant.semantic_router import SemanticRouter
+    router = SemanticRouter(SimpleNamespace(
+        logger=logging.getLogger(), get_config_value=lambda *a, fallback=None, **k: fallback))
+    response = SimpleNamespace(raise_for_status=lambda: None, json=lambda: {
+        'choices': [{'message': {'content': json.dumps({
+            'function': 'mesh.' + function, 'args': args})}}]})
+    with patch('modules.assistant.semantic_router.post_chat', return_value=response):
+        assert router._classify('une demande', {'mesh', 'llm'}) is None

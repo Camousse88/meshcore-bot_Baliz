@@ -8,27 +8,55 @@ CATALOG = {
     'test': {'receive': 'Measure reception of THIS message: tu me reçois, SNR, RSSI.'},
     'path': {'message': 'Show the actual path of THIS message, default sender: quelle est la route, chemin entre toi et moi. Not a definition.'},
     'mesh': {
-        'summary': 'General overview of the locally observed network: réseau, état du réseau, résumé du mesh, network overview. Known nodes, nodes and repeaters heard in 24h, recorded messages in 24h. No arguments. Prefer this for short general network requests, not unsupported.',
-        'hfcond': 'Radio propagation conditions by amateur HF band. Requests: conditions radio, propagation, HF, ondes courtes. Bare shorthand tropo also selects this available report, which MUST be labelled HF. Executes hfcond. NOT local tropospheric propagation, NOT MeshCore 869 MHz reception, NOT weather.',
-        'relay_connectivity': 'Rank important, most connected or most solicited relays by observed graph degree, the map dot-size metric. Counts attached directed links, NOT packets or load. Default hours=24, limit=3.',
+        'summary': 'Network overview (réseau, résumé du mesh): known nodes, active nodes/repeaters and messages over 24h. No arguments.',
+        'hfcond': 'HF propagation report: conditions radio, propagation, HF, ondes courtes, tropo. Always label HF; not actual tropospheric or MeshCore reception conditions, nor weather.',
+        'relay_connectivity': 'Rank most connected/solicited RELAYS by graph degree (links, not packets or load). Defaults hours=24, limit=3. Not bot users.',
         'count_nodes': 'Count ALL locally observed nodes, all roles. Active means heard in last 24 hours by default; hours=0 means all known nodes, country empty unless specified.',
         'count_repeaters': 'How many locally tracked repeaters (not a list).',
         'list_repeaters': 'List locally tracked repeaters. activity sorts cumulative advert counts, NOT forwarded traffic or relay utilization.',
         'onebyte': 'Who uses 1 octet / 1 byte routing? Use measured encoding evidence.',
         'near': 'Nearest nodes using sender GPS or first incoming relay as an approximate origin.',
-        'stats': 'Measured local traffic statistics, rankings or message volumes over a time window. NOT the documented list of channels used in a region. topic=channels ranks channels by message count and unique users; messages ranks senders; paths shows longest observed paths; adverts counts advertisements; general summarizes traffic. Does NOT measure forwarded traffic per relay.',
+        'stats': '24h statistics ONLY: topic=channels ranks channels by message/user count; messages ranks people who called Baliz; general summarizes bot calls/replies; paths lists longest observed paths; adverts counts announcements. No sensor measurements or telemetry traffic. Unclear requested measure: llm.clarify. Documented channel names: wiki.lookup.',
         'neighbors': 'Discover directly reachable neighbors. Active radio, DM only.',
         'trace': 'Actively test radio path, roundtrip by default; explicit hex path or named target.',
         'advert': 'User explicitly requests the bot to announce itself by radio. DM only.',
-        'unsupported': 'Observed-network requests not measurable by available operations, outside the available observations. Never substitute advert count or documentation.'},
+        'unsupported': 'Precise requested measurement unavailable (e.g. relay battery voltage). Unclear measurement: llm.clarify instead. Never substitute another measurement.'},
     'weather': {'forecast': 'Weather forecast (temperature, rain, wind) for a place and date. Never radio propagation, tropo or HF conditions. Args location (exact place from question or empty), period (today or tomorrow).'},
-    'wiki': {'lookup': 'Documentation: explain, configure, commands, regions, repeater/companion setup, how routing works, and documented regional channel names / which channels to join or use. Questions like quels sont les canaux utilisés en Bretagne request documentation, not traffic counts.'},
-    'llm': {'chat': 'Greeting, identity, thanks, complaints about the bot or response delay, creative and general conversation. Never search documentation for casual remarks.'},
+    'wiki': {'lookup': 'Documentation, configuration, routing explanations, regions, regional channel names to join/use (canaux utilisés en Bretagne). Not measured traffic statistics.'},
+    'llm': {'clarify': 'Unclear expected result or essential target missing: ask a short question instead of guessing a tool. Not for clear or social requests.', 'chat': 'Greeting, identity, thanks, complaints about the bot or response delay, creative and general conversation. Never search documentation for casual remarks.'},
+}
+
+
+# Model-facing functions name their actual result. Internally the existing stats
+# adapter and its permission checks remain shared; no input text is inspected.
+STATS_FUNCTIONS = {
+    'bot_users': ('messages', 'Rank the people who called Baliz most often in 24h, with call counts.'),
+    'channel_traffic': ('channels', 'Rank channels by observed message count and users over 24h. Not documented channels to join.'),
+    'bot_usage': ('general', 'Count bot calls and replies, top command and top bot user over 24h.'),
+    'longest_paths': ('paths', 'Show longest radio paths observed over 24h.'),
+    'advert_counts': ('adverts', 'Count observed node announcements over 24h.'),
 }
 
 
 # Few-shot examples teach intent, never execute lexical overrides.
-ROUTING_EXAMPLES = [
+CLARIFICATION_EXAMPLES = [
+    ('statistiques de la télémétrie ?', {'route': 'llm', 'operation': 'clarify', 'args': {}}),
+    ('tu peux me donner les chiffres des mesures ?', {'route': 'llm', 'operation': 'clarify', 'args': {}}),
+    ('tu peux vérifier ça ?', {'route': 'llm', 'operation': 'clarify', 'args': {}}),
+]
+
+# Short contrasting dialogues: ambiguity, social reply and a precise tool request.
+ROUTING_DIALOG_EXAMPLES = CLARIFICATION_EXAMPLES[:2] + [
+    ('merci', {'route': 'llm', 'operation': 'chat', 'args': {}}),
+    ('qui utilise le plus Baliz ?', {'route': 'mesh', 'operation': 'stats', 'args': {'topic': 'messages', 'hashes': False}}),
+    ('statistique des canaux', {'route': 'mesh', 'operation': 'stats', 'args': {'topic': 'channels', 'hashes': False}}),
+    ('quels sont les canaux utilisés en Bretagne ?', {'route': 'wiki', 'operation': 'lookup', 'args': {}}),
+    ('condition radio', {'route': 'mesh', 'operation': 'hfcond', 'args': {}}),
+    ('résumé du réseau', {'route': 'mesh', 'operation': 'summary', 'args': {}}),
+    ('quelle est la tension de batterie du relais Alpha ?', {'route': 'mesh', 'operation': 'unsupported', 'args': {}}),
+]
+
+ROUTING_EXAMPLES = ROUTING_DIALOG_EXAMPLES + [
     ('reseau', {'route': 'mesh', 'operation': 'summary', 'args': {}}),
     ('état du réseau', {'route': 'mesh', 'operation': 'summary', 'args': {}}),
     ('résumé du mesh', {'route': 'mesh', 'operation': 'summary', 'args': {}}),
@@ -45,6 +73,7 @@ ROUTING_EXAMPLES = [
     ('quelle est la route ?', {'route': 'path', 'operation': 'message', 'args': {}}),
     ('tu me reçois ?', {'route': 'test', 'operation': 'receive', 'args': {}}),
     ('comment fonctionne le routage ?', {'route': 'wiki', 'operation': 'lookup', 'args': {}}),
+    ('qui utilise le plus Baliz ?', {'route': 'mesh', 'operation': 'stats', 'args': {'topic': 'messages', 'hashes': False}}),
     ('statistique des canaux', {'route': 'mesh', 'operation': 'stats', 'args': {'topic': 'channels', 'hashes': False}}),
     ('quels sont les relais les plus sollicités ?', {'route': 'mesh', 'operation': 'relay_connectivity', 'args': {'hours': 24, 'limit': 3}}),
     ('tu en as mis du temps pour répondre', {'route': 'llm', 'operation': 'chat', 'args': {}}),

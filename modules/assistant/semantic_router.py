@@ -40,14 +40,20 @@ class SemanticRouter:
 
     def _classify(self, question, enabled_routes):
         import json
-        from .catalog import CATALOG, ROUTING_EXAMPLES, parse_plan
-        catalog = {k: v for k, v in CATALOG.items() if k in enabled_routes}
+        from .catalog import CATALOG, ROUTING_DIALOG_EXAMPLES, STATS_FUNCTIONS, parse_plan
+        catalog = {k: dict(v) for k, v in CATALOG.items() if k in enabled_routes}
+        if "mesh" in catalog:
+            catalog["mesh"].pop("stats", None)
+            catalog["mesh"].update({name: description for name, (_, description) in STATS_FUNCTIONS.items()})
         from .network_plan import argument_schema
         variants = []
         for route, operations in catalog.items():
             for operation in operations:
-                args = argument_schema(operation) if route == 'mesh' else {
+                args = argument_schema(operation) if route == 'mesh' and operation not in STATS_FUNCTIONS else {
                     'type': 'object', 'properties': {}, 'required': [], 'additionalProperties': False}
+                if route == 'mesh' and operation in STATS_FUNCTIONS:
+                    args = {'type': 'object', 'properties': {'hashes': {'type': 'boolean'}},
+                            'required': ['hashes'], 'additionalProperties': False}
                 if route == 'weather':
                     args = {'type': 'object', 'properties': {'location': {'type': 'string'},
                             'period': {'type': 'string', 'enum': ['today', 'tomorrow']}},
@@ -55,18 +61,36 @@ class SemanticRouter:
                 variants.append({'type': 'object', 'properties': {
                     'function': {'const': route + '.' + operation}, 'args': args},
                     'required': ['function', 'args'], 'additionalProperties': False})
+        examples = []
+        for question_example, plan in ROUTING_DIALOG_EXAMPLES:
+            if plan["route"] in catalog:
+                function = plan["route"] + "." + plan["operation"]
+                arguments = plan["args"]
+                if function == "mesh.stats":
+                    function = "mesh." + next(name for name, (topic, _) in STATS_FUNCTIONS.items()
+                                               if topic == arguments["topic"])
+                    arguments = {"hashes": arguments["hashes"]}
+                examples.extend([
+                    {"role": "user", "content": question_example},
+                    {"role": "assistant", "content": json.dumps({
+                        "function": function, "args": arguments}, ensure_ascii=False)},
+                ])
         payload = {
             "messages": [
                 {"role": "system", "content": (
-                    "Classe la demande par sens. Retourne seulement {\"function\":\"route.operation\",\"args\":{...}}. "
-                    "N'exécute rien. Observations réseau=>mesh, documentation=>wiki, conversation ou reproche=>llm. "
-                    "Fonction réseau absente=>mesh/unsupported. N'invente pas de lieu ni de cible. "
+                    "Tu classes les demandes adressées à Baliz, le bot du réseau radio MeshCore Bretagne. Classe la demande par sens. Retourne seulement {\"function\":\"route.operation\",\"args\":{...}}. "
+                    "N'exécute rien. Choisis selon le résultat demandé et les capacités exactes du catalogue, jamais sur un mot commun. "
+                    "La télémétrie désigne les mesures des capteurs ou équipements (batterie, signal, température), pas les compteurs d’activité du réseau ou du bot. Si la mesure souhaitée n’est pas précisée, demande une clarification. "
+                    "Une salutation, un remerciement ou un reproche appelle llm.chat. Ce ne sont pas des demandes de mesure à clarifier. "
+                    "Demande ambiguë avec plusieurs sens plausibles ou cible essentielle manquante=>llm.clarify. Ne choisis pas une statistique par défaut. "
+                    "Fonction réseau clairement absente=>mesh.unsupported. N'invente pas de lieu ni de cible. "
                     "weather: args location (lieu cité ou chaîne vide), period today/tomorrow. "
                     "mesh: tous les arguments du schéma sont requis. Défauts hours=0,country='',limit=5,sort=recent,hashes=false,target='',role=repeater,roundtrip=true,path=''. "
                     "count_nodes: actifs=hours24, tous connus=hours0. relay_connectivity: hours24,limit3. "
                     "Autres routes: args={}. Catalogue: " + json.dumps(catalog, ensure_ascii=False, separators=(",", ":"))
-                    + " Exemples: " + json.dumps([(q, {"function": p["route"] + "." + p["operation"], "args": p["args"]}) for q, p in ROUTING_EXAMPLES if p["route"] in catalog], ensure_ascii=False, separators=(",", ":"))
+                    + " Règle finale : si le résultat attendu reste indéterminé, choisis llm.clarify. Ne remplace jamais une mesure par une autre statistique disponible. Une conversation simple utilise llm.chat. Une demande claire utilise sa fonction sans clarification inutile."
                 )},
+                *examples,
                 {"role": "user", "content": question},
             ],
             "temperature": 0, "max_tokens": 160,
@@ -95,6 +119,14 @@ class SemanticRouter:
                 if not isinstance(raw, dict) or set(raw) != {'function', 'args'} or not isinstance(raw['function'], str):
                     raise ValueError('Invalid function call')
                 route, operation = raw['function'].split('.', 1)
+                if route not in catalog or operation not in catalog[route]:
+                    raise ValueError('Function not exposed')
+                if route == 'mesh' and operation in STATS_FUNCTIONS:
+                    if (not isinstance(raw['args'], dict) or set(raw['args']) != {'hashes'}
+                            or type(raw['args']['hashes']) is not bool):
+                        raise ValueError('Invalid statistic arguments')
+                    raw['args'] = {'topic': STATS_FUNCTIONS[operation][0], 'hashes': raw['args']['hashes']}
+                    operation = 'stats'
                 plan = parse_plan(json.dumps(dict(route=route, operation=operation, args=raw['args'])), question, enabled_routes)
             except (KeyError, IndexError, TypeError, ValueError) as exc:
                 self.logger.warning("Catalog invalid plan attempt=%s elapsed=%.2fs: %s", attempt + 1, time.monotonic() - started, exc)

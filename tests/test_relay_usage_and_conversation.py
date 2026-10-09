@@ -104,3 +104,27 @@ def test_conversation_payload_excludes_global_channel_context():
     assert 'bug' not in str(payload)
     service._build_local_context.assert_not_called()
     service._get_prompt_node_neighbors.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_clarification_uses_llm_without_wiki_or_global_context():
+    import logging
+    from unittest.mock import Mock, patch
+    from modules.assistant.llm_service import LlmService
+    from modules.assistant.catalog import parse_plan
+    plan = parse_plan('{"route":"llm","operation":"clarify","args":{}}', 'statistiques de la télémétrie ?', {'llm','mesh','wiki'})
+    assert plan.operation == 'clarify'
+    service = object.__new__(LlmService)
+    service.logger = logging.getLogger()
+    service.wiki_rag = Mock()
+    service.endpoint = 'test'
+    service.timeout_seconds = 2
+    service._user_key = lambda message: None
+    service._build_payload = Mock(return_value={'messages':[{'role':'system','content':'identity'}]})
+    response = Mock(status_code=200)
+    response.json.return_value = {'choices':[{'finish_reason':'stop','message':{'content':'Les mesures des relais ou le trafic de télémétrie ?'}}]}
+    with patch('modules.assistant.llm_service.post_chat', return_value=response):
+        result = await service._answer(plan.question, object(), mode='clarify', max_length=158)
+    assert result.endswith('?') and len(result.encode()) <= 158
+    assert service._build_payload.call_args.kwargs['include_local_context'] is False
+    service.wiki_rag.retrieve.assert_not_called()

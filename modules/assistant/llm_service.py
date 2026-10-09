@@ -1468,7 +1468,7 @@ class LlmService:
         Serialize shared context/cache access across callers. Query SQL is exclusively
         owned by MeshService; conversation and Wiki can never execute model SQL.
         """
-        if mode not in {"general", "wiki", "auto"}:
+        if mode not in {"general", "clarify", "wiki", "auto"}:
             raise ValueError("Unknown LLM mode")
         if self.cpu_temp_threshold > 0:
             cpu_temp = get_cpu_temperature()
@@ -1479,7 +1479,7 @@ class LlmService:
 
     async def _answer(self, prompt: str, message: MeshMessage, *, mode: str, max_length: int) -> str:
         wiki_result = None
-        if mode != "general" and self.wiki_rag:
+        if mode not in {"general", "clarify"} and self.wiki_rag:
             try:
                 # Refresh only when the successful index is stale. Network and
                 # parsing work runs outside the event loop; failures leave the
@@ -1518,7 +1518,7 @@ class LlmService:
             prompt=prompt,
             history=history,
             rag_context=wiki_result.context if wiki_result else "",
-            include_local_context=mode != "general",
+            include_local_context=mode not in {"general", "clarify"},
         )
         if mode == "general":
             payload["messages"][0]["content"] = (
@@ -1532,6 +1532,16 @@ class LlmService:
                 "Pas de présentation ni de bonjour systématique, pas de question de relance. "
                 "À une remarque sur ton délai, reconnais simplement l'attente sans inventer sa cause. "
                 "N'annonce pas que tu ne peux pas vérifier tes réponses. Ne termine jamais par des points de suspension."
+            )
+        if mode == "clarify":
+            payload["temperature"] = 0
+            payload["messages"][0]["content"] = (
+                "Tu es Baliz, bot du réseau radio MeshCore. La demande est trop imprécise. "
+                "Pose une seule question courte invitant à préciser les informations recherchées. "
+                "Reprends le sujet de la demande, sans inventer de contexte ni proposer de choix. "
+                "Exemple de forme : « Quelles données souhaites-tu connaître précisément ? » "
+                "Ne demande pas pourquoi. Ne donne aucune réponse ni statistique. "
+                f"En français, maximum {max_length} octets UTF-8."
             )
         self.logger.debug(f"LLM prompt: {repr(prompt[:500])}")
 
@@ -1598,7 +1608,7 @@ class LlmService:
             content = self._remove_unrequested_local_examples(content, prompt)
             self.logger.debug("LLM Wiki response after cleanup (%d chars): %r", len(content), content)
 
-        if mode == "general":
+        if mode in {"general", "clarify"}:
             from .conversation import complete_reply
             # Compress before the final sentence boundary; never cut raw bytes mid-sentence.
             if len(content.encode("utf-8")) > max_length or finish_reason == "length":

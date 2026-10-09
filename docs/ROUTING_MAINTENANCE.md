@@ -18,7 +18,7 @@ These mock the classifier and do NOT measure model quality. Evaluate the real co
 model separately without executing selected operations or transmitting radio packets.
 Monitor Catalog logs for elapsed time, operation and errors. A timeout is not a semantic decision.
 
-ROUTING_EXAMPLES in catalog.py provides semantic examples to the model; no lexical overrides.
+ROUTING_DIALOG_EXAMPLES in catalog.py provides short contrasting dialogues to the model; ROUTING_EXAMPLES also records regression examples. No lexical overrides.
 Ask_Command.semantic_timeout_seconds defaults to 45 seconds (1–60), separate from execution timeout.
 The CPU-hosted model must be evaluated cold and warm; passing contract tests alone is insufficient.
 
@@ -74,3 +74,20 @@ passes through the existing numerical-preserving LLM reformulation.
 Run `tests/fixtures/routing_reliability.json` via eval_catalog_live.py for original
 failures AND unseen paraphrases. Run tests/test_count_nodes.py for counting,
 argument validation and the tool-to-LLM handoff. Live evaluation sends no RF.
+
+## Clarification and concrete statistics (2026-10-09)
+
+The LLM may select `llm.clarify` when the expected measurement is unclear. This
+asks one brief question through LlmService, with the caller's UTF-8 budget and
+without wiki retrieval or global channel context. A precise unavailable measure
+still uses `mesh.unsupported`; casual conversation uses `llm.chat`.
+
+Model-facing statistics name the actual result: `bot_users`, `channel_traffic`,
+`bot_usage`, `longest_paths`, `advert_counts`. They map to the existing
+`mesh.stats` adapter and its fixed topic after strict argument validation.
+The model still selects the function; this mapping never reads the user's words.
+The `hashes` option, command permissions and usage metrics are preserved.
+
+Keep telemetry measurements distinct from bot/network activity in the model's
+instructions. Adding examples alone did not reliably generalize with the current
+2B model. Test paraphrases and log transport timeouts separately from wrong plans.

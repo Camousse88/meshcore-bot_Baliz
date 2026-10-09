@@ -1,5 +1,41 @@
 [
- {"question":"Par où mon message est-il arrivé jusqu'à toi ?","route":"path","operation":"message","args":{}},
- {"question":"Quels canaux sont les plus bavards ?","route":"mesh","operation":"stats","args":{"topic":"channels","hashes":false}},
- {"question":"Ta réponse a été vraiment lente","route":"llm","operation":"chat","args":{}}
+  {
+    "question": "Par où mon message est-il arrivé jusqu'à toi ?",
+    "route": "path",
+    "operation": "message",
+    "args": {}
+  },
+  {
+    "question": "Quels canaux sont les plus bavards ?",
+    "route": "mesh",
+    "operation": "stats",
+    "args": {
+      "topic": "channels",
+      "hashes": false
+    }
+  },
+  {
+    "question": "Ta réponse a été vraiment lente",
+    "route": "llm",
+    "operation": "chat",
+    "args": {}
+  },
+  {
+    "question": "Tu as un bilan des données de télémétrie ?",
+    "route": "llm",
+    "operation": "clarify",
+    "args": {}
+  },
+  {
+    "question": "Sur quels canaux bretons peut-on discuter ?",
+    "route": "wiki",
+    "operation": "lookup",
+    "args": {}
+  },
+  {
+    "question": "Merci beaucoup, ça m’aide !",
+    "route": "llm",
+    "operation": "chat",
+    "args": {}
+  }
 ]

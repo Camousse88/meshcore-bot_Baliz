@@ -65,10 +65,20 @@ class AssistantDispatcher:
         command = self._command("llm")
         if not self._allowed(command, message, service=True):
             return f"La fonction {route.value} est indisponible ou non autorisée ici."
-        self.record_function("llm.chat" if route is Route.LLM else "wiki.lookup")
+        mode = "wiki"
+        if route is Route.LLM:
+            mode = "clarify" if decision.operation == "clarify" else "general"
+        self.record_function(
+            "wiki.lookup" if mode == "wiki" else
+            "llm.clarify" if mode == "clarify" else "llm.chat"
+        )
         command.record_execution(message.sender_id or None)
-        mode = "general" if route is Route.LLM else "wiki"
-        return await command.service.answer(decision.question, message, mode=mode, **({"max_length": self.owner.get_max_message_length(message)} if mode == "general" else {}))
+        options = {}
+        if mode in {"general", "clarify"}:
+            options["max_length"] = self.owner.get_max_message_length(message)
+        return await command.service.answer(
+            decision.question, message, mode=mode, **options
+        )
 
     async def _render_tool(self, question, source, message, context=""):
         budget = self.owner.get_max_message_length(message)
