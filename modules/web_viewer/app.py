@@ -7953,7 +7953,7 @@ class BotDataViewer:
             """, params)
 
             main_rows = cursor.fetchall()
-            from .contact_adverts import contact_advert_counts
+            from modules.web_viewer.contact_adverts import contact_advert_counts
             advert_windows = contact_advert_counts(cursor)
             multibyte_hop_chunks = self._collect_multibyte_hop_chunks(cursor)
 
