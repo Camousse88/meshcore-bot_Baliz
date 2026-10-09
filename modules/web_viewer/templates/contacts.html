@@ -565,8 +565,8 @@
                             <th class="sortable sort-active" data-sort="last_seen">
                                 Last Heard <i class="fas fa-sort-down sort-icon" aria-hidden="true"></i>
                             </th>
-                            <th class="sortable" data-sort="advert_count">
-                                Adverts <i class="fas fa-sort sort-icon" aria-hidden="true"></i>
+                            <th class="sortable" data-sort="advert_count" title="Annonces distinctes reçues sur la période sélectionnée ; All time affiche le total cumulé.">
+                                <span id="contacts-adverts-heading">Adverts</span> <i class="fas fa-sort sort-icon" aria-hidden="true"></i>
                             </th>
                             <th>Actions</th>
                         </tr>
@@ -731,6 +731,14 @@ class ModernContactsManager {
             this.filteredStats = data.filtered_stats || {};
             this.updateSortIcons();
             this.renderContactsData();
+            const advertHeader = document.querySelector('th[data-sort="advert_count"]');
+            const advertHeading = document.getElementById('contacts-adverts-heading');
+            if (advertHeading) advertHeading.textContent = 'Adverts · ' + (since === 'all' ? 'All' : since);
+            if (advertHeader) {
+                advertHeader.title = 'Annonces distinctes reçues — ' +
+                    ({'24h': '24 heures', '7d': '7 jours', '30d': '30 jours',
+                      '90d': '90 jours', all: 'total cumulé'}[since] || since);
+            }
             this.updatePagination();
             this.updateStatistics();
             

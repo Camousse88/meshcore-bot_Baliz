@@ -3440,10 +3440,19 @@ class BotDataViewer:
                         elif 'room' in dt or 'server' in dt:
                             filtered_stats['new_room_servers'] += 1
 
+                # Sum the entire filtered cohort, before pagination.
+                server_stats = dict(contacts.get('server_stats', {}))
+                for key, window in (('advertisements_24h', '24h'),
+                                    ('advertisements_7d', '7d'),
+                                    ('total_advertisements', 'all')):
+                    server_stats[key] = sum(
+                        (row.get('advert_counts') or {}).get(window, 0) for row in filtered
+                    )
+
                 # ── Response ────────────────────────────────────────────────
                 response = {
                     'tracking_data': page_rows,
-                    'server_stats': contacts.get('server_stats', {}),
+                    'server_stats': server_stats,
                 }
                 if use_pagination:
                     response['pagination'] = {
@@ -7827,13 +7836,13 @@ class BotDataViewer:
             if since == 'all':
                 since_clause = ''
             elif since == '24h':
-                since_clause = " WHERE c.last_heard >= strftime('%s', 'now', '-24 hours')"
+                since_clause = " WHERE CASE WHEN typeof(c.last_heard) IN ('integer', 'real') THEN datetime(c.last_heard, 'unixepoch', 'localtime') ELSE datetime(c.last_heard) END >= datetime('now', 'localtime', '-24 hours')"
             elif since == '7d':
-                since_clause = " WHERE c.last_heard >= strftime('%s', 'now', '-7 days')"
+                since_clause = " WHERE CASE WHEN typeof(c.last_heard) IN ('integer', 'real') THEN datetime(c.last_heard, 'unixepoch', 'localtime') ELSE datetime(c.last_heard) END >= datetime('now', 'localtime', '-7 days')"
             elif since == '30d':
-                since_clause = " WHERE c.last_heard >= strftime('%s', 'now', '-30 days')"
+                since_clause = " WHERE CASE WHEN typeof(c.last_heard) IN ('integer', 'real') THEN datetime(c.last_heard, 'unixepoch', 'localtime') ELSE datetime(c.last_heard) END >= datetime('now', 'localtime', '-30 days')"
             else:
-                since_clause = " WHERE c.last_heard >= strftime('%s', 'now', '-90 days')"
+                since_clause = " WHERE CASE WHEN typeof(c.last_heard) IN ('integer', 'real') THEN datetime(c.last_heard, 'unixepoch', 'localtime') ELSE datetime(c.last_heard) END >= datetime('now', 'localtime', '-90 days')"
 
             params = []
             search_clause = ''
@@ -7890,17 +7899,17 @@ class BotDataViewer:
                 scope_params = tuple(keys)
 
             # Filter by last_heard for performance (default: last 30 days)
-            # Note: last_heard is stored as Unix timestamp (float), so use strftime('%s', ...) for comparison
+            # Accept both legacy Unix timestamps and local datetime strings.
             if since == 'all':
                 where_clause = ' WHERE 1=1'
             elif since == '24h':
-                where_clause = " WHERE c.last_heard >= strftime('%s', 'now', '-24 hours')"
+                where_clause = " WHERE CASE WHEN typeof(c.last_heard) IN ('integer', 'real') THEN datetime(c.last_heard, 'unixepoch', 'localtime') ELSE datetime(c.last_heard) END >= datetime('now', 'localtime', '-24 hours')"
             elif since == '7d':
-                where_clause = " WHERE c.last_heard >= strftime('%s', 'now', '-7 days')"
+                where_clause = " WHERE CASE WHEN typeof(c.last_heard) IN ('integer', 'real') THEN datetime(c.last_heard, 'unixepoch', 'localtime') ELSE datetime(c.last_heard) END >= datetime('now', 'localtime', '-7 days')"
             elif since == '30d':
-                where_clause = " WHERE c.last_heard >= strftime('%s', 'now', '-30 days')"
+                where_clause = " WHERE CASE WHEN typeof(c.last_heard) IN ('integer', 'real') THEN datetime(c.last_heard, 'unixepoch', 'localtime') ELSE datetime(c.last_heard) END >= datetime('now', 'localtime', '-30 days')"
             else:  # 90d
-                where_clause = " WHERE c.last_heard >= strftime('%s', 'now', '-90 days')"
+                where_clause = " WHERE CASE WHEN typeof(c.last_heard) IN ('integer', 'real') THEN datetime(c.last_heard, 'unixepoch', 'localtime') ELSE datetime(c.last_heard) END >= datetime('now', 'localtime', '-90 days')"
             where_clause += scope_outer_clause if scope_params else ''
             params = scope_params + scope_params if scope_params else ()
 
@@ -7944,6 +7953,8 @@ class BotDataViewer:
             """, params)
 
             main_rows = cursor.fetchall()
+            from .contact_adverts import contact_advert_counts
+            advert_windows = contact_advert_counts(cursor)
             multibyte_hop_chunks = self._collect_multibyte_hop_chunks(cursor)
 
             clock_drift_samples = self._get_latest_clock_drift_samples(cursor)
@@ -8028,7 +8039,13 @@ class BotDataViewer:
                     'hop_count': row['hop_count'],
                     'first_heard': row['first_heard'],
                     'last_seen': row['last_heard'],
-                    'advert_count': row['advert_count'],
+                    'advert_count': (row['advert_count'] if since == 'all' else
+                                     advert_windows.get(row['public_key'], {}).get(since, 0)),
+                    'advert_counts': {
+                        **{window: advert_windows.get(row['public_key'], {}).get(window, 0)
+                           for window in ('24h', '7d', '30d', '90d')},
+                        'all': row['advert_count'] or 0,
+                    },
                     'is_currently_tracked': row['is_currently_tracked'],
                     'raw_advert_data': row['raw_advert_data'],
                     'raw_advert_data_parsed': raw_advert_data_parsed,
