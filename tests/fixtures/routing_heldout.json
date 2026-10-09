@@ -37,5 +37,20 @@
     "route": "llm",
     "operation": "chat",
     "args": {}
+  },
+  {
+    "question": "Tu me conseilles quel relais, le meilleur du coin ?",
+    "route": "llm",
+    "operation": "clarify",
+    "args": {}
+  },
+  {
+    "question": "Quels répéteurs sont les mieux connectés au réseau ?",
+    "route": "mesh",
+    "operation": "relay_connectivity",
+    "args": {
+      "hours": 24,
+      "limit": 3
+    }
   }
 ]

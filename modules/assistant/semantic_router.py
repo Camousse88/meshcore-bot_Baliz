@@ -83,6 +83,7 @@ class SemanticRouter:
                     "La télémétrie désigne les mesures des capteurs ou équipements (batterie, signal, température), pas les compteurs d’activité du réseau ou du bot. Si la mesure souhaitée n’est pas précisée, demande une clarification. "
                     "Une salutation, un remerciement ou un reproche appelle llm.chat. Ce ne sont pas des demandes de mesure à clarifier. "
                     "Demande ambiguë avec plusieurs sens plausibles ou cible essentielle manquante=>llm.clarify. Ne choisis pas une statistique par défaut. "
+                    "Un jugement de qualité sans critère (meilleur relais) exige llm.clarify. Le nombre d’annonces ne mesure pas la qualité. Un classement explicitement par liens utilise mesh.relay_connectivity. "
                     "Fonction réseau clairement absente=>mesh.unsupported. N'invente pas de lieu ni de cible. "
                     "weather: args location (lieu cité ou chaîne vide), period today/tomorrow. "
                     "mesh: tous les arguments du schéma sont requis. Défauts hours=0,country='',limit=5,sort=recent,hashes=false,target='',role=repeater,roundtrip=true,path=''. "

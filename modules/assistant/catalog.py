@@ -10,10 +10,10 @@ CATALOG = {
     'mesh': {
         'summary': 'Network overview (réseau, résumé du mesh): known nodes, active nodes/repeaters and messages over 24h. No arguments.',
         'hfcond': 'HF propagation report: conditions radio, propagation, HF, ondes courtes, tropo. Always label HF; not actual tropospheric or MeshCore reception conditions, nor weather.',
-        'relay_connectivity': 'Rank most connected/solicited RELAYS by graph degree (links, not packets or load). Defaults hours=24, limit=3. Not bot users.',
+        'relay_connectivity': 'Rank RELAYS only when connectivity or number of links is explicitly requested. Graph degree is not quality: best relay without a criterion requires llm.clarify. Defaults hours=24, limit=3.',
         'count_nodes': 'Count ALL locally observed nodes, all roles. Active means heard in last 24 hours by default; hours=0 means all known nodes, country empty unless specified.',
         'count_repeaters': 'How many locally tracked repeaters (not a list).',
-        'list_repeaters': 'List locally tracked repeaters. activity sorts cumulative advert counts, NOT forwarded traffic or relay utilization.',
+        'list_repeaters': 'List locally tracked repeaters. activity ONLY ranks cumulative advert counts when explicitly requested. Advert count measures neither relay quality nor connectivity. Never use this to choose the best relay.',
         'onebyte': 'Who uses 1 octet / 1 byte routing? Use measured encoding evidence.',
         'near': 'Nearest nodes using sender GPS or first incoming relay as an approximate origin.',
         'stats': '24h statistics ONLY: topic=channels ranks channels by message/user count; messages ranks people who called Baliz; general summarizes bot calls/replies; paths lists longest observed paths; adverts counts announcements. No sensor measurements or telemetry traffic. Unclear requested measure: llm.clarify. Documented channel names: wiki.lookup.',
@@ -47,6 +47,8 @@ CLARIFICATION_EXAMPLES = [
 
 # Short contrasting dialogues: ambiguity, social reply and a precise tool request.
 ROUTING_DIALOG_EXAMPLES = CLARIFICATION_EXAMPLES[:2] + [
+    ('quel est le meilleur répéteur ?', {'route': 'llm', 'operation': 'clarify', 'args': {}}),
+    ('les répéteurs avec le plus de liens', {'route': 'mesh', 'operation': 'relay_connectivity', 'args': {'hours': 24, 'limit': 3}}),
     ('merci', {'route': 'llm', 'operation': 'chat', 'args': {}}),
     ('qui utilise le plus Baliz ?', {'route': 'mesh', 'operation': 'stats', 'args': {'topic': 'messages', 'hashes': False}}),
     ('statistique des canaux', {'route': 'mesh', 'operation': 'stats', 'args': {'topic': 'channels', 'hashes': False}}),
