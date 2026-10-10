@@ -122,7 +122,7 @@ async def test_clarification_dispatches_only_conversation_service():
                                        get_max_message_length=lambda message: 158)
     dispatcher._command = Mock(return_value=command)
     dispatcher.record_function = Mock()
-    message = SimpleNamespace(sender_id='test')
+    message = SimpleNamespace(sender_id='test', is_dm=True)
     assert await dispatcher._dispatch(plan, message) == 'Quelles mesures souhaites-tu ?'
     dispatcher._command.assert_called_once_with('llm')
     service.answer.assert_awaited_once_with(plan.question, message, mode='clarify', max_length=158)

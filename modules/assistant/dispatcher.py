@@ -74,11 +74,17 @@ class AssistantDispatcher:
         )
         command.record_execution(message.sender_id or None)
         options = {}
+        mention = ""
         if mode in {"general", "clarify"}:
-            options["max_length"] = self.owner.get_max_message_length(message)
-        return await command.service.answer(
+            budget = self.owner.get_max_message_length(message)
+            if mode == 'clarify':
+                from .response import clarification_mention
+                mention = clarification_mention(message, budget)
+            options["max_length"] = budget - len(mention.encode('utf-8'))
+        answer = await command.service.answer(
             decision.question, message, mode=mode, **options
         )
+        return mention + answer
 
     async def _render_tool(self, question, source, message, context=""):
         budget = self.owner.get_max_message_length(message)

@@ -32,3 +32,27 @@ async def send_answer(command: Any, message: MeshMessage, text: str, *, max_page
     if len(pages) == 1:
         return await command.send_response(message, pages[0])
     return await command.send_response_chunked(message, pages)
+
+
+def clarification_mention(message: MeshMessage, max_bytes: int) -> str:
+    """Address channel clarifications using native MeshCore mention syntax."""
+    if message.is_dm:
+        return ''
+    name = message.sender_id
+    if not isinstance(name, str) or not name.strip() or name.strip().lower() == 'unknown':
+        return ''
+    # Do not let an untrusted sender forge additional mentions or format fields.
+    if any(ord(c) < 32 or c in '@{}' for c in name):
+        return ''
+    depth = 0
+    for char in name:
+        if char == '[':
+            depth += 1
+        elif char == ']':
+            depth -= 1
+            if depth < 0:
+                return ''
+    if depth:
+        return ''
+    prefix = f'@[{name.strip()}] '
+    return prefix if len(prefix.encode('utf-8')) <= max_bytes - 40 else ''

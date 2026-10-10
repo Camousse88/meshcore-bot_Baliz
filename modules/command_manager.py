@@ -813,6 +813,15 @@ class CommandManager:
         if normalized is None:
             return matches
         content = normalized
+        # Native bot mentions address the assistant once, even when the body
+        # also happens to start with another command (e.g. "ping").
+        assistant = self.commands.get('ask')
+        if assistant is not None and getattr(assistant, 'ask_enabled', False) is True:
+            mentioned_question = getattr(assistant, 'mentioned_question', None)
+            if callable(mentioned_question):
+                question = mentioned_question(message, content)
+                if isinstance(question, str):
+                    content = 'ask ' + question
         content_lower = content.lower()
 
         # Persist the normalized (prefix-stripped) content to the shared message once,

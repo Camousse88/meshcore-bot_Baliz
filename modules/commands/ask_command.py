@@ -1,4 +1,6 @@
 """Assistant entry point. Routing and capabilities live in modules.assistant."""
+import re
+
 from ..assistant.dispatcher import AssistantDispatcher
 from ..assistant.response import send_answer
 from ..models import MeshMessage
@@ -20,7 +22,7 @@ class AskCommand(BaseCommand):
         {"key": "route_timeout_seconds", "label": "Processing timeout", "type": "int",
          "default": 120, "min": 1, "max": 300, "unit": "seconds"},
         {"key": "semantic_timeout_seconds", "label": "Classification timeout", "type": "int",
-         "default": 45, "min": 1, "max": 60, "unit": "seconds"},
+         "default": 300, "min": 1, "max": 300, "unit": "seconds"},
         {"key": "semantic_routing_enabled", "label": "Closed-catalog LLM routing", "type": "bool",
          "default": True, "help": "Select a validated operation from enabled_routes. Failure returns unavailable; no Wiki fallback."},
         {"key": "max_pages", "label": "Maximum reply pages", "type": "int",
@@ -43,6 +45,27 @@ class AskCommand(BaseCommand):
 
     def can_execute(self, message: MeshMessage, skip_channel_check: bool = False) -> bool:
         return self.ask_enabled and super().can_execute(message, skip_channel_check)
+
+    def mentioned_question(self, message: MeshMessage, content: str) -> str | None:
+        # The channel handler may already have removed the mention. Match the
+        # immutable on-air text, including bot names containing brackets.
+        mode = self.bot.config.get('Bot', 'respond_to_mentions', fallback='also').strip().lower()
+        name = self._get_bot_name()
+        mention = f'@[{name}]' if name else ''
+        original = message.original_content or message.content
+        if mode != 'false' and mention and mention.casefold() in original.casefold():
+            body = re.sub(re.escape(mention), '', content, flags=re.IGNORECASE).strip()
+            _, question = self.split_trigger_and_args(body)
+            return question
+        return None
+
+    def matches_keyword(self, message: MeshMessage) -> bool:
+        question = self.mentioned_question(message, message.content)
+        if question is not None:
+            message.content = 'ask ' + question
+            message.content_lower = message.content.lower()
+            return True
+        return super().matches_keyword(message)
 
     async def execute(self, message: MeshMessage) -> bool:
         _, question = self.split_trigger_and_args(self._strip_mentions(message.content))
