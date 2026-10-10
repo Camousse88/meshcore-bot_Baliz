@@ -93,3 +93,45 @@ def test_manager_routes_mention_to_assistant_once_even_for_command_body():
     message = MeshMessage(content='@[[BOT] Baliz] ping',is_dm=True)
     assert manager.check_keywords(message) == [('ask',None)]
     assert message.content == 'ask ping'
+
+
+@pytest.mark.parametrize('is_dm,enabled,allowed,expected', [
+    (True,True,True,[('ask',None)]),
+    (False,True,True,[]),
+    (True,False,True,[]),
+    (True,True,False,[]),
+])
+def test_bare_question_only_triggers_in_private(is_dm,enabled,allowed,expected):
+    from modules.command_manager import CommandManager
+    command = assistant()
+    command.ask_enabled = enabled
+    command.should_execute = command.matches_keyword
+    command.can_execute = lambda message: enabled and allowed
+    command.requires_internet = False
+    command.get_response_format = lambda: None
+    manager = object.__new__(CommandManager)
+    manager.commands = {'ask':command}
+    manager.keywords = {}
+    manager.normalize_command_content = lambda text: text
+    manager._should_queue_command = lambda *args: (False,0)
+    manager._is_channel_trigger_allowed = lambda *args: True
+    message = MeshMessage(content='le plus de liens',is_dm=is_dm)
+    assert manager.check_keywords(message) == expected
+    assert message.original_content == 'le plus de liens'
+    if expected:
+        assert command.split_trigger_and_args(message.content)[1] == 'le plus de liens'
+
+
+def test_private_existing_command_keeps_priority_even_when_denied():
+    from modules.command_manager import CommandManager
+    command = assistant()
+    command.ask_enabled = True
+    command.should_execute = command.matches_keyword
+    manager = object.__new__(CommandManager)
+    manager.commands = {'ping':SimpleNamespace(should_execute=lambda m:m.content=='ping',can_execute=lambda m:False), 'ask':command}
+    manager.keywords = {}
+    manager.normalize_command_content = lambda text:text
+    manager._should_queue_command = lambda *args:(False,0)
+    message = MeshMessage(content='ping',is_dm=True)
+    assert manager.check_keywords(message) == []
+    assert message.content == 'ping'

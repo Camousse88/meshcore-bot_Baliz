@@ -887,9 +887,11 @@ class CommandManager:
                         matches.append(('help', help_text))
                         return matches
 
+        recognized_command = False
         # Check all loaded plugins for matches
         for command_name, command in self.commands.items():
             if command.should_execute(message):
+                recognized_command = True
                 # Check if we should queue instead of skip (for global cooldowns near expiring)
                 should_queue, remaining = self._should_queue_command(command, message)
                 if should_queue and self._queue_command(command, message, remaining):
@@ -967,6 +969,15 @@ class CommandManager:
                         self.logger.warning(f"Error formatting response for '{keyword}': {e}")
                         matches.append((keyword, response_format))
 
+        # Private conversation only: unmatched text is a question for Baliz.
+        # Existing commands retain their permissions/cooldowns and take priority.
+        if (not matches and not recognized_command and message.is_dm and content.strip()
+                and assistant is not None and getattr(assistant, 'ask_enabled', False) is True):
+            trigger, _ = assistant.split_trigger_and_args(content)
+            if trigger is None:
+                message.content = 'ask ' + content
+                message.content_lower = message.content.lower()
+                return self.check_keywords(message)
         return matches
 
     def _normalize_trigger_text(self, raw: str) -> str:
