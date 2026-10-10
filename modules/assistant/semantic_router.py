@@ -32,7 +32,7 @@ class SemanticRouter:
                 read(
                     "Ask_Command",
                     "semantic_timeout_seconds",
-                    fallback=120.0,
+                    fallback=read("Llm_Command", "timeout_seconds", fallback=300.0, value_type="float"),
                     value_type="float",
                 ),
             ),

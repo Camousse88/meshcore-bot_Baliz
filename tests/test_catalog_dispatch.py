@@ -30,7 +30,7 @@ async def test_classifier_failure_never_dispatches():
     d.owner=SimpleNamespace(enabled_routes=set(CATALOG))
     d.semantic_router=SimpleNamespace(decide=AsyncMock(return_value=None))
     d._dispatch=AsyncMock()
-    assert 'pas pu interpréter' in await d.answer('tu as mis du temps',SimpleNamespace())
+    assert 'service d’interprétation est momentanément indisponible' in await d.answer('tu as mis du temps',SimpleNamespace())
     d._dispatch.assert_not_called()
 
 @pytest.mark.parametrize('args',[
@@ -167,12 +167,14 @@ def test_named_statistics_reject_unexposed_or_invalid_calls(function, args):
     with patch('modules.assistant.semantic_router.post_chat', return_value=response):
         assert router._classify('une demande', {'mesh', 'llm'}) is None
 
-@pytest.mark.parametrize('configured,expected', [(None,120.0),(90.0,90.0),(500.0,300.0)])
-def test_semantic_deadline_allows_cpu_prefill(configured, expected):
+@pytest.mark.parametrize('configured,llm_timeout,expected', [(None,300.0,300.0),(None,180.0,180.0),(90.0,300.0,90.0),(500.0,300.0,300.0)])
+def test_semantic_deadline_inherits_llm_timeout(configured, llm_timeout, expected):
     import logging
     from types import SimpleNamespace
     from modules.assistant.semantic_router import SemanticRouter
     def read(section,key,fallback=None,value_type='str'):
+        if (section,key) == ('Llm_Command','timeout_seconds'):
+            return llm_timeout
         if key == 'semantic_timeout_seconds' and configured is not None:
             return configured
         return fallback
