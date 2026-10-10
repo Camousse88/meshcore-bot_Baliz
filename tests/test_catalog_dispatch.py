@@ -166,3 +166,15 @@ def test_named_statistics_reject_unexposed_or_invalid_calls(function, args):
             'function': 'mesh.' + function, 'args': args})}}]})
     with patch('modules.assistant.semantic_router.post_chat', return_value=response):
         assert router._classify('une demande', {'mesh', 'llm'}) is None
+
+@pytest.mark.parametrize('configured,expected', [(None,120.0),(90.0,90.0),(500.0,300.0)])
+def test_semantic_deadline_allows_cpu_prefill(configured, expected):
+    import logging
+    from types import SimpleNamespace
+    from modules.assistant.semantic_router import SemanticRouter
+    def read(section,key,fallback=None,value_type='str'):
+        if key == 'semantic_timeout_seconds' and configured is not None:
+            return configured
+        return fallback
+    router = SemanticRouter(SimpleNamespace(logger=logging.getLogger(),get_config_value=read))
+    assert router.timeout_seconds == expected

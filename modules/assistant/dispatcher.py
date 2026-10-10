@@ -37,7 +37,7 @@ class AssistantDispatcher:
             return HELP
         decision = await self.semantic_router.decide(question, self.owner.enabled_routes)
         if decision is None:
-            return "Je n’ai pas pu interpréter la demande pour le moment. Réessaie plus tard."
+            return "Le service d’interprétation est momentanément indisponible. Réessaie plus tard."
         self.owner.logger.info("Assistant route=%s operation=%s reason=%s", decision.route.value, decision.operation, decision.reason)
         if decision.route is Route.HELP:
             return HELP

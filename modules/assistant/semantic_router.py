@@ -28,11 +28,11 @@ class SemanticRouter:
         self.timeout_seconds = max(
             1.0,
             min(
-                60.0,
+                300.0,
                 read(
                     "Ask_Command",
                     "semantic_timeout_seconds",
-                    fallback=45.0,
+                    fallback=120.0,
                     value_type="float",
                 ),
             ),
