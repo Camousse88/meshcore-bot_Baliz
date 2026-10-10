@@ -149,7 +149,16 @@ async def answer_network(dispatcher, decision, message):
             # The approximation/source qualifier is mandatory, even if the LLM
             # omits it or rewrites distances as being relative to the sender.
             return source
-        return await dispatcher._render_tool(decision.question,source,message)
+        context = ''
+        if op in {'summary', 'count_nodes', 'count_repeaters'}:
+            context = (
+                'Observations locales de Baliz, pas un recensement de tout le réseau. '
+                'Conserve explicitement la limite aux observations de Baliz. '
+                'La période ne concerne que les chiffres explicitement associés à cette période dans les données. '
+                'Dans un résumé, garde séparées les deux phrases : total connu sans période, puis activité sur 24 h. '
+                'Des nœuds entendus restent des nœuds entendus, pas des utilisateurs.'
+            )
+        return await dispatcher._render_tool(decision.question,source,message,context=context)
     except ValueError as exc:
         return str(exc)
     except Exception:

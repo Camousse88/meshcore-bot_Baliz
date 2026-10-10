@@ -6,16 +6,16 @@ from .network_plan import infer_operation, ACTIVE
 
 CATALOG = {
     'test': {'receive': 'Measure reception of THIS message: tu me reçois, SNR, RSSI.'},
-    'path': {'message': 'Show the actual path of THIS message, default sender: quelle est la route, chemin entre toi et moi. Not a definition.'},
+    'path': {'message': 'Relais traversés par mon message pour arriver au bot: trajet, chemin, par où il passe. Affiche son chemin observé, pas la liste générale des relais.'},
     'mesh': {
         'summary': 'Network overview (réseau, résumé du mesh): known nodes, active nodes/repeaters and messages over 24h. No arguments.',
-        'hfcond': 'HF propagation report: conditions radio, propagation, HF, ondes courtes, tropo. Always label HF; not actual tropospheric or MeshCore reception conditions, nor weather.',
+        'hfcond': 'Conditions de propagation radio: utiliser ce bulletin HF par défaut pour une demande générale de conditions radio, sans clarification. Aussi HF, ondes courtes, tropo. Toujours préciser HF: aucune prévision tropo locale.',
         'relay_connectivity': 'Rank RELAYS only when connectivity or number of links is explicitly requested. Graph degree is not quality: best relay without a criterion requires llm.clarify. Defaults hours=24, limit=3.',
         'count_nodes': 'Count ALL locally observed nodes, all roles. Active means heard in last 24 hours by default; hours=0 means all known nodes, country empty unless specified.',
-        'count_repeaters': 'How many locally tracked repeaters (not a list).',
-        'list_repeaters': 'List locally tracked repeaters. activity ONLY ranks cumulative advert counts when explicitly requested. Advert count measures neither relay quality nor connectivity. Never use this to choose the best relay.',
+        'count_repeaters': 'Return a NUMBER of repeaters: combien de répéteurs/relais dans le réseau. No ranking, no links. Defaults hours=0,country=empty,limit=5,sort=recent.',
+        'list_repeaters': 'List known repeater names, never repeaters traversed by a message (path.message). activity ONLY ranks cumulative advert counts when explicitly requested. Advert count measures neither relay quality nor connectivity. Never use this to choose the best relay.',
         'onebyte': 'Who uses 1 octet / 1 byte routing? Use measured encoding evidence.',
-        'near': 'Nearest nodes using sender GPS or first incoming relay as an approximate origin.',
+        'near': 'Relais géographiquement les plus proches de moi. Position GPS ou premier relais reçu comme repère approximatif. Ne pas demander une position: la fonction gère son absence. Args limit=5,role=repeater,target=empty.',
         'stats': '24h statistics ONLY: topic=channels ranks channels by message/user count; messages ranks people who called Baliz; general summarizes bot calls/replies; paths lists longest observed paths; adverts counts announcements. No sensor measurements or telemetry traffic. Unclear requested measure: llm.clarify. Documented channel names: wiki.lookup.',
         'neighbors': 'Discover directly reachable neighbors. Active radio, DM only.',
         'trace': 'Actively test radio path, roundtrip by default; explicit hex path or named target.',
@@ -46,9 +46,13 @@ CLARIFICATION_EXAMPLES = [
 ]
 
 # Short contrasting dialogues: ambiguity, social reply and a precise tool request.
-ROUTING_DIALOG_EXAMPLES = CLARIFICATION_EXAMPLES[:2] + [
+ROUTING_DIALOG_EXAMPLES = CLARIFICATION_EXAMPLES[:1] + [
     ('quel est le meilleur répéteur ?', {'route': 'llm', 'operation': 'clarify', 'args': {}}),
     ('les répéteurs avec le plus de liens', {'route': 'mesh', 'operation': 'relay_connectivity', 'args': {'hours': 24, 'limit': 3}}),
+    ('combien de répéteurs dans le réseau ?', {'route': 'mesh', 'operation': 'count_repeaters', 'args': {'hours': 0, 'country': '', 'limit': 5, 'sort': 'recent'}}),
+    ('nombre de nœuds actifs', {'route': 'mesh', 'operation': 'count_nodes', 'args': {'hours': 24, 'country': ''}}),
+    ('les relais autour de moi', {'route': 'mesh', 'operation': 'near', 'args': {'limit': 5, 'role': 'repeater', 'target': ''}}),
+    ('quel chemin a pris mon message ?', {'route': 'path', 'operation': 'message', 'args': {}}),
     ('merci', {'route': 'llm', 'operation': 'chat', 'args': {}}),
     ('qui utilise le plus Baliz ?', {'route': 'mesh', 'operation': 'stats', 'args': {'topic': 'messages', 'hashes': False}}),
     ('statistique des canaux', {'route': 'mesh', 'operation': 'stats', 'args': {'topic': 'channels', 'hashes': False}}),
