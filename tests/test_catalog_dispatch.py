@@ -180,3 +180,41 @@ def test_semantic_deadline_inherits_llm_timeout(configured, llm_timeout, expecte
         return fallback
     router = SemanticRouter(SimpleNamespace(logger=logging.getLogger(),get_config_value=read))
     assert router.timeout_seconds == expected
+
+@pytest.mark.parametrize('question,place', [
+    ('meteo st brieuc','Saint-Brieuc'),
+    ('meteo chateauneuf du faou','Châteauneuf-du-Faou'),
+    ('météo ste anne d auray','Sainte-Anne-d’Auray'),
+])
+def test_weather_accepts_equivalent_place_spelling(question,place):
+    plan = parse_plan(json.dumps({'route':'weather','operation':'forecast','args':{'location':place,'period':'today'}}),question,{'weather'})
+    assert plan.args['location'] == place
+
+@pytest.mark.parametrize('place', ['Paris','Saint-Brieuc France','Faou'])
+def test_weather_does_not_accept_invented_or_partial_place(place):
+    with pytest.raises(ValueError):
+        parse_plan(json.dumps({'route':'weather','operation':'forecast','args':{'location':place,'period':'today'}}),'meteo st brieuc',{'weather'})
+
+@pytest.mark.parametrize('second,expected', [
+    ({'function':'mesh.summary','args':{}},None),
+    ({'function':'weather.forecast','args':{'location':'','period':'today'}},None),
+    ({'function':'weather.forecast','args':{'location':'st brieuc','period':'today'}},'forecast'),
+])
+def test_weather_argument_repair_cannot_switch_to_network(second,expected):
+    from unittest.mock import patch
+    from modules.assistant.semantic_router import SemanticRouter
+    router=SemanticRouter(SimpleNamespace(logger=logging.getLogger(),get_config_value=lambda *a,fallback=None,**k:fallback))
+    def reply(value):
+        return SimpleNamespace(raise_for_status=lambda:None,json=lambda:{'choices':[{'message':{'content':json.dumps(value)}}]})
+    first={'function':'weather.forecast','args':{'location':'Saint-Brieuc France','period':'today'}}
+    with patch('modules.assistant.semantic_router.post_chat',side_effect=[reply(first),reply(second)]) as post:
+        result=router._classify('meteo st brieuc',{'weather','mesh'})
+        assert (result.operation if result else None)==expected
+        variants=post.call_args.args[1]['response_format']['json_schema']['schema']['anyOf']
+        assert [v['properties']['function']['const'] for v in variants]==['weather.forecast']
+
+
+def test_weather_repair_spans_do_not_replace_requested_location():
+    from modules.assistant.catalog import grounded_place
+    assert not grounded_place('Brest','meteo st brieuc')
+    assert not grounded_place('chateauneuf-du-fau','meteo chateauneuf du faou')

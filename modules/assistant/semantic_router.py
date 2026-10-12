@@ -85,7 +85,7 @@ class SemanticRouter:
                     "Demande ambiguë avec plusieurs sens plausibles ou cible essentielle manquante=>llm.clarify. Ne choisis pas une statistique par défaut. "
                     "Un jugement de qualité sans critère (meilleur relais) exige llm.clarify. Le nombre d’annonces ne mesure pas la qualité. Distingue le nombre de répéteurs (mesh.count_repeaters), leurs noms (mesh.list_repeaters), un résumé (mesh.summary) et un classement par liens (mesh.relay_connectivity). "
                     "Par convention de Baliz, une demande générale de conditions radio utilise mesh.hfcond (bulletin HF), sans clarification. Les relais traversés par un message relèvent de path.message, jamais de mesh.list_repeaters. Fonction réseau clairement absente=>mesh.unsupported. N'invente pas de lieu ni de cible. "
-                    "weather: args location (lieu cité ou chaîne vide), period today/tomorrow. "
+                    "weather: recopie le lieu cité dans location, sans le remplacer par une autre ville. location vide uniquement si aucun lieu n’est demandé. period today/tomorrow. "
                     "mesh: tous les arguments du schéma sont requis. Défauts hours=0,country='',limit=5,sort=recent,hashes=false,target='',role=repeater,roundtrip=true,path=''. "
                     "count_nodes: actifs=hours24, tous connus=hours0. relay_connectivity: hours24,limit3. "
                     "Autres routes: args={}. Catalogue: " + json.dumps(catalog, ensure_ascii=False, separators=(",", ":"))
@@ -101,6 +101,8 @@ class SemanticRouter:
         if self.model:
             payload["model"] = self.model
         payload["reasoning_effort"] = "none"
+        repair_function = None
+        repair_requires_location = False
         started = time.monotonic()
         for attempt in range(2):
             remaining = self.timeout_seconds - (time.monotonic() - started)
@@ -119,22 +121,52 @@ class SemanticRouter:
                 raw = json.loads(content)
                 if not isinstance(raw, dict) or set(raw) != {'function', 'args'} or not isinstance(raw['function'], str):
                     raise ValueError('Invalid function call')
+                if repair_function is not None and raw['function'] != repair_function:
+                    raise ValueError('Argument repair changed function')
                 route, operation = raw['function'].split('.', 1)
                 if route not in catalog or operation not in catalog[route]:
                     raise ValueError('Function not exposed')
+                repair_function = raw['function']
+                if not isinstance(raw['args'], dict):
+                    raise ValueError('Invalid arguments object')
                 if route == 'mesh' and operation in STATS_FUNCTIONS:
                     if (not isinstance(raw['args'], dict) or set(raw['args']) != {'hashes'}
                             or type(raw['args']['hashes']) is not bool):
                         raise ValueError('Invalid statistic arguments')
                     raw['args'] = {'topic': STATS_FUNCTIONS[operation][0], 'hashes': raw['args']['hashes']}
                     operation = 'stats'
+                if repair_requires_location and not raw['args'].get('location'):
+                    raise ValueError('Missing requested place')
+                if route == 'weather' and raw['args'].get('location'):
+                    repair_requires_location = True
                 plan = parse_plan(json.dumps(dict(route=route, operation=operation, args=raw['args'])), question, enabled_routes)
             except (KeyError, IndexError, TypeError, ValueError) as exc:
                 self.logger.warning("Catalog invalid plan attempt=%s elapsed=%.2fs: %s", attempt + 1, time.monotonic() - started, exc)
                 if attempt == 0:
+                    if repair_function is not None:
+                        payload['response_format']['json_schema']['schema']['anyOf'] = [
+                            variant for variant in variants
+                            if variant['properties']['function']['const'] == repair_function
+                        ]
+                    if repair_function == 'weather.forecast':
+                        # Ground the repair in literal spans of the request;
+                        # the model still chooses which span names the place.
+                        words = question.split()[:40]
+                        places = sorted({
+                            ' '.join(words[i:j]).strip(' ,.!?')
+                            for i in range(len(words))
+                            for j in range(i + 1, min(len(words), i + 8) + 1)
+                            if len(' '.join(words[i:j])) <= 100
+                        })
+                        places = [p for p in places if p and not any(c in p for c in '\n\r;|')]
+                        if not repair_requires_location:
+                            places.append('')
+                        if places:
+                            payload['response_format']['json_schema']['schema']['anyOf'][0]['properties']['args']['properties']['location']['enum'] = places
                     payload['messages'].append({'role': 'user', 'content':
                         'Le plan précédent a été rejeté : ' + str(exc)[:160] +
-                        '. Réinterprète la demande initiale. Respecte strictement le catalogue, le schéma et les valeurs citées. Retourne uniquement un appel JSON valide.'})
+                        ('. Corrige uniquement les arguments de ' + repair_function + '. Conserve cette fonction. Le lieu ne doit pas être vide si un lieu était demandé. Recopie le lieu tel qu’il figure dans la question initiale, sans ajouter de pays.' if repair_function else '. Réinterprète la demande initiale.') +
+                        ' Respecte le schéma. Retourne uniquement un appel JSON valide.'})
                 continue
             usage = data.get("usage") or {}
             details = usage.get("prompt_tokens_details") or {}

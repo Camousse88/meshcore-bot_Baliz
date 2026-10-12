@@ -88,5 +88,29 @@
   {
     "question": "statistiques de la télémétrie ?",
     "function": "llm.clarify"
+  },
+  {
+    "question": "meteo st brieuc",
+    "function": "weather.forecast",
+    "args": {
+      "period": "today"
+    },
+    "place": "st brieuc"
+  },
+  {
+    "question": "meteo chateauneuf du faou",
+    "function": "weather.forecast",
+    "args": {
+      "period": "today"
+    },
+    "place": "chateauneuf du faou"
+  },
+  {
+    "question": "météo demain à Brest",
+    "function": "weather.forecast",
+    "args": {
+      "location": "Brest",
+      "period": "tomorrow"
+    }
   }
 ]

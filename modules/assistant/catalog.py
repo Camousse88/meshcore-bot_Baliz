@@ -53,6 +53,8 @@ ROUTING_DIALOG_EXAMPLES = CLARIFICATION_EXAMPLES[:1] + [
     ('nombre de nœuds actifs', {'route': 'mesh', 'operation': 'count_nodes', 'args': {'hours': 24, 'country': ''}}),
     ('les relais autour de moi', {'route': 'mesh', 'operation': 'near', 'args': {'limit': 5, 'role': 'repeater', 'target': ''}}),
     ('quel chemin a pris mon message ?', {'route': 'path', 'operation': 'message', 'args': {}}),
+    ('météo à Quimper', {'route': 'weather', 'operation': 'forecast', 'args': {'location': 'Quimper', 'period': 'today'}}),
+    ('quel temps demain à Rennes ?', {'route': 'weather', 'operation': 'forecast', 'args': {'location': 'Rennes', 'period': 'tomorrow'}}),
     ('merci', {'route': 'llm', 'operation': 'chat', 'args': {}}),
     ('qui utilise le plus Baliz ?', {'route': 'mesh', 'operation': 'stats', 'args': {'topic': 'messages', 'hashes': False}}),
     ('statistique des canaux', {'route': 'mesh', 'operation': 'stats', 'args': {'topic': 'channels', 'hashes': False}}),
@@ -104,6 +106,17 @@ def validate_arguments(args, schema):
             raise ValueError('Argument out of bounds: ' + key)
 
 
+def grounded_place(location: str, question: str) -> bool:
+    """Compare place tokens, allowing spelling separators and St/Ste forms."""
+    def tokens(text):
+        words = re.findall(r"[^\W_]+", normalize(text), flags=re.UNICODE)
+        aliases = {'st': 'saint', 'ste': 'sainte'}
+        return [aliases.get(word, word) for word in words]
+    place, source = tokens(location), tokens(question)
+    return bool(place) and any(source[i:i + len(place)] == place
+                               for i in range(len(source) - len(place) + 1))
+
+
 def parse_plan(text, question, enabled):
     value = json.loads(text)
     if not isinstance(value, dict) or set(value) != {'route', 'operation', 'args'}:
@@ -119,7 +132,7 @@ def parse_plan(text, question, enabled):
         location = args['location']
         if not isinstance(location, str) or len(location) > 100 or any(c in location for c in '\n\r;|'):
             raise ValueError('Invalid place')
-        if location and normalize(location) not in normalize(question):
+        if location and not grounded_place(location, question):
             raise ValueError('Invented place')
         expected_period = 'tomorrow' if re.search(r'\b(demain|tomorrow)\b', normalize(question)) else 'today'
         if args['period'] != expected_period:

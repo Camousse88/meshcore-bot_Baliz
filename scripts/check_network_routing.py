@@ -12,6 +12,7 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from modules.assistant.semantic_router import SemanticRouter
+from modules.assistant.catalog import grounded_place
 
 async def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -31,6 +32,9 @@ async def main():
         decision = await router.decide(case['question'], {'mesh', 'llm', 'wiki', 'weather', 'test', 'path'})
         actual = decision.route.value + '.' + decision.operation if decision else None
         ok = actual == case['function'] and all(decision.args.get(k) == v for k, v in case.get('args', {}).items())
+        if ok and 'place' in case:
+            place = decision.args.get('location', '')
+            ok = grounded_place(place, case['place']) and grounded_place(case['place'], place)
         failures += not ok
         print(json.dumps(dict(question=case['question'], expected=case['function'], actual=actual,
                               args=decision.args if decision else None, ok=ok), ensure_ascii=False), flush=True)
