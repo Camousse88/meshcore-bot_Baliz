@@ -332,7 +332,7 @@ class AssistantDispatcher:
 
         command = self._command("wx")
         if type(command) is not WxCommand or not self._allowed(command, message, service=True):
-            return "Le service météo est indisponible ou non autorisé ici."
+            return "Je ne peux pas te donner la météo pour le moment. Réessaie dans quelques instants."
         default_location = self.owner.bot.config.get(
             "Weather", "default_city", fallback=""
         ).strip()
