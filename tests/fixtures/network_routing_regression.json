@@ -112,5 +112,33 @@
       "location": "Brest",
       "period": "tomorrow"
     }
+  },
+  {
+    "question": "tropo",
+    "function": "mesh.hfcond"
+  },
+  {
+    "question": "test",
+    "function": "test.receive"
+  },
+  {
+    "question": "ping",
+    "function": "test.receive"
+  },
+  {
+    "question": "Quelle région par défaut sur un compagnon ?",
+    "function": "wiki.lookup"
+  },
+  {
+    "question": "Région",
+    "function": "wiki.lookup"
+  },
+  {
+    "question": "Peux-tu tester ma réception ?",
+    "function": "test.receive"
+  },
+  {
+    "question": "Comment régler le scope de mon T-Deck ?",
+    "function": "wiki.lookup"
   }
 ]

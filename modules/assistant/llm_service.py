@@ -1503,9 +1503,6 @@ class LlmService:
             command_answer = self._wiki_command_answer(prompt, wiki_result)
             if command_answer:
                 return command_answer
-            supported_values = self._wiki_supported_values_answer(prompt, wiki_result)
-            if supported_values:
-                return supported_values
             ui_procedure = self._wiki_ui_procedure_answer(prompt, wiki_result)
             if ui_procedure:
                 return ui_procedure
@@ -1538,12 +1535,11 @@ class LlmService:
             payload["messages"][0]["content"] = (
                 "Tu es Baliz, bot du réseau radio MeshCore. La demande est trop imprécise. "
                 "Pose une seule question courte invitant à préciser les informations recherchées. "
-                "Demande uniquement le critère ou la donnée manquante. Pour comparer des répéteurs, "
-                "les critères disponibles sont la proximité et le nombre de liens observés. "
-                "Ne demande ni fréquence ni type de signal : ils ne permettent pas ce classement. "
-                "Exemple : utilisateur : Quel est le meilleur répéteur ? "
-                "assistant : Tu cherches le relais le plus proche ou celui qui a le plus de liens ? "
-                "Pour une demande de mesures imprécise, demande quelle mesure intéresse la personne, sans la choisir. "
+                "Reste sur le sujet exact du message. Demande uniquement la donnée manquante. "
+                "N'introduis aucun classement de répéteurs si la personne n'en demande pas. "
+                "Exemples : « Quel est le meilleur répéteur ? » → « Tu cherches le plus proche ou celui qui a le plus de liens ? » ; "
+                "« statistiques de la télémétrie ? » → « Quelle mesure t'intéresse : batterie, température ou signal ? » ; "
+                "« configurer les régions » → « Tu veux les configurer sur un compagnon ou un répéteur ? ». "
                 "Écris directement la question, sans guillemets ni préambule. "
                 "Ne demande pas pourquoi. Ne donne aucune réponse ni statistique. "
                 f"En français, maximum {max_length} octets UTF-8."

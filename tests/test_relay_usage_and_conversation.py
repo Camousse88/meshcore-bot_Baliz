@@ -128,3 +128,34 @@ async def test_clarification_uses_llm_without_wiki_or_global_context():
     assert result.endswith('?') and len(result.encode()) <= 158
     assert service._build_payload.call_args.kwargs['include_local_context'] is False
     service.wiki_rag.retrieve.assert_not_called()
+
+@pytest.mark.asyncio
+async def test_default_region_question_is_answered_from_wiki_not_replaced_by_value_list():
+    import logging
+    from types import SimpleNamespace
+    from unittest.mock import Mock, patch
+    from modules.assistant.llm_service import LlmService
+    service = object.__new__(LlmService)
+    service.logger = logging.getLogger()
+    service.endpoint = 'test'
+    service.timeout_seconds = 2
+    service.pagination_enabled = False
+    service.strip_thinking_tags = True
+    section = SimpleNamespace(path='regions', content='Le choix de région est expliqué ici.')
+    result = SimpleNamespace(context=section.content, best_score=10,
+                             matches=[SimpleNamespace(section=section)])
+    service.wiki_rag = Mock()
+    service.wiki_rag.retrieve.return_value = result
+    service._user_key = lambda message: None
+    service._wiki_command_answer = Mock(return_value=None)
+    service._wiki_ui_procedure_answer = Mock(return_value=None)
+    service._wiki_supported_values_answer = Mock(return_value='Régions documentées : fr, eu.')
+    service._build_payload = Mock(return_value={'messages': [{'role': 'user', 'content': 'Quelle région par défaut sur un compagnon ?'}]})
+    response = Mock(status_code=200)
+    response.json.return_value = {'choices': [{'finish_reason': 'stop', 'message': {'content': 'La source ne précise pas de région par défaut.'}}]}
+    with patch('modules.assistant.llm_service.post_chat', return_value=response) as post:
+        answer = await service._answer('Quelle région par défaut sur un compagnon ?', object(), mode='wiki', max_length=250)
+    post.assert_called_once()
+    service._wiki_supported_values_answer.assert_not_called()
+    assert 'par défaut' in answer
+    assert service._build_payload.call_args.kwargs['rag_context'] == section.content

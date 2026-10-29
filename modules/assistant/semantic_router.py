@@ -78,18 +78,22 @@ class SemanticRouter:
         payload = {
             "messages": [
                 {"role": "system", "content": (
-                    "Tu classes les demandes adressées à Baliz, le bot du réseau radio MeshCore Bretagne. Classe la demande par sens. Retourne seulement {\"function\":\"route.operation\",\"args\":{...}}. "
-                    "N'exécute rien. Choisis selon le résultat demandé et les capacités exactes du catalogue, jamais sur un mot commun. "
-                    "La télémétrie désigne les mesures des capteurs ou équipements (batterie, signal, température), pas les compteurs d’activité du réseau ou du bot. Si la mesure souhaitée n’est pas précisée, demande une clarification. "
-                    "Une salutation, un remerciement ou un reproche appelle llm.chat. Ce ne sont pas des demandes de mesure à clarifier. "
-                    "Demande ambiguë avec plusieurs sens plausibles ou cible essentielle manquante=>llm.clarify. Ne choisis pas une statistique par défaut. "
-                    "Un jugement de qualité sans critère (meilleur relais) exige llm.clarify. Le nombre d’annonces ne mesure pas la qualité. Distingue le nombre de répéteurs (mesh.count_repeaters), leurs noms (mesh.list_repeaters), un résumé (mesh.summary) et un classement par liens (mesh.relay_connectivity). "
-                    "Par convention de Baliz, une demande générale de conditions radio utilise mesh.hfcond (bulletin HF), sans clarification. Les relais traversés par un message relèvent de path.message, jamais de mesh.list_repeaters. Fonction réseau clairement absente=>mesh.unsupported. N'invente pas de lieu ni de cible. "
-                    "weather: recopie le lieu cité dans location, sans le remplacer par une autre ville. location vide uniquement si aucun lieu n’est demandé. period today/tomorrow. "
-                    "mesh: tous les arguments du schéma sont requis. Défauts hours=0,country='',limit=5,sort=recent,hashes=false,target='',role=repeater,roundtrip=true,path=''. "
-                    "count_nodes: actifs=hours24, tous connus=hours0. relay_connectivity: hours24,limit3. "
-                    "Autres routes: args={}. Catalogue: " + json.dumps(catalog, ensure_ascii=False, separators=(",", ":"))
-                    + " Règle finale : si le résultat attendu reste indéterminé, choisis llm.clarify. Ne remplace jamais une mesure par une autre statistique disponible. Une conversation simple utilise llm.chat. Une demande claire utilise sa fonction sans clarification inutile."
+                    "Tu choisis une fonction pour Baliz, assistant radio MeshCore. "
+                    "Réponds uniquement par un appel JSON {\"function\":\"route.operation\",\"args\":{...}}. "
+                    "Interprète le sens de la demande dans ce contexte. Une demande brève peut être complète. "
+                    "Réception du message actuel, y compris un simple test ou ping : test.receive. "
+                    "Chemin du message : path.message. Réglages, documentation et régions MeshCore : wiki.lookup. "
+                    "Conditions radio ou tropo : mesh.hfcond, seul bulletin disponible, limité à la HF. "
+                    "Résumé réseau : mesh.summary. Nombre de relais : mesh.count_repeaters. Noms des relais : mesh.list_repeaters. "
+                    "Classement par liens : mesh.relay_connectivity. Meilleur relais sans critère : llm.clarify. "
+                    "Clarifie seulement une information indispensable manquante. Ne demande pas de précision pour test, ping ou une question de configuration claire. "
+                    "Mesures de télémétrie imprécises : llm.clarify ; mesure précise indisponible : mesh.unsupported. "
+                    "Salutations, remerciements et remarques : llm.chat. "
+                    "Météo : weather.forecast ; recopie le lieu demandé dans location sans inventer ni remplacer de ville ; vide seulement sans lieu. period=today/tomorrow. "
+                    "Respecte tous les arguments requis du schéma. Défauts mesh : hours=0,country='',limit=5,sort=recent,hashes=false,target='',role=repeater,roundtrip=true,path=''. "
+                    "count_nodes actifs : hours=24 ; relay_connectivity : hours=24,limit=3. Autres routes : args={}. "
+                    "Catalogue : " + json.dumps(catalog, ensure_ascii=False, separators=(",", ":"))
+
                 )},
                 *examples,
                 {"role": "user", "content": question},
