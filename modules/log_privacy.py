@@ -45,6 +45,9 @@ def _safe_radio_body(body):
     routing = re.fullmatch(r'🛣️\s+ROUTING INFO: ([A-Z_]+) \| Path: ([0-9a-fA-F,]+) \((\d+) hops, (\d+) bytes\) \| Payload: (\d+) bytes \| Type: ([A-Z_]+)', body)
     if routing and routing[1] in _ROUTES and routing[6] in _PAYLOADS:
         return f'🛣️ ROUTING INFO: {routing[1]} | Path: {routing[2]} ({routing[3]} hops, {routing[4]} bytes) | Payload: {routing[5]} bytes | Type: {routing[6]}'
+    # Accept the canonical projection too (e.g. re-reading an exported log).
+    if body == 'Connexion radio établie' or re.fullmatch(r'DB migration \d{4} applied', body):
+        return body
     # Closed, argument-free diagnostic counters remain useful on the web.
     if re.fullmatch(r'Catalog tokens prompt=\d+ cached=\d+ completion=\d+', body):
         return body

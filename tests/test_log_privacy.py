@@ -117,3 +117,15 @@ def test_log_history_and_live_stream_never_publish_plaintext(socketio_viewer,tmp
 ])
 def test_argument_free_diagnostics_are_preserved(body):
     assert web_log_line(PREFIX+body)==PREFIX+body
+
+
+@pytest.mark.parametrize('body',[
+    'Connected to: CONFIDENTIAL configuration',
+    'DB migration 0033 applied: internal description',
+    'Processing message: CONFIDENTIAL',
+    '📡 DIRECT MESSAGE: TRANSPORT_FLOOD | Type: GRP_TXT',
+])
+def test_projection_is_stable_when_read_again(body):
+    projected=web_log_line(PREFIX+body)
+    assert web_log_line(projected)==projected
+    assert 'CONFIDENTIAL' not in projected
