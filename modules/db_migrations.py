@@ -847,6 +847,45 @@ def _m0029_region_scope_tables(cursor: sqlite3.Cursor) -> None:
         """
     )
 
+def _m0031_message_stats_scope_verdict(cursor: sqlite3.Cursor) -> None:
+    """Record each channel message's flood-scope verdict on ``message_stats``.
+
+    ``region_scope_daily`` only keeps a per-day, per-channel tally, so it cannot
+    answer "which *nodes* sent messages without a region code". The verdict
+    (``scoped`` / ``global`` / ``unknown``) is already computed per message by
+    ``MessageHandler._classify_channel_flood_scope`` but was previously dropped.
+    Storing it per row makes "nodes without a region" queryable: a node whose
+    messages carry no region code is one whose rows have ``scope_verdict='global'``
+    (``global`` = confirmed ordinary FLOOD; ``unknown`` = no positive evidence, so
+    it is never asserted as region-less).
+
+    ``message_stats`` is created by the stats command, not by a migration, and the
+    web viewer (a separate process) may not have it yet — so this is a no-op there.
+    """
+    if not _table_exists(cursor, "message_stats"):
+        return
+    _add_column(cursor, "message_stats", "scope_verdict", "TEXT")
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_message_scope_verdict "
+        "ON message_stats(scope_verdict, timestamp)"
+    )
+
+def _m0030_daily_rollup_singlebyte_advert_total(cursor: sqlite3.Cursor) -> None:
+    """Per-day total of adverts from single-byte repeaters, for the dashboard tile.
+
+    ``daily_stats`` carries per-day advert counts, but classifying which of them
+    came from a single-byte (1-byte-per-hop) repeater needs the node's stored
+    ``out_bytes_per_hop`` — a classification only knowable as of now, exactly
+    like the multibyte advert split.  The raw daily_stats rows survive 90 days,
+    far longer than the dashboard's 30-day trend window, so the value is written
+    per day and then frozen the moment the day leaves the recompute window;
+    NULL means "no source data for this day", which the UI renders as a gap.
+    """
+    if not _table_exists(cursor, "daily_rollup"):
+        return
+    _add_column(cursor, "daily_rollup", "adverts_singlebyte_total", "INTEGER")
+
+
 def _m0024_bbs_messages_table(cursor: sqlite3.Cursor) -> None:
     """Create bbs_messages table for per-user store-and-forward BBS service.
 
@@ -1003,6 +1042,8 @@ MIGRATIONS: list[MigrationEntry] = [
     (28, "battery_observations table", _m0028_battery_observations),
     (29, "region_scope_daily table", _m0029_region_scope_tables),
     (30, "assistant function usage", _m0030_assistant_function_usage),
+    (31, "daily_rollup: single-byte repeater advert total", _m0030_daily_rollup_singlebyte_advert_total),
+    (32, "message_stats: scope_verdict", _m0031_message_stats_scope_verdict),
 ]
 
 

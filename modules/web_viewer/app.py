@@ -4,6 +4,7 @@ MeshCore Bot Data Viewer
 Bot montoring web interface using Flask-SocketIO 5.x
 """
 
+import asyncio
 import configparser
 import hmac
 import json
@@ -230,6 +231,7 @@ class BotDataViewer:
         'schema_version',
         'greeter_rollout',
         'bbs_messages',
+        'daily_rollup',
     }
 
     def __init__(self, db_path="meshcore_bot.db", repeater_db_path=None, config_path="config.ini"):
@@ -1002,6 +1004,56 @@ class BotDataViewer:
             self._command_info_cache = []
 
         return self._command_info_cache
+
+    def _test_command_manager(self):
+        """Return a local CommandManager used for Web Viewer test DMs."""
+        cached = getattr(self, '_test_cmd_manager', None)
+        if cached is not None:
+            return cached
+
+        from modules.command_manager import CommandManager  # noqa: PLC0415
+        from modules.plugin_loader import PluginLoader  # noqa: PLC0415
+
+        class _DummyTranslator:
+            def translate(self, key: str, **kwargs: Any) -> str:
+                return key
+
+            def get_value(self, key: str) -> Any:
+                return None
+
+        class _TestBot:
+            def __init__(self, app: Any) -> None:
+                self.config = app.config
+                self.logger = app.logger
+                self.db_manager = getattr(app, 'db_manager', None)
+                self.bot_root = app.bot_root
+                self._local_root = Path(app.bot_root) / 'local'
+                self.translator = _DummyTranslator()
+                self.command_manager = None
+                self.meshcore = None
+                self.is_radio_zombie = False
+                self.is_radio_offline = False
+
+        bot = _TestBot(self)
+        manager = CommandManager(bot)
+        bot.command_manager = manager
+        plugin_loader = PluginLoader(bot)
+        manager.commands = plugin_loader.load_all_plugins()
+        self._test_cmd_manager = manager
+        return manager
+
+    def _run_test_dm(self, message: str, sender: str = 'web-test') -> list[str]:
+        """Run a Web Viewer test DM without queueing anything for the radio."""
+        manager = self._test_command_manager()
+        return asyncio.run(
+            manager.execute_capture(
+                message,
+                sender_id=sender,
+                is_dm=True,
+                timeout=30.0,
+                skip_cooldown=True,
+            )
+        )
 
     def _setup_routes(self):
         """Setup all Flask routes - complete feature parity"""
@@ -4103,7 +4155,7 @@ class BotDataViewer:
                 self.logger.debug(f"Current location data - city: {current_city}, state: {current_state}, country: {current_country}")
 
                 try:
-                    location_info = self.repeater_manager._get_full_location_from_coordinates(lat, lon)
+                    location_info = self._get_repeater_manager()._get_full_location_from_coordinates(lat, lon)
                     self.logger.debug(f"Geocoding result for {name}: {location_info}")
                 except Exception as geocode_error:
                     self.logger.error(f"Exception during geocoding for {name} at {lat}, {lon}: {geocode_error}", exc_info=True)
@@ -5611,6 +5663,31 @@ class BotDataViewer:
                 self.logger.error(f"Error queuing radio advert: {e}")
                 return jsonify({'error': 'Failed to queue advert'}), 500
 
+        @self.app.route('/api/radio/test-dm', methods=['POST'])
+        def api_radio_test_dm():
+            """Run a command locally as a test DM and return captured replies.
+
+            Body: {message: str, sender: str}
+            This does not queue anything for the radio and does not spend airtime.
+            """
+            try:
+                data = request.get_json(silent=True) or {}
+                message = data.get('message', '').strip()
+                sender = data.get('sender', 'web-test').strip() or 'web-test'
+
+                if not message:
+                    return jsonify({'error': 'Message is required'}), 400
+                if len(message) > 200:
+                    return jsonify({'error': 'Message must be 200 characters or less'}), 400
+
+                replies = self._run_test_dm(message, sender)
+
+                self.logger.info(f"Web Viewer test DM: {message!r} -> {replies}")
+                return jsonify({'success': True, 'replies': replies})
+            except Exception as e:
+                self.logger.error(f"Error running Web Viewer test DM: {e}")
+                return jsonify({'error': 'Failed to run test command'}), 500
+
         # ── Plugins settings panel ───────────────────────────────────────────
 
         @self.app.route('/api/plugins')
@@ -6448,6 +6525,8 @@ class BotDataViewer:
                 'tables': tables
             }
 
+            self._set_singlebyte_advert_volume(cursor, stats, tables)
+
             # Contact and tracking statistics
             if 'complete_contact_tracking' in tables:
                 cursor.execute("SELECT COUNT(*) FROM complete_contact_tracking")
@@ -7038,6 +7117,15 @@ class BotDataViewer:
         finally:
             if conn:
                 conn.close()
+
+    def _set_singlebyte_advert_volume(self, cursor, stats, tables):
+        if 'daily_rollup' in tables:
+            cursor.execute(
+                "SELECT adverts_singlebyte_total FROM daily_rollup WHERE date = date('now')"
+            )
+            row = cursor.fetchone()
+            if row and row[0] is not None:
+                stats['advertisements_24h_singlebyte'] = row[0]
 
     def _get_database_info(self):
         """Get comprehensive database information for database page"""

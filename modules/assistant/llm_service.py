@@ -37,6 +37,12 @@ class LlmService:
             fallback="http://127.0.0.1:8080/v1/chat/completions",
             value_type="str",
         )
+        from .llm_backend import LlmBackend
+        self.backend = LlmBackend(self.get_config_value, self.logger, self.endpoint)
+        self.context_budget_tokens = self.get_config_value("Llm_Command", "context_budget_tokens", fallback=0, value_type="int")
+        self.model_context_tokens = self.get_config_value("Llm_Command", "model_context_tokens", fallback=0, value_type="int")
+        self.context_reserve_tokens = self.get_config_value("Llm_Command", "context_reserve_tokens", fallback=256, value_type="int")
+        self.context_max_tokens = self.get_config_value("Llm_Command", "context_max_tokens", fallback=8192, value_type="int")
         self.model = self.get_config_value("Llm_Command", "model", fallback="", value_type="str")
         self.reasoning_effort = configured_reasoning_effort(self.get_config_value)
         self.system_prompt = self.get_config_value(
@@ -274,6 +280,7 @@ class LlmService:
                         timeout=self.timeout_seconds,
                         verify_ssl=self.wiki_verify_ssl,
                         logger=self.logger,
+                        io_monitor=getattr(bot, "io_health", None),
                     )
                 except ValueError as exc:
                     self.logger.warning("Wiki.js RAG source configuration is invalid: %s", exc)
@@ -293,6 +300,7 @@ class LlmService:
                 relative_score=self.wiki_rag_relative_score,
                 stopwords=wiki_stopwords,
                 aliases=wiki_aliases,
+                min_matching_terms=get_rag_config("wiki_rag_min_matching_terms", fallback=1, value_type="int"),
                 source=wiki_source,
                 logger=self.logger,
             )
@@ -310,6 +318,12 @@ class LlmService:
         # Per-user conversation history: {user_key: [{"role": str, "content": str, "ts": float}]}
         self._context: dict[str, list[dict[str, Any]]] = {}
 
+
+    def _request_chat(self, endpoint, payload, timeout):
+        backend = getattr(self, 'backend', None)
+        if backend is not None and (backend.primary or backend.fallback != endpoint):
+            return backend.post_chat(payload, timeout)
+        return post_chat(endpoint, payload, timeout)
 
     def _user_key(self, message: MeshMessage) -> str | None:
         """Return a stable key for per-user context tracking, or None if unavailable."""
@@ -731,6 +745,20 @@ class LlmService:
 
         # Build final context string
         if context_parts:
+            budget = getattr(self, 'context_budget_tokens', 0)
+            if not budget and getattr(self, 'model_context_tokens', 0):
+                info = self.backend.model_info()
+                budget = max(0, info.get('n_ctx', self.model_context_tokens) - self.max_tokens - self.context_reserve_tokens)
+            if budget or getattr(self, 'model_context_tokens', 0):
+                if self.context_max_tokens > 0:
+                    budget = min(budget, self.context_max_tokens)
+                kept = []
+                for part in context_parts:
+                    cost = (len(part) + 3) // 4
+                    if cost <= budget:
+                        kept.append(part)
+                        budget -= cost
+                context_parts = kept
             self._cached_context_str = "\n".join(context_parts)
             self._cached_context_time = now
             self._cached_context_breakdown = self._compute_context_breakdown(context_parts)
@@ -780,7 +808,8 @@ class LlmService:
         try:
             # Try to get model info from llama.cpp endpoint
             # Parse the endpoint URL and construct the models endpoint
-            parsed = urlparse(self.endpoint)
+            endpoint = self.backend.active_endpoint if getattr(self, "backend", None) else self.endpoint
+            parsed = urlparse(endpoint)
             base_url = f"{parsed.scheme}://{parsed.netloc}"
             models_url = urljoin(base_url, "/v1/models")
 
@@ -1270,6 +1299,37 @@ class LlmService:
         return None
 
 
+    @staticmethod
+    def _strip_markdown(text: str) -> str:
+        """Remove Markdown syntax for radio transmission (bandwidth-limited)."""
+        if not text:
+            return text
+        # Code blocks: ```lang\ncontent\n``` → content
+        text = re.sub(r"```(?:\w+)?\n?(.*?)```", r"\1", text, flags=re.DOTALL)
+        # Inline code: `code` → code
+        text = re.sub(r"`([^`]+)`", r"\1", text)
+        # Bold/italic: **text** or *text* → text
+        text = re.sub(r"\*{1,2}([^*\n]+?)\*{1,2}", r"\1", text)
+        # Remove any remaining standalone asterisks (unpaired)
+        text = re.sub(r"\*(?!\w)", "", text)
+        # Strikethrough: ~~text~~ → text
+        text = re.sub(r"~~([^~]+)~~", r"\1", text)
+        # Blockquotes: > text → text (handle multiple > on same line)
+        text = re.sub(r"^(?:>\s?)+", "", text, flags=re.MULTILINE)
+        # Headers: # text → text
+        text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
+        # Horizontal rules: --- or *** → remove
+        text = re.sub(r"^\s*[-*_]{3,}\s*$", "", text, flags=re.MULTILINE)
+        # Links: [text](url) → text
+        text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+        # Images: ![alt](url) → alt
+        text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
+        # HTML tags (basic)
+        text = re.sub(r"</?(?:p|br|div|span|strong|em|b|i|ul|ol|li)(?:\s[^>]*)?/?>", "", text, flags=re.IGNORECASE)
+        # Remove trailing whitespace on lines
+        text = re.sub(r"[ \t]+$", "", text, flags=re.MULTILINE)
+        return text
+
     def _clean_ai_response(self, content: str, max_length: int) -> str:
         cleaned = content or ""
         if self.strip_thinking_tags:
@@ -1285,6 +1345,7 @@ class LlmService:
                 cleaned,
                 flags=re.IGNORECASE | re.DOTALL,
             )
+        cleaned = self._strip_markdown(cleaned)
         cleaned = " ".join(cleaned.split()).strip()
 
         if not cleaned:
@@ -1353,7 +1414,7 @@ class LlmService:
         try:
             async with self._answer_lock:
                 response = await asyncio.to_thread(
-                    post_chat, self.endpoint, payload, min(self.timeout_seconds, 20.0)
+                    self._request_chat, self.endpoint, payload, min(self.timeout_seconds, 20.0)
                 )
             if response.status_code != 200:
                 self.logger.warning("Tool reformulation returned HTTP %s", response.status_code)
@@ -1394,7 +1455,7 @@ class LlmService:
             retry_payload["max_tokens"] = min(self.max_tokens, 96)
             async with self._answer_lock:
                 retry = await asyncio.to_thread(
-                    post_chat, self.endpoint, retry_payload, min(self.timeout_seconds, 20.0)
+                    self._request_chat, self.endpoint, retry_payload, min(self.timeout_seconds, 20.0)
                 )
             if retry.status_code == 200:
                 retry_content = retry.json()["choices"][0]["message"].get("content", "")
@@ -1552,7 +1613,7 @@ class LlmService:
 
         try:
             response = await asyncio.to_thread(
-                post_chat,
+                self._request_chat,
                 self.endpoint,
                 payload,
                 self.timeout_seconds,
@@ -1575,6 +1636,8 @@ class LlmService:
             finish_reason = choice.get("finish_reason")
             assistant_message = choice.get("message", {})
             content = assistant_message.get("content", "")
+            if content is None:
+                content = ""
             if not isinstance(content, str):
                 raise ValueError("Non-text model response")
             self.logger.debug(f"LLM raw response ({len(content)} chars): {repr(content)}")
@@ -1587,7 +1650,7 @@ class LlmService:
                 retry_payload["temperature"] = 0
                 self.logger.warning("LLM returned empty content; retrying once")
                 retry_response = await asyncio.to_thread(
-                    post_chat,
+                    self._request_chat,
                     self.endpoint,
                     retry_payload,
                     self.timeout_seconds,
@@ -1622,7 +1685,7 @@ class LlmService:
                     {"role": "assistant", "content": content},
                     {"role": "user", "content": f"Reformule ta réponse en une phrase complète de moins de {max_length} octets UTF-8, sans introduction."}]
                 try:
-                    response = await asyncio.to_thread(post_chat, self.endpoint, compact, self.timeout_seconds)
+                    response = await asyncio.to_thread(self._request_chat, self.endpoint, compact, self.timeout_seconds)
                     response.raise_for_status()
                     compact_choice = response.json()["choices"][0]
                     candidate = compact_choice["message"]["content"]
@@ -1631,6 +1694,7 @@ class LlmService:
                         finish_reason = compact_choice.get("finish_reason")
                 except (requests.RequestException, ValueError, KeyError, IndexError, TypeError):
                     self.logger.warning("Conversation compression unavailable; keeping complete sentences")
+            content = self._strip_markdown(content)
             cleaned = complete_reply(content, max_length, finish_reason=finish_reason)
             if user_key:
                 self._store_context(user_key, prompt, cleaned)

@@ -382,6 +382,7 @@ class WikiJsSource:
         max_section_chars: int = 4000,
         logger: Any | None = None,
         http_client: Any = requests,
+        io_monitor: Any | None = None,
     ) -> None:
         parsed = urlparse((site_url or "").strip())
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -402,6 +403,7 @@ class WikiJsSource:
         self.max_section_chars = max(500, int(max_section_chars))
         self.logger = logger or logging.getLogger(__name__)
         self.http_client = http_client
+        self.io_monitor = io_monitor
         self._refresh_lock = threading.Lock()
         self._last_attempt_monotonic: float | None = None
 
@@ -483,8 +485,16 @@ class WikiJsSource:
             return self._api_page_source(page)
         return self._guest_page_source(page)
 
+    def _atomic_write(self, path: Path, text: str) -> None:
+        try:
+            self._write_atomically(path, text)
+        except OSError as exc:
+            if self.io_monitor is not None:
+                self.io_monitor.report_write_failure(exc, path)
+            raise
+
     @staticmethod
-    def _atomic_write(path: Path, text: str) -> None:
+    def _write_atomically(path: Path, text: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary_name = ""
         try:
@@ -639,6 +649,7 @@ class LocalWikiRag:
         min_score: float = 6.0,
         relative_score: float = 0.55,
         fuzzy_ratio: float = 0.86,
+        min_matching_terms: int = 1,
         stopwords: Iterable[str] = (),
         aliases: dict[str, str] | None = None,
         source: WikiJsSource | None = None,
@@ -654,6 +665,7 @@ class LocalWikiRag:
         self.min_score = max(0.0, float(min_score))
         self.relative_score = max(0.0, min(1.0, float(relative_score)))
         self.fuzzy_ratio = max(0.5, min(1.0, float(fuzzy_ratio)))
+        self.min_matching_terms = max(1, min(8, int(min_matching_terms)))
         self.stopwords = DEFAULT_STOPWORDS | {_normalize_search(word) for word in stopwords if _normalize_search(word)}
         self.aliases = {
             _normalize_search(key): _normalize_search(value)
@@ -1038,6 +1050,10 @@ class LocalWikiRag:
             or (bool(re.search(r'(?m)^\s*```', section.content))
                 and not LocalWikiRag._diagram_section(section)))
 
+    def _matching_terms(self, query_terms, section):
+        words = set(self._tokenize(' '.join((section.page_title, section.section_title, section.path.replace('/', ' '), section.content))))
+        return set(query_terms) & words
+
     def retrieve(self, query: str) -> WikiRagResult | None:
         query_terms = self._tokenize(query)
         if not query_terms:
@@ -1067,6 +1083,8 @@ class LocalWikiRag:
             if diagram and not requests_diagram and not useful_table:
                 score *= 0.15
             if score > 0:
+                if self.min_matching_terms > 1 and len(set(query_terms)) > 1 and len(self._matching_terms(query_terms, section)) < self.min_matching_terms:
+                    continue
                 scored.append(WikiRagMatch(score=score, section=section))
                 key = self._page_key(section)
                 evidence = self._page_evidence(query_terms, section)
