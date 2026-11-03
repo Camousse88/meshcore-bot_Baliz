@@ -90,4 +90,4 @@ def test_upgrade_from_baliz_version_30_preserves_usage_data():
     assert conn.execute('SELECT * FROM assistant_function_usage').fetchall() == [(123, 'weather.forecast')]
     assert 'adverts_singlebyte_total' in {r[1] for r in conn.execute('PRAGMA table_info(daily_rollup)')}
     assert 'scope_verdict' in {r[1] for r in conn.execute('PRAGMA table_info(message_stats)')}
-    assert conn.execute('SELECT MAX(version) FROM schema_version').fetchone()[0] == 32
+    assert conn.execute('SELECT MAX(version) FROM schema_version').fetchone()[0] == 33

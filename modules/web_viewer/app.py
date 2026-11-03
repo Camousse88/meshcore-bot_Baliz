@@ -1061,7 +1061,7 @@ class BotDataViewer:
         @self.app.errorhandler(500)
         def internal_error(e):
             self.logger.exception("Unhandled exception (500): %s", e)
-            if request.path.startswith('/api/') or request.accept_mimetypes.best == 'application/json':
+            if request.path.startswith(('/api/', '/radio/api/')) or request.accept_mimetypes.best == 'application/json':
                 return make_response(jsonify({'error': 'An internal error occurred — see server logs'}), 500)
             return make_response(render_template('error.html',
                 error_code=500,
@@ -1090,6 +1090,8 @@ class BotDataViewer:
         # keys, config, logs, backups, or private message firehose.
         _PUBLIC_API_GET_PATHS = frozenset([
             '/api/health',
+            '/api/channels',
+            '/api/channels/live',
             '/api/banner-status',
             '/api/stats',
             '/api/dashboard/summary',
@@ -1147,7 +1149,7 @@ class BotDataViewer:
                 return
             if request.method in ('POST', 'OPTIONS') and path in _PUBLIC_API_POST_PATHS:
                 return
-            if path.startswith('/api/'):
+            if path.startswith(('/api/', '/radio/api/')):
                 return make_response(jsonify({'error': 'Admin authentication required'}), 401)
             return redirect(url_for('login', next=path))
 
@@ -1169,7 +1171,7 @@ class BotDataViewer:
                 return  # Login form uses traditional POST
             if request.headers.get('X-Requested-With'):
                 return  # Custom header present — same-origin or CORS-approved
-            if request.path.startswith('/api/'):
+            if request.path.startswith(('/api/', '/radio/api/')):
                 return make_response(
                     jsonify({'error': 'Missing X-Requested-With header'}), 403
                 )
@@ -4000,7 +4002,8 @@ class BotDataViewer:
                     for (data_json,) in rows:
                         try:
                             command_data = json.loads(data_json)
-                            commands.append(command_data)
+                            if self._can_publish_channel_data(command_data, command=True):
+                                commands.append(command_data)
                         except Exception as e:
                             self.logger.debug(f"Error parsing command data: {e}")
 
@@ -5230,7 +5233,7 @@ class BotDataViewer:
                 return jsonify({'error': str(e)}), 500
 
         # Channel management API endpoints
-        @self.app.route('/api/channels')
+        @self.app.route('/radio/api/channels')
         def api_channels():
             """Get all configured channels"""
             try:
@@ -5240,6 +5243,39 @@ class BotDataViewer:
                 self.logger.error(f"Error getting channels: {e}")
                 return jsonify({'error': str(e)}), 500
 
+        @self.app.route('/api/channels')
+        @self.app.route('/api/channels/live')
+        def api_live_channels():
+            channels = self._get_channels()
+            return jsonify({'channels': [
+                {k: channel[k] for k in ('name', 'type', 'decode_only') if k in channel}
+                for channel in channels if channel['live_messages_visible']
+            ]})
+
+        @self.app.route('/radio/api/channels/live-visibility', methods=['PUT'])
+        def api_channel_live_visibility():
+            data = request.get_json(silent=True) or {}
+            visible = data.get('live_messages_visible')
+            if type(visible) is not bool:
+                return jsonify({'error': 'live_messages_visible must be a boolean'}), 400
+            channel = next((c for c in self._get_channels()
+                if c['channel_idx'] == data.get('channel_idx')
+                and c['name'] == data.get('channel_name')), None)
+            if channel is None:
+                return jsonify({'error': 'Channel not found'}), 404
+            from modules.web_viewer.channel_visibility import channel_identity, set_visibility
+            identity = channel_identity(channel['name'], channel.get('key_hex'))
+            try:
+                with closing(self._get_db_connection()) as conn:
+                    set_visibility(conn, identity, visible)
+                    conn.commit()
+                self.socketio.emit('channel_visibility_changed', {})
+                return jsonify({'success': True, 'live_messages_visible': visible})
+            except (ValueError, sqlite3.Error):
+                self.logger.exception('Could not update channel web visibility')
+                return jsonify({'error': 'Could not save channel visibility'}), 500
+
+        @self.app.route('/radio/api/channels', methods=['POST'])
         @self.app.route('/api/channels', methods=['POST'])
         def api_create_channel():
             """Create a new channel (hashtag or custom)"""
@@ -5248,6 +5284,11 @@ class BotDataViewer:
                 if not data or 'name' not in data:
                     return jsonify({'error': 'Channel name is required'}), 400
 
+                visible = data.get('live_messages_visible', False)
+                if type(visible) is not bool:
+                    return jsonify({'error': 'live_messages_visible must be a boolean'}), 400
+                if visible and not request.path.startswith('/radio/'):
+                    return jsonify({'error': 'Use protected Radio management to publish channel messages'}), 403
                 channel_name = data.get('name', '').strip()
                 channel_idx = data.get('channel_idx')
                 channel_key = data.get('channel_key', '').strip()
@@ -5280,6 +5321,11 @@ class BotDataViewer:
                 result = self._add_channel_for_web(channel_idx, channel_name, channel_key if not is_hashtag else None)
 
                 if result.get('success'):
+                    from modules.web_viewer.channel_visibility import channel_identity, set_visibility
+                    identity = channel_identity(channel_name, None if is_hashtag else channel_key)
+                    with closing(self._get_db_connection()) as conn:
+                        set_visibility(conn, identity, visible)
+                        conn.commit()
                     if result.get('pending'):
                         # Operation is queued, return operation_id for polling
                         return jsonify({
@@ -5978,7 +6024,9 @@ class BotDataViewer:
                         rows = list(reversed(_cur.fetchall()))
                     for row in rows:
                         try:
-                            emit('command_data', json.loads(row['data']))
+                            command = json.loads(row['data'])
+                            if self._can_publish_channel_data(command, command=True):
+                                emit('command_data', command)
                         except (json.JSONDecodeError, KeyError, TypeError):
                             pass
                 except Exception as e:
@@ -6010,7 +6058,11 @@ class BotDataViewer:
                         try:
                             data = json.loads(row['data'])
                             evt = 'command_data' if row['type'] == 'command' else 'packet_data'
-                            emit(evt, data)
+                            if evt == 'packet_data':
+                                from modules.web_viewer.channel_visibility import encrypted_packet_view
+                                emit(evt, encrypted_packet_view(data))
+                            elif self._can_publish_channel_data(data, command=True):
+                                emit(evt, data)
                         except (json.JSONDecodeError, KeyError, TypeError):
                             pass
                 except Exception as e:
@@ -6052,7 +6104,9 @@ class BotDataViewer:
                         rows = list(reversed(_cur.fetchall()))
                     for row in rows:
                         try:
-                            emit('message_data', json.loads(row['data']))
+                            message = json.loads(row['data'])
+                            if self._can_publish_channel_data(message):
+                                emit('message_data', message)
                         except (json.JSONDecodeError, KeyError, TypeError):
                             pass
                 except Exception as e:
@@ -6129,8 +6183,19 @@ class BotDataViewer:
         if sids:
             self.logger.info(f"Logout disconnected {len(sids)} live socket(s)")
 
+    def _can_publish_channel_data(self, data, *, command=False):
+        from modules.web_viewer.channel_visibility import can_publish
+        try:
+            with closing(self._get_db_connection()) as conn:
+                return can_publish(conn, data, command=command)
+        except Exception:
+            self.logger.warning('Channel visibility unavailable; withholding web message')
+            return False
+
     def _handle_command_data(self, command_data):
         """Handle incoming command data from bot"""
+        if not self._can_publish_channel_data(command_data, command=True):
+            return
         try:
             # Broadcast to subscribed clients
             with self._clients_lock:
@@ -6147,6 +6212,8 @@ class BotDataViewer:
 
     def _handle_packet_data(self, packet_data):
         """Handle incoming packet data from bot"""
+        from modules.web_viewer.channel_visibility import encrypted_packet_view
+        packet_data = encrypted_packet_view(packet_data)
         try:
             # Broadcast to subscribed clients
             with self._clients_lock:
@@ -6194,6 +6261,8 @@ class BotDataViewer:
 
     def _handle_message_data(self, msg_data):
         """Broadcast a captured channel message to subscribed clients."""
+        if not self._can_publish_channel_data(msg_data, command=False):
+            return
         try:
             with self._clients_lock:
                 subscribed_clients = [
@@ -6201,7 +6270,8 @@ class BotDataViewer:
                     if client_info.get('subscribed_messages', False)
                 ]
             if subscribed_clients:
-                self.socketio.emit('message_data', msg_data, room=None)
+                for client_id in subscribed_clients:
+                    self.socketio.emit('message_data', msg_data, to=client_id)
         except Exception as e:
             self.logger.error(f"Error handling message data: {e}")
 
@@ -8944,6 +9014,10 @@ class BotDataViewer:
                     })
                     existing_names.add(normalized)
 
+            from modules.web_viewer.channel_visibility import channel_identity, permitted_ids
+            allowed = permitted_ids(conn)
+            for channel in channels:
+                channel['live_messages_visible'] = channel_identity(channel['name'], channel.get('key_hex')) in allowed
             return channels
         except Exception as e:
             self.logger.error(f"Error getting channels: {e}")

@@ -1526,7 +1526,7 @@ class TestRoleBasedAccess:
 
     def test_channels_api_stays_admin_only(self, auth_client):
         """Channel list includes key_hex — must never be anonymous."""
-        resp = auth_client.get("/api/channels")
+        resp = auth_client.get("/radio/api/channels")
         assert resp.status_code == 401
 
     def test_session_cookie_flags(self, auth_viewer):
@@ -4055,9 +4055,14 @@ class TestSubscribeMessagesHistoryReplay:
 
         from flask_socketio import SocketIOTestClient
 
+        from modules.web_viewer.channel_visibility import channel_identity, set_visibility
+        identity = channel_identity('#test', 'ab' * 16)
+        with sqlite3.connect(socketio_viewer.db_path) as conn:
+            conn.execute("INSERT INTO channels(channel_idx,channel_name,channel_type,channel_key_hex) VALUES(1,'#test','custom',?)", ('ab'*16,))
+            set_visibility(conn, identity, True)
         now = _time.time()
         rows = [
-            (now - 10 + i, _json.dumps({"content": f"hello{i}", "seq": i}), "message")
+            (now - 10 + i, _json.dumps({"content": f"hello{i}", "seq": i, "channel":"#test", "channel_visibility_id":identity}), "message")
             for i in range(4)
         ]
         _insert_packet_stream_rows(socketio_viewer.db_path, rows)
@@ -4154,11 +4159,16 @@ class TestSubscribeMessagesHistoryReplay:
 
         from flask_socketio import SocketIOTestClient
 
+        from modules.web_viewer.channel_visibility import channel_identity, set_visibility
+        identity = channel_identity('#test', 'ab' * 16)
+        with sqlite3.connect(socketio_viewer.db_path) as conn:
+            conn.execute("INSERT INTO channels(channel_idx,channel_name,channel_type,channel_key_hex) VALUES(1,'#test','custom',?)", ('ab'*16,))
+            set_visibility(conn, identity, True)
         now = _time.time()
         rows = [
-            (now - 30, _json.dumps({"seq": 0}), "message"),
-            (now - 15, _json.dumps({"seq": 1}), "message"),
-            (now - 5, _json.dumps({"seq": 2}), "message"),
+            (now - 30, _json.dumps({"seq": 0, "channel":"#test", "channel_visibility_id":identity}), "message"),
+            (now - 15, _json.dumps({"seq": 1, "channel":"#test", "channel_visibility_id":identity}), "message"),
+            (now - 5, _json.dumps({"seq": 2, "channel":"#test", "channel_visibility_id":identity}), "message"),
         ]
         _insert_packet_stream_rows(socketio_viewer.db_path, rows)
 
@@ -4177,9 +4187,14 @@ class TestSubscribeMessagesHistoryReplay:
 
         from flask_socketio import SocketIOTestClient
 
+        from modules.web_viewer.channel_visibility import channel_identity, set_visibility
+        identity = channel_identity('#test', 'ab' * 16)
+        with sqlite3.connect(socketio_viewer.db_path) as conn:
+            conn.execute("INSERT INTO channels(channel_idx,channel_name,channel_type,channel_key_hex) VALUES(1,'#test','custom',?)", ('ab'*16,))
+            set_visibility(conn, identity, True)
         now = _time.time()
         rows = [
-            (now - (100 - i), _json.dumps({"seq": i}), "message")
+            (now - (100 - i), _json.dumps({"seq": i, "channel":"#test", "channel_visibility_id":identity}), "message")
             for i in range(60)
         ]
         _insert_packet_stream_rows(socketio_viewer.db_path, rows)

@@ -1006,6 +1006,13 @@ def _m0028_battery_observations(cursor: sqlite3.Cursor) -> None:
 
 MigrationEntry = tuple[int, str, Callable[[sqlite3.Cursor], None]]
 
+def _m0033_channel_web_visibility(cursor: sqlite3.Cursor) -> None:
+    cursor.execute("""CREATE TABLE IF NOT EXISTS channel_web_visibility (
+        channel_identity TEXT PRIMARY KEY,
+        live_messages_visible INTEGER NOT NULL DEFAULT 0 CHECK(live_messages_visible IN (0,1))
+    )""")
+
+
 def _m0030_assistant_function_usage(cursor: sqlite3.Cursor) -> None:
     cursor.execute("CREATE TABLE IF NOT EXISTS assistant_function_usage (timestamp REAL NOT NULL, function TEXT NOT NULL)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_assistant_function_usage_time ON assistant_function_usage(timestamp)")
@@ -1044,6 +1051,7 @@ MIGRATIONS: list[MigrationEntry] = [
     (30, "assistant function usage", _m0030_assistant_function_usage),
     (31, "daily_rollup: single-byte repeater advert total", _m0030_daily_rollup_singlebyte_advert_total),
     (32, "message_stats: scope_verdict", _m0031_message_stats_scope_verdict),
+    (33, "per-channel web message visibility", _m0033_channel_web_visibility),
 ]
 
 
