@@ -127,6 +127,10 @@ semantic versioning.
 
 ### Fixed
 
+- Baliz weather replies keep the location returned by the weather provider.
+  Remove the Brest-specific reformulation example and reject prose that changes
+  or omits the source location, using the factual forecast as fallback.
+
 - The Web Viewer Test DM panel now answers keyword-matched triggers. It called
   `command.execute()` only, so `help` and plain keyword replies produced an empty
   response; the keyword path runs first, and commands that handle their own reply

@@ -58,6 +58,14 @@ def model_reply(text):
     return response
 
 
+def weather_plan(commands, question, location, period):
+    """Mock only the catalogue LLM, retaining the real weather dispatcher."""
+    from modules.assistant.router import Decision, Route
+    commands["ask"].dispatcher.semantic_router.decide = AsyncMock(return_value=Decision(
+        Route.WEATHER, question, "catalog", "forecast", {"location": location, "period": period}
+    ))
+
+
 async def test_baliz_alias_routes_network_to_mesh_only(command_mock_bot):
     commands, sent = setup_bot(command_mock_bot)
     commands["mesh"].service.answer = AsyncMock(return_value="4 répéteurs actifs")
@@ -74,6 +82,7 @@ async def test_baliz_alias_routes_network_to_mesh_only(command_mock_bot):
 
 async def test_baliz_routes_natural_weather_question_to_hidden_wx(command_mock_bot):
     commands, sent = setup_bot(command_mock_bot)
+    weather_plan(commands, "quelle météo demain à Brest ?", "brest", "tomorrow")
     assert commands["wx"].wx_enabled is False
     commands["llm"].service.rephrase_tool_result = AsyncMock(
         return_value="Demain à Brest, ciel couvert, de 14 à 16 °C."
@@ -85,7 +94,8 @@ async def test_baliz_routes_natural_weather_question_to_hidden_wx(command_mock_b
         return True
 
     commands["wx"].execute = AsyncMock(side_effect=weather)
-    await commands["ask"].execute(mock_message(content="baliz quelle météo demain à Brest ?"))
+    message = mock_message(content="baliz quelle météo demain à Brest ?")
+    await commands["ask"].execute(message)
     assert sent[0][1] == "Demain à Brest, ciel couvert, de 14 à 16 °C."
     commands["llm"].service.rephrase_tool_result.assert_awaited_once()
     rephrase = commands["llm"].service.rephrase_tool_result.await_args
@@ -95,11 +105,12 @@ async def test_baliz_routes_natural_weather_question_to_hidden_wx(command_mock_b
     assert "dans une formulation naturelle" in rephrase.kwargs["context"]
     assert "comme une plage" in rephrase.kwargs["context"]
     assert "seulement pour la période demandée" in rephrase.kwargs["context"]
-    assert rephrase.kwargs["max_length"] == 135
+    assert rephrase.kwargs["max_length"] == commands["ask"].get_max_message_length(message)
 
 
 async def test_weather_reply_is_always_one_mesh_message(command_mock_bot):
     commands, sent = setup_bot(command_mock_bot)
+    weather_plan(commands, "quelle météo demain à Brest ?", "brest", "tomorrow")
     commands["llm"].service.rephrase_tool_result = AsyncMock(
         return_value=(
             "Brest : couvert, T° Max 21°C, T° Min 13°C, Vent 17 km/h, Raf. 36 km/h."
@@ -205,8 +216,9 @@ def test_tomorrow_weather_source_is_preserved():
     assert AssistantDispatcher._select_weather_period("météo demain à Brest", source) == source
 
 
-async def test_weather_keeps_raw_tool_data_when_llm_rephrase_fails(command_mock_bot):
+async def test_weather_keeps_factual_tool_data_when_llm_rephrase_fails(command_mock_bot):
     commands, sent = setup_bot(command_mock_bot)
+    weather_plan(commands, "quelle météo demain à Brest ?", "brest", "tomorrow")
     commands["llm"].service.rephrase_tool_result = AsyncMock(return_value=None)
 
     async def weather(message):
@@ -215,7 +227,10 @@ async def test_weather_keeps_raw_tool_data_when_llm_rephrase_fails(command_mock_
 
     commands["wx"].execute = AsyncMock(side_effect=weather)
     await commands["ask"].execute(mock_message(content="baliz quelle météo demain à Brest ?"))
-    assert sent[0][1] == "Brest, FR: Demain: Couvert H:16°C L:14°C 12G25"
+    answer = sent[0][1]
+    for fact in ("Brest", "Demain", "Couvert", "16°C", "14°C", "12 mph", "25 mph"):
+        assert fact in answer
+    assert len(answer.encode("utf-8")) <= commands["ask"].get_max_message_length(sent[0][0])
 
 
 async def test_tool_rephrase_accepts_grounded_values_and_rejects_changed_values(command_mock_bot):

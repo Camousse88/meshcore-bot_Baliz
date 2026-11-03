@@ -311,6 +311,18 @@ class AssistantDispatcher:
         return f"{label} :{tail}"
 
     @staticmethod
+    def _weather_source_location(source: str) -> str:
+        """Read the provider's location heading; never infer a place from prose."""
+        heading, separator, _ = source.partition(":")
+        if not separator:
+            return ""
+        location = heading.split(",", 1)[0].strip()
+        period = r"aujourd['’]hui|demain|today|tomorrow"
+        if re.fullmatch(period, location, flags=re.IGNORECASE):
+            return ""
+        return re.sub(r"\s+(?:" + period + r")$", "", location, flags=re.IGNORECASE).strip()
+
+    @staticmethod
     def _weather_fallback(source: str, budget: int) -> str:
         """Fit complete factual clauses instead of slicing expanded labels."""
         text = re.sub(r"température actuelle\s*:\s*", "", source, flags=re.I)
@@ -367,6 +379,7 @@ class AssistantDispatcher:
         # Tool data remains authoritative. The LLM only turns the compact wx
         # notation into natural language; any error or altered value falls back
         # to the original forecast.
+        source_location = self._weather_source_location(raw_answer)
         llm = self._command("llm")
         if self._allowed(llm, message, service=True):
             provider = getattr(command, "delegate_command", None)
@@ -375,9 +388,9 @@ class AssistantDispatcher:
             requested_answer = self._select_weather_period(question, raw_answer)
             labelled_answer = self._expand_weather_notation(requested_answer, wind_unit)
             location_context = (
-                f"Le lieu à afficher est exactement « {default_display_location} » : "
+                f"Le lieu à afficher est exactement « {source_location} » : "
                 "conserve-le et n'en invente aucun autre. "
-                if uses_default_location else ""
+                if source_location else ""
             )
             context = (
                 "H signifie température maximale et L température minimale. "
@@ -386,9 +399,8 @@ class AssistantDispatcher:
                 f"Une notation comme 17G36 signifie vent 17 et rafales 36 en {wind_label}. "
                 "Ces valeurs ne désignent jamais une température intérieure ou extérieure. "
                 "Réponds seulement pour la période demandée, dans une formulation naturelle. "
-                "Présente les températures minimale et maximale comme une plage. Exemple de forme : "
-                "À Brest aujourd'hui : ciel couvert, 16°C, de 13 à 27°C. "
-                "Vent d'est à 8 km/h, rafales à 13 km/h, humidité 82 %. "
+                "Présente les températures minimale et maximale comme une plage. "
+                "Commence par le lieu et la période des données météo. "
                 + location_context
                 +
                 "Aucun emoji, aucune liste de champs, aucun code météo brut, "
@@ -401,6 +413,12 @@ class AssistantDispatcher:
                 context=context,
                 max_length=self.owner.get_max_message_length(message),
             )
+            if reformulated and source_location:
+                from .catalog import grounded_place
+                heading = reformulated.partition(":")[0]
+                if not grounded_place(source_location, heading):
+                    self.owner.logger.warning("Weather reformulation changed or omitted source location")
+                    reformulated = None
             if reformulated and "humidité" in reformulated.casefold() and "humidité" not in labelled_answer.casefold():
                 self.owner.logger.warning("Weather reformulation confused rain probability with humidity")
                 reformulated = None
