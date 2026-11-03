@@ -666,7 +666,8 @@ class MessageHandler:
             self.logger.debug(f"Payload keys: {list(payload.keys())}")
             self.logger.debug("Contact message metadata received")
 
-            self.logger.info("📡 PRIVATE MESSAGE: UNKNOWN | Type: TXT_MSG | Bytes: %d", len(str(payload.get('text', '')).encode('utf-8')))
+            body_bytes = len(str(payload.get("text", "")).encode("utf-8"))
+            self.logger.info("📡 PRIVATE MESSAGE: UNKNOWN | Type: TXT_MSG | Bytes: %d", body_bytes)
 
             # Extract path information from contacts using pubkey_prefix
             path_info = "Unknown"
