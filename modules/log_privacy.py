@@ -5,8 +5,6 @@ import re
 
 _ROUTES = {'UNKNOWN', 'TRANSPORT_FLOOD', 'TRANSPORT_DIRECT', 'FLOOD', 'DIRECT',
            'TRANSPORT_SCOPED_FLOOD', 'TRANSPORT_TRANSPORT'}
-_PAYLOADS = {'TXT_MSG', 'GRP_TXT', 'GRP_DATA', 'REQ', 'RESPONSE', 'ACK', 'ADVERT',
-             'ANON_REQ', 'PATH', 'TRACE', 'MULTIPART', 'RAW_CUSTOM', 'UNKNOWN'}
 _ANSI = re.compile(r'\x1b\[[0-9;]*m')
 _PREFIX = re.compile(r'^(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d+Z?)?) - ([A-Za-z0-9_.-]+) - (DEBUG|INFO|WARNING|ERROR|CRITICAL) - (.*)$')
 
@@ -36,41 +34,106 @@ def message_metadata(message):
     return result
 
 
-def _safe_radio_body(body):
-    """Reconstruct radio metadata from a closed grammar, never forward free text."""
-    direct = re.fullmatch(r'📡 (DIRECT|CHANNEL|PRIVATE) MESSAGE: ([A-Z_]+) \| Type: ([A-Z_]+)((?: \| (?:Hops|SNR|RSSI|Bytes): -?\d+(?:\.\d+)?(?: dB| dBm)?)*)(?: \| Contenu masqué)?', body)
-    if direct and direct[2] in _ROUTES and direct[3] in _PAYLOADS:
-        kind = 'CHANNEL' if direct[3] == 'GRP_TXT' else direct[1]
-        return f'📡 {kind} MESSAGE: {direct[2]} | Type: {direct[3]}{direct[4]}'
-    routing = re.fullmatch(r'🛣️\s+ROUTING INFO: ([A-Z_]+) \| Path: ([0-9a-fA-F,]+) \((\d+) hops, (\d+) bytes\) \| Payload: (\d+) bytes \| Type: ([A-Z_]+)', body)
-    if routing and routing[1] in _ROUTES and routing[6] in _PAYLOADS:
-        return f'🛣️ ROUTING INFO: {routing[1]} | Path: {routing[2]} ({routing[3]} hops, {routing[4]} bytes) | Payload: {routing[5]} bytes | Type: {routing[6]}'
-    # Accept the canonical projection too (e.g. re-reading an exported log).
-    if body == 'Connexion radio établie' or re.fullmatch(r'DB migration \d{4} applied', body):
-        return body
-    # Closed, argument-free diagnostic counters remain useful on the web.
+_MASK = '[contenu masqué]'
+# Match field names, not words inside technical descriptions (e.g. payload size).
+# Packet bytes/hex, paths, hashes, public keys and RF measurements stay visible.
+_SENSITIVE_KEYS = (
+    r'text|content|original_content|message_content|message|messages|prompt|'
+    r'question|answer|query|arguments|server_decrypted\w*|decrypted_text|'
+    r'decrypted_message|decrypted_payload|private_key|channel_key|channel_key_hex|key_hex|secret_key|secret|psk|'
+    r'api_key|password|access_token|token|jwt'
+)
+_FIELDS = re.compile(
+    r"(?P<label>['\"](?:" + _SENSITIVE_KEYS + r")['\"]\s*:\s*|"
+    r"\b(?:" + _SENSITIVE_KEYS + r")\s*=\s*)", re.IGNORECASE
+)
+# Old log files and optional plugins can contain free-text conversation dumps.
+# Keep the useful label, but never replay that dump to the browser.
+_BODY_DUMP = re.compile(
+    r"(?P<label>\b(?:Processing message|Extracted (?:message )?content|"
+    r"(?:Path|Repeater) command executed with content|"
+    r"LLM (?:prompt|raw response|response|retry response|cleaned response)(?:[^:]*?)|"
+    r"Mesh service (?:generated SQL|repaired SQL|SQL results)|"
+    r"Formatted mesh info text|Shlink response|"
+    r"Processing scheduled message|Invalid scheduled message format|"
+    r"(?:Queued message for|Posted to) (?:Discord|Telegram)[^:]*|"
+    r"Announcement sent to [^:]*|Rain nowcast[^:]*sent to [^:]*|"
+    r"Lightning alert sent|World Cup live update|JWT Payload|"
+    r"(?:message content|message_content|text|content|prompt|question|answer)"
+    r")\s*:\s*)", re.IGNORECASE
+)
+_RECEIVED_DUMP = re.compile(
+    r"^(?:Received (?:channel |private |DM )?message\b|"
+    r"Sending channel message to\b).*:", re.IGNORECASE
+)
+
+
+def _value_end(body, start):
+    """Find a Python/JSON field value without splitting escaped or nested text.
+
+    Unknown/unquoted values consume the rest of the line: old debug reprs are
+    sometimes truncated, and retaining their remainder could leak message text.
+    """
+    if start >= len(body):
+        return start
+    opening = body[start]
+    if opening not in "\"'{[(":
+        return len(body)
+    quote = None
+    escaped = False
+    stack = []
+    for pos in range(start, len(body)):
+        char = body[pos]
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+                if not stack:
+                    return pos + 1
+        elif char in "\"'":
+            quote = char
+        elif char in '{[(':
+            stack.append({'{': '}', '[': ']', '(': ')'}[char])
+        elif stack and char == stack[-1]:
+            stack.pop()
+            if not stack:
+                return pos + 1
+    return len(body)
+
+
+def _redact_fields(body):
+    parts = []
+    cursor = 0
+    while match := _FIELDS.search(body, cursor):
+        parts.extend((body[cursor:match.end()], repr(_MASK)))
+        cursor = _value_end(body, match.end())
+    parts.append(body[cursor:])
+    return ''.join(parts)
+
+
+def _web_body(body):
+    # Keep current metadata and the legacy zero-hop radio label readable.
+    if body.startswith('📡 DIRECT MESSAGE:') and re.search(r'\| Type: GRP_(?:TXT|DATA)\b', body):
+        body = body.replace('📡 DIRECT MESSAGE:', '📡 CHANNEL MESSAGE:', 1)
+    if _RECEIVED_DUMP.match(body):
+        return body.split(':', 1)[0] + ': ' + _MASK
     if re.fullmatch(r'Catalog tokens prompt=\d+ cached=\d+ completion=\d+', body):
         return body
-    if re.fullmatch(r'(?:Catalog selected|Assistant) route=(?:mesh|llm|wiki|weather|test|path) operation=(?:summary|hfcond|relay_connectivity|count_nodes|count_repeaters|list_repeaters|onebyte|near|stats|neighbors|trace|advert|unsupported|forecast|lookup|clarify|chat|receive|message)(?: elapsed=\d+(?:\.\d+)?s| reason=catalog)', body):
-        return body
-    if re.fullmatch(r'(?:LLM request prepared|LLM visible response received|LLM retry response received|LLM Wiki response cleaned) \(\d+ characters\)', body):
-        return body
-    if re.fullmatch(r'Sending channel message \| Channel index: \d+ \| Bytes: \d+', body):
-        return body
-    migration = re.fullmatch(r'DB migration (\d{4}) applied: .*', body)
-    if migration:
-        return 'DB migration ' + migration[1] + ' applied'
-    if body.startswith('Connected to:'):
-        return 'Connexion radio établie'
-    return None
+    dump = _BODY_DUMP.search(body)
+    if dump:
+        return _redact_fields(body[:dump.end()]) + _MASK
+    return _redact_fields(body)
 
 
 def web_log_line(line):
-    """A metadata-only projection for both new log lines and legacy history.
+    """Keep technical logs readable; remove conversation fields and legacy dumps.
 
-    Unknown/unstructured lines are not trusted to be free of plaintext: retain
-    their timestamp/severity, but leave their details in the local technical log.
-    Continuations are withheld, including traceback messages and multiline input.
+    The same targeted redaction applies to live lines and history. Unprefixed
+    continuations are withheld because they may belong to a multiline message.
+    This is not an allowlist of technical events: new diagnostic lines survive.
     """
     line = _ANSI.sub('', str(line)).rstrip('\r\n')
     if line.startswith('{'):
@@ -82,9 +145,4 @@ def web_log_line(line):
     match = _PREFIX.fullmatch(line)
     if not match:
         return None
-    logger = match[2].split('.')[0]
-    if logger not in {'MeshCoreBot','meshcore','meshcore_cli','modern_web_viewer','apscheduler','root'}:
-        logger = 'technical'
-    prefix = f'{match[1]} - {logger} - {match[3]} - '
-    body = _safe_radio_body(match[4])
-    return prefix + (body or 'Événement technique — détail réservé aux logs locaux')
+    return f'{match[1]} - {match[2]} - {match[3]} - ' + _web_body(match[4])

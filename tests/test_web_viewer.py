@@ -1469,7 +1469,7 @@ class TestRoleBasedAccess:
             "/api/config/logging",
             "/api/maintenance/status",
             "/api/radio/status",
-            "/api/channels",
+            "/radio/api/channels",
             "/api/recent_commands",
             "/api/logs",
         ]
@@ -1557,7 +1557,7 @@ class TestRoleBasedAccess:
             assert resp.status_code in (200, 503), f"HEAD {path} should be public"
 
     def test_head_on_admin_paths_still_requires_auth(self, auth_client):
-        assert auth_client.head("/api/channels").status_code == 401
+        assert auth_client.head("/radio/api/channels").status_code == 401
         assert auth_client.head("/logs").status_code == 302
 
     @pytest.mark.parametrize("target", [

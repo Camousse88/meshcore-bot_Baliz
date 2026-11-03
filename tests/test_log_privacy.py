@@ -1,7 +1,6 @@
-"""No conversational content leaves the bot through the web log stream."""
+"""Conversation redaction must preserve useful technical and packet diagnostics."""
 import json
 import logging
-from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import flask_socketio
@@ -22,19 +21,17 @@ PREFIX = '2026-11-03 09:25:50 - MeshCoreBot - INFO - '
     "Channel message payload: {'text': 'CONFIDENTIAL'}",
     "LLM prompt: CONFIDENTIAL",
     "LLM raw response (12 chars): 'CONFIDENTIAL'",
-    "Unknown new component prints CONFIDENTIAL",
-    '2026-11-03 INFO CONFIDENTIAL',
 ])
-def test_legacy_and_unknown_log_bodies_are_not_published(body):
+def test_legacy_conversation_log_bodies_are_not_published(body):
     result = web_log_line(PREFIX+body)
     assert 'CONFIDENTIAL' not in (result or '')
     assert result.startswith(PREFIX)
 
 
-def test_only_closed_radio_metadata_is_preserved():
+def test_radio_metadata_survives_with_only_the_text_redacted():
     raw = PREFIX+'📡 DIRECT MESSAGE: TRANSPORT_FLOOD | Type: GRP_TXT'
     assert web_log_line(raw)==PREFIX+'📡 CHANNEL MESSAGE: TRANSPORT_FLOOD | Type: GRP_TXT'
-    assert web_log_line(raw+' | text: CONFIDENTIAL')==PREFIX+'Événement technique — détail réservé aux logs locaux'
+    assert web_log_line(raw+' | text: CONFIDENTIAL')==PREFIX+'📡 CHANNEL MESSAGE: TRANSPORT_FLOOD | Type: GRP_TXT | text: [contenu masqué]'
     route = '🛣️  ROUTING INFO: TRANSPORT_FLOOD | Path: aabb,ccdd (2 hops, 4 bytes) | Payload: 81 bytes | Type: GRP_TXT'
     assert 'Path: aabb,ccdd' in web_log_line(PREFIX+route)
     assert web_log_line('    CONFIDENTIAL traceback continuation') is None
@@ -42,10 +39,10 @@ def test_only_closed_radio_metadata_is_preserved():
 
 
 def test_json_logs_and_ansi_are_filtered_too():
-    data = dict(timestamp='2026-11-03T09:25:50.123Z',logger='MeshCoreBot',level='DEBUG',message='CONFIDENTIAL',exc_info='CONFIDENTIAL traceback')
+    data = dict(timestamp='2026-11-03T09:25:50.123Z',logger='MeshCoreBot',level='DEBUG',message='LLM prompt: CONFIDENTIAL',exc_info='CONFIDENTIAL traceback')
     result = web_log_line(json.dumps(data))
     assert result and 'CONFIDENTIAL' not in result
-    assert 'CONFIDENTIAL' not in web_log_line('\x1b[32m'+PREFIX+'CONFIDENTIAL\x1b[0m')
+    assert 'CONFIDENTIAL' not in web_log_line('\x1b[32m'+PREFIX+'Processing message: CONFIDENTIAL\x1b[0m')
 
 
 def test_metadata_keeps_analysis_dimensions_without_body_or_sender():
@@ -93,7 +90,8 @@ def test_log_history_and_live_stream_never_publish_plaintext(socketio_viewer,tmp
     viewer=socketio_viewer
     logfile=tmp_path/'bot.log'
     safe=PREFIX+'📡 CHANNEL MESSAGE: TRANSPORT_FLOOD | Type: GRP_TXT'
-    logfile.write_text(PREFIX+"Processing message: 'CONFIDENTIAL'\n"+'CONFIDENTIAL continuation\n'+safe+'\n')
+    diagnostic=PREFIX+'Contacts loaded: 327 contacts'
+    logfile.write_text(PREFIX+"Processing message: 'CONFIDENTIAL'\n"+'CONFIDENTIAL continuation\n'+safe+'\n'+diagnostic+'\n')
     if not viewer.config.has_section('Logging'):viewer.config.add_section('Logging')
     viewer.config.set('Logging','log_file',str(logfile))
     subscriber=flask_socketio.SocketIOTestClient(viewer.app,viewer.socketio)
@@ -101,10 +99,12 @@ def test_log_history_and_live_stream_never_publish_plaintext(socketio_viewer,tmp
     subscriber.get_received();bystander.get_received()
     subscriber.emit('subscribe_logs')
     history=[e['args'][0]['line'] for e in subscriber.get_received() if e['name']=='log_line']
-    assert safe in history and 'CONFIDENTIAL' not in json.dumps(history)
+    assert safe in history and diagnostic in history and 'CONFIDENTIAL' not in json.dumps(history)
     viewer._handle_log_line(PREFIX+'LLM response: CONFIDENTIAL')
+    viewer._handle_log_line(diagnostic)
     live=[e for e in subscriber.get_received() if e['name']=='log_line']
     assert live and 'CONFIDENTIAL' not in json.dumps(live)
+    assert any(event['args'][0]['line']==diagnostic for event in live)
     assert not any(e['name']=='log_line' for e in bystander.get_received())
 
 
@@ -120,7 +120,7 @@ def test_argument_free_diagnostics_are_preserved(body):
 
 
 @pytest.mark.parametrize('body',[
-    'Connected to: CONFIDENTIAL configuration',
+    "Connected to: {'name': 'Baliz', 'radio_freq': 869.618}",
     'DB migration 0033 applied: internal description',
     'Processing message: CONFIDENTIAL',
     '📡 DIRECT MESSAGE: TRANSPORT_FLOOD | Type: GRP_TXT',
@@ -129,3 +129,68 @@ def test_projection_is_stable_when_read_again(body):
     projected=web_log_line(PREFIX+body)
     assert web_log_line(projected)==projected
     assert 'CONFIDENTIAL' not in projected
+
+
+@pytest.mark.parametrize('body', [
+    'Contacts loaded: 327 contacts',
+    'Loaded 1349 graph edges from database',
+    'Config warning: [Llm_Command] legacy key public_enabled is redundant',
+    'New diagnostic: serial port reconnect in 5 seconds',
+    'Error handling RF log data: invalid packet header',
+    'Connected to: {"name": "Baliz", "radio_freq": 869.618, "radio_sf": 8}',
+    'DB migration 0033 applied: channel visibility preferences',
+    '🛣️  ROUTING INFO: TRANSPORT_FLOOD | Trace route: aabb,ccdd | Trace SNR (dB): -4.50,2.00 (2 route hops, 2 RF path bytes) | Payload: 81 bytes | Type: TRACE',
+    "📡 Tracked Repeater: Goariva (48.6, -3.5) via 2 hops",
+    "📦 RAW_DATA EVENT RECEIVED: {'data': 'deadbeef', 'snr': -4.5, 'rssi': -110}",
+    "Decoded packet: {'payload_hex': '00112233', 'path': ['aa', 'bb'], 'payload_type': 'GRP_TXT'}",
+    'Full RF data: deadbeef00112233',
+    'Scope matched: fr-bre | Hops: 3',
+])
+def test_technical_and_packet_diagnostics_are_not_masked(body):
+    assert web_log_line(PREFIX+body)==PREFIX+body
+
+
+@pytest.mark.parametrize('body', [
+    "Channel message payload: {'channel_idx': 2, 'text': 'CONFIDENTIAL', 'snr': -4.5}",
+    'Event: {"payload": {"text": "CONFIDENTIAL", "path_len": 3}, "rssi": -110}',
+    "Event(payload={'text': 'CONFIDENTIAL', 'path_len': 3}, type=EventType.CHANNEL_MSG)",
+    "Event: {'content': 'CONFIDENTIAL', 'original_content': 'CONFIDENTIAL', 'snr': -4.5}",
+    "Packet: {'path_len': 3, 'server_decrypted': {'message': 'CONFIDENTIAL'}, 'rssi': -110}",
+    "Prompt payload: {'messages': [{'role': 'user', 'content': 'CONFIDENTIAL'}], 'temperature': 0}",
+    "Event: {'text': 'CONFIDENTIAL \\'quoted\\' text', 'snr': -4.5}",
+    "Event: {'text': 'CONFIDENTIAL unclosed string",
+    "Event: {'arguments': {'question': 'CONFIDENTIAL'}, 'snr': -4.5}",
+    'Event: content="CONFIDENTIAL" | Hops: 3',
+])
+def test_nested_message_fields_are_masked_and_projection_is_stable(body):
+    result=web_log_line(PREFIX+body)
+    assert 'CONFIDENTIAL' not in result
+    assert '[contenu masqué]' in result
+    assert web_log_line(result)==result
+    if "'snr': -4.5" in body:
+        assert "'snr': -4.5" in result
+    if "'rssi': -110" in body:
+        assert "'rssi': -110" in result
+
+
+@pytest.mark.parametrize('body', [
+    'Path command executed with content: CONFIDENTIAL',
+    'Repeater command executed with content: CONFIDENTIAL',
+    'Posted to Discord [channel]: CONFIDENTIAL...',
+    'Queued message for Telegram [channel]: CONFIDENTIAL...',
+    'Processing scheduled message: CONFIDENTIAL',
+    'Mesh service SQL results: CONFIDENTIAL',
+    'LLM retry response (12 chars): CONFIDENTIAL',
+])
+def test_old_plugin_and_llm_dumps_remain_private(body):
+    result=web_log_line(PREFIX+body)
+    assert 'CONFIDENTIAL' not in result
+    assert '[contenu masqué]' in result
+
+
+def test_hidden_keys_are_not_reintroduced_when_technical_logs_are_restored():
+    body="Config: {'channel_key': 'CONFIDENTIAL', 'public_key': 'aabbcc', 'radio_freq': 869.618}"
+    result=web_log_line(PREFIX+body)
+    assert 'CONFIDENTIAL' not in result
+    assert "'public_key': 'aabbcc'" in result
+    assert "'radio_freq': 869.618" in result

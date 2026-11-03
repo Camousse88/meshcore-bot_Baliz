@@ -46,11 +46,18 @@ texte des échanges dans leurs messages de log courants. Les métadonnées techn
 exploitables. Le traitement utilise toujours le message original : les fonctions
 du bot et les statistiques ne dépendent pas du texte affiché dans les logs.
 
-La diffusion des logs web, en direct comme en historique, est une projection à
-schéma fermé : seuls les champs techniques et diagnostics explicitement reconnus
-sont conservés. Le détail des autres lignes reste local. Cette règle protège aussi
-les anciennes lignes de logs contenant des messages, des réponses, des prompts,
-des erreurs ou du texte sur plusieurs lignes.
+La diffusion des logs web, en direct comme en historique, masque de façon ciblée
+les champs de texte des messages, les prompts/réponses LLM et les anciennes lignes
+qui recopiaient ces contenus. Les autres diagnostics restent lisibles : démarrage,
+connexions, erreurs, annonces, statistiques, routage, paquets et données radio
+brutes/chiffrées. Les champs de texte sont également masqués dans les structures
+imbriquées des logs de débogage. Les continuations sans en-tête sont ignorées pour
+ne pas republier la suite d'un message sur plusieurs lignes.
+
+Ce filtre n'est pas une liste fermée d'événements autorisés : les nouveaux
+diagnostics techniques ne sont pas remplacés par une ligne générique. Tout nouveau
+composant qui journalise le texte d'un échange doit utiliser les métadonnées du
+message ou déclarer un champ de contenu reconnu par le filtre.
 
 La case d'un canal autorise la publication dans Live Channel Messages ; elle
 n'active pas une seconde copie des conversations dans les logs. Les anciens fichiers

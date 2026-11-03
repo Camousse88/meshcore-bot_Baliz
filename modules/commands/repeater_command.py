@@ -7,6 +7,7 @@ Provides commands to manage repeater contacts and purging operations
 import asyncio
 
 from ..models import MeshMessage
+from ..log_privacy import message_metadata
 from .base_command import BaseCommand
 
 
@@ -85,7 +86,7 @@ class RepeaterCommand(BaseCommand):
         Returns:
             bool: True if executed successfully, False otherwise.
         """
-        self.logger.info(f"Repeater command executed with content: {message.content}")
+        self.logger.info("Repeater command executed | %s", message_metadata(message))
 
         # Parse the message content to extract subcommand and args
         content = message.content.strip()
