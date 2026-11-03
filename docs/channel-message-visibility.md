@@ -36,3 +36,24 @@ et protéger les clés et journaux locaux.
 
 La migration 33 ajoute une table indépendante : la synchronisation des canaux depuis
 la radio n'efface pas les préférences d'affichage.
+
+
+## Logs : métadonnées, pas archive de conversations
+
+La réception, le traitement, les envois de canal et le LLM ne recopient plus le
+texte des échanges dans leurs messages de log courants. Les métadonnées techniques
+(type, routage, sauts, SNR/RSSI et taille lorsqu'ils sont disponibles) restent
+exploitables. Le traitement utilise toujours le message original : les fonctions
+du bot et les statistiques ne dépendent pas du texte affiché dans les logs.
+
+La diffusion des logs web, en direct comme en historique, est une projection à
+schéma fermé : seuls les champs techniques et diagnostics explicitement reconnus
+sont conservés. Le détail des autres lignes reste local. Cette règle protège aussi
+les anciennes lignes de logs contenant des messages, des réponses, des prompts,
+des erreurs ou du texte sur plusieurs lignes.
+
+La case d'un canal autorise la publication dans Live Channel Messages ; elle
+n'active pas une seconde copie des conversations dans les logs. Les anciens fichiers
+sur disque et les messages conservés localement ne sont ni supprimés ni réécrits.
+Leurs droits d'accès et leur durée de conservation restent importants. Les durées
+de rétention existantes ne sont pas modifiées par cette correction.

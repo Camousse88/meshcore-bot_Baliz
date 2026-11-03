@@ -6135,8 +6135,11 @@ class BotDataViewer:
                     try:
                         with open(log_file, encoding='utf-8', errors='replace') as _fh:
                             recent_lines = _fh.readlines()[-200:]
+                        from modules.log_privacy import web_log_line
                         for line in recent_lines:
-                            emit('log_line', {'line': _strip_ansi_codes(line.rstrip())})
+                            safe_line = web_log_line(line)
+                            if safe_line is not None:
+                                emit('log_line', {'line': safe_line})
                     except Exception as e:
                         self.logger.debug(f"Error reading log history: {e}")
             except Exception as e:
@@ -6278,15 +6281,17 @@ class BotDataViewer:
     def _handle_log_line(self, line: str) -> None:
         """Broadcast a log line to clients subscribed to the log stream."""
         try:
+            from modules.log_privacy import web_log_line
+            safe_line = web_log_line(line)
+            if safe_line is None:
+                return
             with self._clients_lock:
                 subscribed = [
                     cid for cid, info in self.connected_clients.items()
                     if info.get('subscribed_logs', False)
                 ]
-            if subscribed:
-                self.socketio.emit(
-                    'log_line', {'line': _strip_ansi_codes(line.rstrip())}, room=None
-                )
+            for cid in subscribed:
+                self.socketio.emit('log_line', {'line': safe_line}, to=cid)
         except Exception as e:
             self.logger.error(f"Error broadcasting log line: {e}")
 

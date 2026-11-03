@@ -661,14 +661,12 @@ class MessageHandler:
                 self.logger.warning("Contact message event has no payload")
                 return
 
-            # Debug: Log the full payload structure
-            self.logger.debug(f"Contact message payload: {payload}")
+            # Never duplicate decrypted message bodies in technical logs
+            self.logger.debug("Contact message payload received (body omitted)")
             self.logger.debug(f"Payload keys: {list(payload.keys())}")
-            self.logger.debug(f"Event metadata: {event.metadata if hasattr(event, 'metadata') else 'None'}")
+            self.logger.debug("Contact message metadata received")
 
-            self.logger.info(
-                f"Received DM from {sanitize_name(payload.get('pubkey_prefix', 'unknown'))}: {sanitize_name(payload.get('text', ''))}"
-            )
+            self.logger.info("📡 PRIVATE MESSAGE: UNKNOWN | Type: TXT_MSG | Bytes: %d", len(str(payload.get('text', '')).encode('utf-8')))
 
             # Extract path information from contacts using pubkey_prefix
             path_info = "Unknown"
@@ -1516,7 +1514,8 @@ class MessageHandler:
                                 log_message = f"🛣️  ROUTING INFO: {routing_info['route_type']} | Path: {formatted_path} ({routing_info['path_length']} hops, {path_bytes_str} bytes) | Payload: {routing_info['payload_length']} bytes | Type: {routing_info['payload_type']}"
                                 self.logger.info(log_message)
                             else:
-                                log_message = f"📡 DIRECT MESSAGE: {routing_info['route_type']} | Type: {routing_info['payload_type']}"
+                                message_kind = "CHANNEL" if routing_info["payload_type"] in {"GRP_TXT", "GRP_DATA"} else "DIRECT"
+                                log_message = f"📡 {message_kind} MESSAGE: {routing_info['route_type']} | Type: {routing_info['payload_type']}"
                                 self.logger.info(log_message)
 
                             # Capture full packet data for web viewer (for all packets)
@@ -2633,8 +2632,8 @@ class MessageHandler:
 
             channel_idx = payload.get("channel_idx", 0)
 
-            # Debug: Log the full payload structure
-            self.logger.debug(f"Channel message payload: {payload}")
+            # Never duplicate decrypted message bodies in technical logs
+            self.logger.debug("Channel message payload received (body omitted)")
             self.logger.debug(f"Payload keys: {list(payload.keys())}")
 
             # Get sender information from text field if it's in "SENDER: message" format
@@ -2648,8 +2647,8 @@ class MessageHandler:
                 if len(parts) == 2 and parts[0].strip():
                     sender_id = parts[0].strip()
                     message_content = parts[1].strip()  # Use the part after the colon for keyword processing
-                    self.logger.debug(f"Extracted sender from text: {sender_id}")
-                    self.logger.debug(f"Message content for processing: {message_content}")
+                    self.logger.debug("Extracted sender from channel message")
+                    self.logger.debug("Channel message body ready for local processing")
 
             # Always strip trailing whitespace/newlines from message content to handle cases like "Wx 98104\n"
             message_content = message_content.strip()
@@ -2657,7 +2656,7 @@ class MessageHandler:
             # Get channel name from channel number
             channel_name = self.bot.channel_manager.get_channel_name(channel_idx)
 
-            self.logger.info(f"Received channel message ({channel_name}) from {sender_id}: {text}")
+            self.logger.info("📡 CHANNEL MESSAGE: UNKNOWN | Type: GRP_TXT | Bytes: %d", len(text.encode("utf-8")))
 
             # Get SNR and RSSI using the same logic as contact messages
             snr: float | None = None
@@ -3914,18 +3913,15 @@ class MessageHandler:
                 if _has_mention:
                     message.content = re.sub(re.escape(_mention), "", message.content, flags=re.IGNORECASE).strip()
 
-        self.logger.info(
-            f"Processing message: '{message.content}' from {message.sender_id} in {'DM' if message.is_dm else message.channel}"
-        )
+        from .log_privacy import message_metadata
+        self.logger.info(message_metadata(message))
 
         # Log extra context when the message looks like a MeshCore firmware error response.
         if message.content.strip().startswith("ERR:"):
             last_sync = getattr(self.bot, "last_clock_sync_time", None)
             self.logger.debug(
-                "Received MeshCore error response from %s: '%s' "
+                "Received MeshCore error response "
                 "(bot last_clock_sync_time=%s, radio_clock_use_local_time=%s, timezone=%s)",
-                message.sender_id,
-                message.content.strip(),
                 last_sync,
                 self.bot.config.get("Bot", "radio_clock_use_local_time", fallback="false"),
                 self.bot.config.get("Bot", "timezone", fallback="(not set)"),

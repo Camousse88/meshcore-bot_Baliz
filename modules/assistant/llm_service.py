@@ -1609,7 +1609,7 @@ class LlmService:
                 "Ne demande pas pourquoi. Ne donne aucune réponse ni statistique. "
                 f"En français, maximum {max_length} octets UTF-8."
             )
-        self.logger.debug(f"LLM prompt: {repr(prompt[:500])}")
+        self.logger.debug("LLM request prepared (%d characters)", len(prompt))
 
         try:
             response = await asyncio.to_thread(
@@ -1623,7 +1623,7 @@ class LlmService:
             return "LLM unavailable: local llama.cpp is unreachable."
 
         if response.status_code != 200:
-            self.logger.warning(f"LLM command error status: {response.status_code}, body: {response.text[:500]}")
+            self.logger.warning("LLM command error status: %s", response.status_code)
             return "LLM error: llama.cpp returned an invalid response."
 
         try:
@@ -1640,7 +1640,7 @@ class LlmService:
                 content = ""
             if not isinstance(content, str):
                 raise ValueError("Non-text model response")
-            self.logger.debug(f"LLM raw response ({len(content)} chars): {repr(content)}")
+            self.logger.debug("LLM visible response received (%d characters)", len(content))
 
             # Some reasoning models occasionally return HTTP 200 with an empty
             # content field. Retry once deterministically instead of emitting a
@@ -1661,9 +1661,7 @@ class LlmService:
                     if isinstance(retry_content, str):
                         content = retry_content
                         finish_reason = retry_data["choices"][0].get("finish_reason")
-                        self.logger.debug(
-                            "LLM retry response (%d chars): %r", len(content), content
-                        )
+                        self.logger.debug("LLM retry response received (%d characters)", len(content))
 
         except (ValueError, TypeError, IndexError, AttributeError, KeyError) as e:
             self.logger.warning(f"LLM command parse error: {e}")
@@ -1674,7 +1672,7 @@ class LlmService:
             content = self._repair_wiki_literals(content, selected_source)
             content = self._plain_text_wiki_response(content)
             content = self._remove_unrequested_local_examples(content, prompt)
-            self.logger.debug("LLM Wiki response after cleanup (%d chars): %r", len(content), content)
+            self.logger.debug("LLM Wiki response cleaned (%d characters)", len(content))
 
         if mode in {"general", "clarify"}:
             from .conversation import complete_reply
