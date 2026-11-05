@@ -400,74 +400,23 @@ class MessageScheduler:
             )
 
     def _resolve_clock_sync_target_contact(self, identifier: str) -> dict[str, Any] | None:
-        """Resolve configured identifier to a mesh contact by name or public key/prefix."""
-        meshcore = getattr(self.bot, "meshcore", None)
-        if not meshcore:
+        """Resolve clock targets with the same unique identity rules as ordinary DMs."""
+        from .dm_contacts import DmContactResolver
+        if not getattr(self.bot, 'meshcore', None):
             return None
-        needle = (identifier or "").strip()
-        if not needle:
+        resolver = getattr(self.bot, 'dm_contact_resolver', None)
+        if not isinstance(resolver, DmContactResolver):
+            resolver = DmContactResolver(self.bot)
+            self.bot.dm_contact_resolver = resolver
+        key, row, reason = resolver.identify(identifier)
+        if key is None:
+            self.logger.warning('Clock_Sync_Admin target unresolved | Reason: %s', reason)
             return None
-
-        try:
-            contact = meshcore.get_contact_by_name(needle)
-            if contact:
-                self.logger.debug(
-                    "Clock_Sync_Admin resolved target %s via contact name lookup",
-                    sanitize_name(needle),
-                )
-                return contact
-        except Exception:
-            pass
-
-        contacts = getattr(meshcore, "contacts", {}) or {}
-        for contact_data in contacts.values():
-            public_key = (contact_data.get("public_key", "") or "").strip()
-            if not public_key:
-                continue
-            if public_key == needle or public_key.startswith(needle):
-                self.logger.debug(
-                    "Clock_Sync_Admin resolved target %s via public key lookup (%s...)",
-                    sanitize_name(needle),
-                    public_key[:12],
-                )
-                return contact_data
-
-        # Fallback: resolve against the persistent complete_contact_tracking table.
-        # This keeps the cron job working even when the node is not present in the
-        # live radio contact table (e.g. radio restarted / contact purged), as long
-        # as it was ever tracked. Stored targets are usually full pubkeys, so this
-        # is the most reliable resolution path.
-        db_manager = getattr(self.bot, "db_manager", None)
-        if db_manager:
-            try:
-                with db_manager.connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute(
-                        "SELECT name, public_key FROM complete_contact_tracking "
-                        "WHERE lower(public_key) = lower(?) OR lower(name) = lower(?) "
-                        "OR lower(public_key) LIKE lower(?) || '%' LIMIT 1",
-                        (needle, needle, needle),
-                    )
-                    row = cursor.fetchone()
-                    if row and row[0] and row[1]:
-                        self.logger.debug(
-                            "Clock_Sync_Admin resolved target %s via DB fallback (%s...)",
-                            sanitize_name(needle),
-                            row[1][:12],
-                        )
-                        return {
-                            "name": row[0],
-                            "adv_name": row[0],
-                            "public_key": row[1],
-                        }
-            except Exception as exc:
-                self.logger.debug("Clock_Sync_Admin DB fallback resolve failed: %s", exc)
-
-        self.logger.debug(
-            "Clock_Sync_Admin could not resolve target %s",
-            sanitize_name(needle),
-        )
-        return None
+        self.logger.debug('Clock_Sync_Admin resolved target | Key prefix: %s', key[:12])
+        cached = next((c for c in resolver._radio_contacts() if resolver._key(c) == key), None)
+        if cached is not None:
+            return cached
+        return {'public_key': key, 'name': (row or {}).get('name') or key[:12]}
 
     def _get_clock_sync_admin_payload(self) -> str:
         """Return configured Clock_Sync_Admin payload, with a safe default."""
@@ -934,10 +883,12 @@ class MessageScheduler:
             # _maybe_auto_clkreboot's opt-in + cooldown check.
             target_row = self._get_clock_sync_target_row(target)
             try:
+                delivery_report: dict[str, str] = {}
                 ok = await command_manager.send_dm(
                     recipient,
                     payload,
                     skip_user_rate_limit=True,
+                    delivery_report=delivery_report,
                 )
                 reply_text = ""
                 if ok:
@@ -956,6 +907,12 @@ class MessageScheduler:
                         _, reply_text = await self._wait_for_clock_sync_reply(
                             public_key, run_started_at
                         )
+                elif delivery_report.get('state') == 'not_sent':
+                    failed_count += 1
+                    self.logger.warning('Clock_Sync_Admin not emitted for %s | Reason: %s',
+                                        sanitize_name(contact_name), delivery_report.get('reason', 'unknown'))
+                    self._log_clock_sync_admin_attempt(public_key, contact_name, False,
+                                                       'Not emitted: ' + delivery_report.get('reason', 'unknown'))
                 else:
                     reply_ok, reply_text = await self._wait_for_clock_sync_reply(
                         public_key, run_started_at

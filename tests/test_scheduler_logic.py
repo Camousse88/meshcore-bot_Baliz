@@ -411,12 +411,13 @@ class TestClockSyncAdminScheduler:
         scheduler.bot.meshcore = Mock()
         scheduler.bot.meshcore.get_contact_by_name = Mock(
             side_effect=lambda value: {
-                "repA": {"name": "repA", "public_key": "deadbeef0011"},
-                "repa": {"name": "repA", "public_key": "deadbeef0011"},
+                "repA": {"name": "repA", "public_key": ("deadbeef0011" + "ab" * 26)},
+                "repa": {"name": "repA", "public_key": ("deadbeef0011" + "ab" * 26)},
             }.get(value)
         )
         scheduler.bot.meshcore.contacts = {
-            "b": {"name": "repB", "public_key": "abcdef123456"},
+            "a": {"name": "repA", "public_key": "deadbeef0011" + "ab" * 26},
+            "b": {"name": "repB", "public_key": ("abcdef123456" + "ab" * 26)},
         }
 
         scheduler.bot.command_manager = Mock()
@@ -426,14 +427,16 @@ class TestClockSyncAdminScheduler:
 
         assert scheduler.bot.command_manager.send_dm.await_count == 2
         scheduler.bot.command_manager.send_dm.assert_any_await(
-            "deadbeef0011",
+            ("deadbeef0011" + "ab" * 26),
             "clock sync admin",
             skip_user_rate_limit=True,
+            delivery_report={},
         )
         scheduler.bot.command_manager.send_dm.assert_any_await(
-            "abcdef123456",
+            ("abcdef123456" + "ab" * 26),
             "clock sync admin",
             skip_user_rate_limit=True,
+            delivery_report={},
         )
         assert any(
             "unknown target" in str(call).lower()
@@ -460,11 +463,12 @@ class TestClockSyncAdminScheduler:
         scheduler.bot.meshcore = Mock()
         scheduler.bot.meshcore.get_contact_by_name = Mock(
             side_effect=lambda value: {
-                "repA": {"name": "repA", "public_key": "1111"},
-                "repB": {"name": "repB", "public_key": "2222"},
+                "repA": {"name": "repA", "public_key": "11" * 32},
+                "repB": {"name": "repB", "public_key": "22" * 32},
             }.get(value)
         )
-        scheduler.bot.meshcore.contacts = {}
+        scheduler.bot.meshcore.contacts = {"a": {"name": "repA", "public_key": "11" * 32},
+                                               "b": {"name": "repB", "public_key": "22" * 32}}
 
         scheduler.bot.command_manager = Mock()
         scheduler.bot.command_manager.send_dm = AsyncMock(
@@ -498,9 +502,9 @@ class TestClockSyncAdminScheduler:
         return scheduler
 
     def test_send_fail_with_dm_reply_counts_as_sent(self, scheduler):
-        self._clock_sync_admin_context(scheduler, "deadbeef00112233")
+        self._clock_sync_admin_context(scheduler, ("deadbeef00112233" + "ab" * 24))
         scheduler.bot.meshcore.contacts = {
-            "t": {"name": "TargetA", "public_key": "deadbeef00112233"},
+            "t": {"name": "TargetA", "public_key": ("deadbeef00112233" + "ab" * 24)},
         }
         scheduler._get_clock_sync_target_row = Mock(return_value=None)
         scheduler.bot.meshcore.dispatcher.wait_for_event = AsyncMock(
@@ -526,7 +530,7 @@ class TestClockSyncAdminScheduler:
             "attribute_filters"
         ] == {"pubkey_prefix": "deadbeef0011"}
         record.assert_called_once_with(
-            "deadbeef00112233", "TargetA", True, "ERR: clock cannot go backwards"
+            ("deadbeef00112233" + "ab" * 24), "TargetA", True, "ERR: clock cannot go backwards"
         )
         assert any(
             "confirmed delivery" in str(call).lower()
@@ -534,9 +538,9 @@ class TestClockSyncAdminScheduler:
         )
 
     def test_send_fail_without_reply_counts_as_failed(self, scheduler):
-        self._clock_sync_admin_context(scheduler, "deadbeef00112233")
+        self._clock_sync_admin_context(scheduler, ("deadbeef00112233" + "ab" * 24))
         scheduler.bot.meshcore.contacts = {
-            "t": {"name": "TargetA", "public_key": "deadbeef00112233"},
+            "t": {"name": "TargetA", "public_key": ("deadbeef00112233" + "ab" * 24)},
         }
         scheduler.bot.meshcore.dispatcher.wait_for_event = AsyncMock(return_value=None)
         record = Mock()
@@ -547,13 +551,13 @@ class TestClockSyncAdminScheduler:
         assert scheduler.bot.command_manager.send_dm.await_count == 1
         assert scheduler.bot.meshcore.dispatcher.wait_for_event.await_count == 1
         record.assert_called_once_with(
-            "deadbeef00112233", "TargetA", False, "Send returned False"
+            ("deadbeef00112233" + "ab" * 24), "TargetA", False, "Send returned False"
         )
 
     def test_stale_reply_before_run_start_counts_as_failed(self, scheduler):
-        self._clock_sync_admin_context(scheduler, "deadbeef00112233")
+        self._clock_sync_admin_context(scheduler, ("deadbeef00112233" + "ab" * 24))
         scheduler.bot.meshcore.contacts = {
-            "t": {"name": "TargetA", "public_key": "deadbeef00112233"},
+            "t": {"name": "TargetA", "public_key": ("deadbeef00112233" + "ab" * 24)},
         }
         scheduler.bot.meshcore.dispatcher.wait_for_event = AsyncMock(
             return_value=Event(
@@ -574,7 +578,7 @@ class TestClockSyncAdminScheduler:
 
         assert scheduler.bot.command_manager.send_dm.await_count == 1
         record.assert_called_once_with(
-            "deadbeef00112233", "TargetA", False, "Send returned False"
+            ("deadbeef00112233" + "ab" * 24), "TargetA", False, "Send returned False"
         )
 
 
@@ -644,10 +648,10 @@ class TestBatteryMonitorScheduler:
         assert result == {'success': False, 'error': 'No targets configured'}
 
     def test_poll_stores_voltage_for_resolved_targets(self, scheduler):
-        self._battery_context(scheduler, "deadbeef0011", "cafef00d0022")
+        self._battery_context(scheduler, ("deadbeef0011" + "ab" * 26), ("cafef00d0022" + "ab" * 26))
         scheduler.bot.meshcore.contacts = {
-            "a": {"name": "RepA", "public_key": "deadbeef0011"},
-            "b": {"name": "RepB", "public_key": "cafef00d0022"},
+            "a": {"name": "RepA", "public_key": ("deadbeef0011" + "ab" * 26)},
+            "b": {"name": "RepB", "public_key": ("cafef00d0022" + "ab" * 26)},
         }
         stored = []
         scheduler._store_battery_observation = lambda pk, v: stored.append((pk, v))
@@ -655,7 +659,7 @@ class TestBatteryMonitorScheduler:
         result = asyncio.run(scheduler._run_battery_monitor_job_async())
 
         assert result == {'success': True, 'polled': 2, 'stored': 2, 'failed': 0}
-        assert stored == [("deadbeef0011", 3.9), ("cafef00d0022", 3.9)]
+        assert stored == [(("deadbeef0011" + "ab" * 26), 3.9), (("cafef00d0022" + "ab" * 26), 3.9)]
         assert scheduler.bot.meshcore.commands.req_telemetry_sync.await_count == 2
 
     def test_poll_skips_unknown_target(self, scheduler):
@@ -670,9 +674,9 @@ class TestBatteryMonitorScheduler:
         assert stored == []
 
     def test_poll_counts_failure_on_timeout(self, scheduler):
-        self._battery_context(scheduler, "deadbeef0011")
+        self._battery_context(scheduler, ("deadbeef0011" + "ab" * 26))
         scheduler.bot.meshcore.contacts = {
-            "a": {"name": "RepA", "public_key": "deadbeef0011"},
+            "a": {"name": "RepA", "public_key": ("deadbeef0011" + "ab" * 26)},
         }
         scheduler.bot.meshcore.commands.req_telemetry_sync = AsyncMock(
             side_effect=asyncio.TimeoutError()
@@ -690,9 +694,9 @@ class TestBatteryMonitorScheduler:
         )
 
     def test_poll_counts_failure_when_no_voltage_in_reply(self, scheduler):
-        self._battery_context(scheduler, "deadbeef0011")
+        self._battery_context(scheduler, ("deadbeef0011" + "ab" * 26))
         scheduler.bot.meshcore.contacts = {
-            "a": {"name": "RepA", "public_key": "deadbeef0011"},
+            "a": {"name": "RepA", "public_key": ("deadbeef0011" + "ab" * 26)},
         }
         scheduler.bot.meshcore.commands.req_telemetry_sync = AsyncMock(return_value=[])
         stored = []
@@ -716,10 +720,10 @@ class TestBatteryMonitorScheduler:
         scheduler.bot.db_manager = Mock()
         scheduler.bot.db_manager.connection.return_value = contextlib.nullcontext(conn)
 
-        scheduler._store_battery_observation("deadbeef0011", 3.87)
+        scheduler._store_battery_observation(("deadbeef0011" + "ab" * 26), 3.87)
 
         row = conn.execute("SELECT public_key, voltage FROM battery_observations").fetchone()
-        assert row == ("deadbeef0011", 3.87)
+        assert row == (("deadbeef0011" + "ab" * 26), 3.87)
 
 
 # ---------------------------------------------------------------------------
