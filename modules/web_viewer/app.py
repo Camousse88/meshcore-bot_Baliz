@@ -58,7 +58,13 @@ from modules.channel_occupancy import (
     ChannelOccupancy,
     render_key_value,
 )
-from modules.clock_observations import latest_clock_samples, parse_timestamp, target_clock_status, utc_iso
+from modules.clock_observations import (
+    latest_clock_samples,
+    map_clock_fields,
+    parse_timestamp,
+    target_clock_status,
+    utc_iso,
+)
 from modules.database_restore import (
     DEFAULT_MAX_RESTORE_BYTES,
     DatabaseRestoreError,
@@ -2877,6 +2883,7 @@ class BotDataViewer(DashboardSnapshotMixin, LiveStreamMixin, SocketClientsMixin,
                     advert_paths.setdefault(observed[0], []).append({'bytes_per_hop': observed[1]})
                 from modules.web_viewer.relay_region_observations import unscoped_only_relays
                 unscoped_relays = unscoped_only_relays(conn, days=days)
+                clock_samples = self._get_latest_clock_drift_samples(cursor)
                 nodes = []
                 for row in rows:
                     # adv_name (Meshcore short name) is stored inside raw_advert_data JSON.
@@ -2893,6 +2900,7 @@ class BotDataViewer(DashboardSnapshotMixin, LiveStreamMixin, SocketClientsMixin,
                         except (ValueError, TypeError):
                             adv_name = None
                     nodes.append({
+                        **map_clock_fields(clock_samples.get(row['name']), self.config),
                         'unscoped_only_observed': row['public_key'].lower() in unscoped_relays,
                         'path_encoding_badge': compute_path_encoding_badge(row, advert_paths.get(row['public_key'], []), chunks),
                         'public_key': row['public_key'],

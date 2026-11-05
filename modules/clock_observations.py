@@ -131,3 +131,24 @@ def target_clock_status(sample, attempt, config, *, now=None):
             'clock_timestamp_valid': sample['timestamp_valid'] if sample else None,
             'clock_source': sample['source'] if sample else None,
             'clock_drift': sample['drift'] if sample else None}
+
+
+def map_clock_fields(sample, config, *, now=None):
+    """Annotate an already-visible relay with its latest measured clock.
+
+    The map's existing node filters determine visibility. Old evidence is dated
+    and marked stale instead of pretending an old bad clock has been corrected.
+    A transport ACK cannot create or clear this measured-drift warning.
+    """
+    now = time.time() if now is None else now
+    threshold = max(30, min(config.getint(
+        'Clock_Sync_Admin', 'dashboard_max_clock_drift_seconds', fallback=300), 86400))
+    return {
+        'clock_drift_seconds': sample['drift'] if sample else None,
+        'clock_signed_drift_seconds': sample['sender_timestamp'] - int(sample['received_at']) if sample else None,
+        'clock_observed_at': sample['received_at'] if sample else None,
+        'clock_drift_source': sample['source'] if sample else None,
+        'clock_drift_exceeded': bool(sample and sample['drift'] > threshold),
+        'clock_drift_threshold_seconds': threshold,
+        'clock_observation_stale': bool(sample and now - sample['received_at'] > observation_window(config)),
+    }
