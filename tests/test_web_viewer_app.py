@@ -156,6 +156,8 @@ class TestAllowedTables:
             'path_stats', 'unique_advert_packets', 'schema_version',
             'channel_operations', 'channels', 'feed_message_queue',
             'bbs_messages', 'daily_rollup',
+            'dashboard_snapshot',
+            'occupancy_samples', 'occupancy_senders',
         }
         assert expected_tables == BotDataViewer.ALLOWED_TABLES
 
@@ -681,7 +683,7 @@ class TestApiMeshEdgesEvidence:
                     return fixed_now
                 return fixed_now.replace(tzinfo=timezone.utc).astimezone(tz)
 
-        monkeypatch.setattr('modules.web_viewer.app.datetime', FixedDateTime)
+        monkeypatch.setattr('modules.web_viewer.mesh_evidence.datetime', FixedDateTime)
         cutoff = fixed_now - timedelta(days=7)
         _seed_observed_path(
             viewer_with_db.db_path,
@@ -2171,6 +2173,43 @@ class TestApiBannerStatus:
         data = json.loads(response.data)
         assert data['radio_zombie'] is True
 
+    def test_no_heartbeat_means_bot_not_running(self, viewer_with_db):
+        """A fresh database has a viewer but no bot; the radio state is unknown, not ok."""
+        viewer_with_db.db_manager.set_metadata('radio_connected', '1')
+        with viewer_with_db.app.test_client() as client:
+            data = client.get('/api/banner-status').get_json()
+        assert data['bot_running'] is False
+        assert data['bot_last_seen'] is None
+        assert data['bot_started'] is None
+        assert data['radio_connected'] is None
+
+    def test_fresh_heartbeat_reports_the_radio(self, viewer_with_db):
+        viewer_with_db.db_manager.set_system_health({'status': 'healthy', 'timestamp': time.time() - 20})
+        viewer_with_db.db_manager.set_metadata('radio_connected', '0')
+        with viewer_with_db.app.test_client() as client:
+            data = client.get('/api/banner-status').get_json()
+        assert data['bot_running'] is True
+        assert data['radio_connected'] is False
+
+    def test_running_bot_reports_when_it_started(self, viewer_with_db):
+        started = time.time() - 720
+        viewer_with_db.db_manager.set_bot_start_time(started)
+        viewer_with_db.db_manager.set_system_health({'status': 'healthy', 'timestamp': time.time()})
+        with viewer_with_db.app.test_client() as client:
+            data = client.get('/api/banner-status').get_json()
+        assert data['bot_started'] == pytest.approx(started)
+
+    def test_stale_heartbeat_means_bot_stopped(self, viewer_with_db):
+        """The start time outlives the bot; only the 30 s heartbeat says it's still there."""
+        stopped_at = time.time() - 600
+        viewer_with_db.db_manager.set_system_health({'status': 'healthy', 'timestamp': stopped_at})
+        viewer_with_db.db_manager.set_metadata('radio_connected', '1')
+        with viewer_with_db.app.test_client() as client:
+            data = client.get('/api/banner-status').get_json()
+        assert data['bot_running'] is False
+        assert data['bot_last_seen'] == pytest.approx(stopped_at)
+        assert data['radio_connected'] is None
+
 
 # ---------------------------------------------------------------------------
 # Favicon / static asset routes
@@ -2902,6 +2941,30 @@ class TestWebViewerTestDmRoute:
             timeout=30.0,
             skip_cooldown=True,
         )
+
+    def test_test_dm_preview_answers_in_the_language_the_bot_is_set_to(self, mock_viewer):
+        """The card is a preview of what the bot would answer, so it reads the catalog the bot
+        answers from. A stub translator that hands back the key showed
+        "commands.airtime.unavailable" where an answer should be: the preview was a key, not an
+        answer.
+        """
+        mock_viewer.config.add_section('Localization')
+        mock_viewer.config.set('Localization', 'language', 'fr')
+        bot = mock_viewer._test_command_manager().bot
+        assert bot.translator.language == 'fr'
+        assert bot.translator.translate('commands.airtime.unavailable') != 'commands.airtime.unavailable'
+
+    def test_test_dm_preview_does_not_answer_with_state_it_does_not_have(self, mock_viewer):
+        """The card runs against a stub, so a command that reads runtime state has to say so.
+
+        airtime answers from the recorder in the process running it. Carrying the viewer's own
+        instance over would make the card answer with the viewer's state, which is not the bot's:
+        the numbers would read as the bot's reply while describing a different process, and the two
+        could disagree on the same host.
+        """
+        bot = mock_viewer._test_command_manager().bot
+        assert not hasattr(bot, 'occupancy')
+        assert bot.meshcore is None
 
     def test_test_dm_route_rejects_empty_message(self, mock_viewer):
         with mock_viewer.app.test_client() as client:

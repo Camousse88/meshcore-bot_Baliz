@@ -38,6 +38,7 @@ class NeighborsCommand(BaseCommand):
 
     # Plugin metadata
     name = "neighbors"
+    enabled_attr = "command_enabled"
     keywords = ['neighbors', 'neighbours']
     description = "Runs a zero-hop neighbor discovery cycle (DM only)"
     requires_dm = True
@@ -59,7 +60,7 @@ class NeighborsCommand(BaseCommand):
         # where the scheduler's own trigger is also visible.
         self._cycle_task: Optional[asyncio.Task] = None
 
-    def get_help_text(self) -> str:
+    def get_help_text(self, message: MeshMessage | None = None) -> str:
         """Get help text for the neighbors command.
 
         Returns:
@@ -80,7 +81,7 @@ class NeighborsCommand(BaseCommand):
         return self.command_enabled and self.can_use_service(message, skip_channel_check)
 
     def can_use_service(self, message: MeshMessage, skip_channel_check: bool = False) -> bool:
-        return super().can_execute(message, skip_channel_check=skip_channel_check)
+        return super().can_use_service(message, skip_channel_check=skip_channel_check)
 
     def _get_capture_service(self) -> Any:
         """The packet capture service instance, or None when unavailable."""

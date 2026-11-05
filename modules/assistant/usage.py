@@ -26,7 +26,7 @@ def record(bot, function):
 
 
 def top_functions(cursor, window, now=None):
-    seconds = {'24h': 86400, '7d': 604800, '30d': 2592000}.get(window)
+    seconds = {'24h': 86400, '7d': 604800, '30d': 2592000, '90d': 7776000}.get(window)
     where = 'WHERE timestamp > ?' if seconds else ''
     params = ((time.time() if now is None else now) - seconds,) if seconds else ()
     cursor.execute(

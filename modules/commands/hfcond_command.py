@@ -21,6 +21,8 @@ class HfcondCommand(BaseCommand):
     # Read-only informational output; safe for scheduled {cmd:...} rendering.
     render_safe = True
     name = "hfcond"
+    honors_skip_channel_check = False
+    enabled_attr = "hfcond_enabled"
     keywords = ['hfcond']
     description = "Get HF band conditions for ham radio"
     category = "solar"
@@ -54,7 +56,7 @@ class HfcondCommand(BaseCommand):
         return self.can_use_service(message, skip_channel_check)
 
     def can_use_service(self, message: MeshMessage, skip_channel_check: bool = False) -> bool:
-        return super().can_execute(message, skip_channel_check=skip_channel_check)
+        return super().can_use_service(message, skip_channel_check=skip_channel_check)
 
     async def execute(self, message: MeshMessage) -> bool:
         """Execute the hfcond command.
@@ -77,7 +79,7 @@ class HfcondCommand(BaseCommand):
             error_msg = self.translate('commands.hfcond.error', error=str(e))
             return await self.send_response(message, error_msg)
 
-    def get_help_text(self) -> str:
+    def get_help_text(self, message: MeshMessage | None = None) -> str:
         """Get help text for this command.
 
         Returns:

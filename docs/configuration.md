@@ -83,6 +83,8 @@ translation catalog is absent.
 
 ### outgoing_flood_scope_override vs flood_scopes
 
+[Region scopes](region-scopes.md) explains how regions work on the air and why the bot has to be told region names before it can answer inside one.
+
 These two options are independent and serve different purposes:
 
 | Option | Controls |
@@ -166,8 +168,10 @@ Examples of sections that configure specific commands or features:
 - **`[Aurora_Command]`** – Aurora command (default coordinates).
 - **`[Alert_Command]`** – Emergency alerts (agency IDs, etc.).
 - **`[Sports_Command]`** – Sports scores (teams, leagues).
+- **`[Airtime_Command]`** – `airtime` (also `occupancy`): `enabled` only. The numbers it reports come from `[Channel_Occupancy]`, which is off by default, so a bot with recording off answers that there is nothing to read. See [Channel occupancy](channel-occupancy.md).
 - **`[Joke_Command]`**, **`[DadJoke_Command]`** – Joke sources and options.
 - **`[RandomLine]`** – Trigger-based random-line responses via `triggers.<key>`, `file.<key>`, optional `prefix.<key>`, optional channel restriction (`channel.<key>`/`channels.<key>`), and optional website category override (`category.<key>`). Website command reference groups RandomLine entries under **Fun Commands** by default unless `category.<key>` is set.
+- **`[IO_Health]`** – Read-only filesystem detection, and the power-cycle hook run by the Web Viewer monitoring route. See [Storage monitoring and power cycle](io-health-monitoring.md).
 
 Common per-command options (when supported by that command):
 
@@ -217,7 +221,7 @@ The Path command has many options (presets, proximity, graph validation, etc.). 
 
 ## Service plugin configuration
 
-Service plugins (Discord Bridge, Telegram Bridge, Packet Capture, Map Uploader, Weather Service, Earthquake Service, Repeater Prefix Collision Service, and Webhook Service) each have their own section and are documented under [Service Plugins](service-plugins.md). The MQTT weather relay uses the `MqttWeather` section plus custom topic keys under `[Weather]`.
+Service plugins (Discord Bridge, Telegram Bridge, Packet Capture, Map Uploader, Weather Service, Earthquake Service, Repeater Prefix Collision Service, Vigilance Météo-France Service, and Webhook Service) each have their own section and are documented under [Service Plugins](service-plugins.md). The MQTT weather relay uses the `MqttWeather` section plus custom topic keys under `[Weather]`.
 
 ## Config validation
 
@@ -269,7 +273,7 @@ Every firing is a transmission on a shared medium, and a command placeholder mak
 
 Other limits worth knowing:
 
-- **Only commands marked `render_safe` can be rendered.** Capture intercepts `send_response` and `send_response_chunked`, so a command that transmits by other means (`advert`), posts its own messages (`announcements`), or is DM-only (`schedule`, which would broadcast configuration) is refused. This is opt-in rather than a denylist, so a new command is never renderable by accident. The read-only informational commands (`wx`, `aqi`, `sun`, `moon`, `solar`, `hfcond`, `satpass`, `rain`, `stats`, and similar) are marked safe.
+- **Only commands marked `render_safe` can be rendered.** Capture intercepts `send_response` and `send_response_chunked`, so a command that transmits by other means (`advert`), posts its own messages (`announcements`), or is DM-only (`schedule`, which would broadcast configuration) is refused. This is opt-in rather than a denylist, so a new command is never renderable by accident. The read-only informational commands (`wx`, `gwx`, `aqi`, `sun`, `moon`, `solar`, `hfcond`, `satpass`, `rain`, `stats`, and similar) are marked safe.
 - `[Bot] scheduled_command_timeout_seconds` (default `30`) bounds each render. Network-backed commands like `wx` need the headroom.
 
 A rendered reply longer than one message is split to the RF body budget and sent as several messages rather than failing at the device.

@@ -234,72 +234,40 @@ class ChannelManager:
             Channel info dictionary or None if not configured
         """
         try:
-            # Use the native library API if available — avoids the CLI wrapper overhead
-            # that was causing rapid-fire requests to crash the device.
-            if hasattr(self.bot.meshcore, 'commands') and hasattr(self.bot.meshcore.commands, 'get_channel'):
-                # The library waits for any CHANNEL_INFO event, not for this
-                # slot. A reply delayed beyond a previous request's timeout can
-                # otherwise label Public (slot 0) as slot 1 in our cache.
-                payload = None
-                for attempt in range(2):
-                    try:
-                        res = await asyncio.wait_for(
-                            self.bot.meshcore.commands.get_channel(channel_idx),
-                            timeout=self._fetch_timeout,
-                        )
-                    except asyncio.TimeoutError:
-                        self.logger.debug("Timeout waiting for channel %d response (attempt %d/2)",
-                                          channel_idx, attempt + 1)
-                    else:
-                        candidate = getattr(res, 'payload', None)
-                        if not isinstance(candidate, dict) or not candidate:
-                            return None
-                        actual_idx = candidate.get('channel_idx')
-                        if type(actual_idx) is int and actual_idx == channel_idx:
-                            payload = copy.deepcopy(candidate)
-                            break
-                        self.logger.warning(
-                            "Ignoring channel response for index %s while requesting index %d (attempt %d/2)",
-                            actual_idx if type(actual_idx) is int else None, channel_idx, attempt + 1,
-                        )
-                    if attempt == 0:
-                        await asyncio.sleep(0.2)
-                if payload is None:
-                    return None
-            else:
-                # Fallback: CLI wrapper (legacy path)
-                channel_event = None
-                event_received = asyncio.Event()
-
-                async def on_channel_info(event):
-                    nonlocal channel_event
-                    if event.payload.get('channel_idx') == channel_idx:
-                        channel_event = event
-                        event_received.set()
-
-                subscription = self.bot.meshcore.subscribe(EventType.CHANNEL_INFO, on_channel_info)
+            # The native library API; the old CLI wrapper's overhead crashed the
+            # device under rapid-fire requests.
+            # The library waits for any CHANNEL_INFO event, not for this slot. A
+            # reply delayed beyond a previous request's timeout can otherwise label
+            # Public (slot 0) as slot 1 in our cache.
+            payload = None
+            for attempt in range(2):
                 try:
-                    from meshcore_cli.meshcore_cli import next_cmd
-                    with open(os.devnull, 'w') as devnull:
-                        old_stdout = sys.stdout
-                        sys.stdout = devnull
-                        try:
-                            await next_cmd(self.bot.meshcore, ["get_channel", str(channel_idx)])
-                        finally:
-                            sys.stdout = old_stdout
-
-                    try:
-                        await asyncio.wait_for(event_received.wait(), timeout=self._fetch_timeout)
-                    except asyncio.TimeoutError:
-                        self.logger.debug(f"Timeout waiting for channel {channel_idx} response")
+                    res = await asyncio.wait_for(
+                        self.bot.meshcore.commands.get_channel(channel_idx),
+                        timeout=self._fetch_timeout,
+                    )
+                except asyncio.TimeoutError:
+                    self.logger.debug(
+                        "Timeout waiting for channel %d response (attempt %d/2)", channel_idx, attempt + 1
+                    )
+                else:
+                    candidate = getattr(res, 'payload', None)
+                    if not isinstance(candidate, dict) or not candidate:
                         return None
-
-                    if not channel_event or not channel_event.payload:
-                        self.logger.debug(f"No channel {channel_idx} found")
-                        return None
-                    payload = channel_event.payload
-                finally:
-                    self.bot.meshcore.unsubscribe(subscription)
+                    actual_idx = candidate.get('channel_idx')
+                    if type(actual_idx) is int and actual_idx == channel_idx:
+                        payload = copy.deepcopy(candidate)
+                        break
+                    self.logger.warning(
+                        "Ignoring channel response for index %s while requesting index %d (attempt %d/2)",
+                        actual_idx if type(actual_idx) is int else None,
+                        channel_idx,
+                        attempt + 1,
+                    )
+                if attempt == 0:
+                    await asyncio.sleep(0.2)
+            if payload is None:
+                return None
 
             # Store channel key as hex for decryption
             channel_secret = payload.get('channel_secret', b'')

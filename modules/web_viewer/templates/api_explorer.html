@@ -58,6 +58,8 @@
     ("GET",  "/api/health",           "Bot health: radio state, uptime, client count"),
     ("GET",  "/api/banner-status",    "Banner state: zombie, offline, initializing flags"),
     ("GET",  "/api/system-health",    "Extended system health: DB size, queue depths, scheduler"),
+    ("GET",  "/api/health/storage",   "Filesystem state for monitoring: mounts, probe, semaphore (?format=text)"),
+    ("POST", "/api/health/storage/powercycle", "Trigger the power-cycle hook, or raise the reboot semaphore"),
     ("GET",  "/api/stats",            "DEPRECATED — whole-database statistics; use /api/dashboard/*"),
     ("GET",  "/api/stats/rate_limiters", "Per-sender rate limiter stats"),
     ("GET",  "/api/connected_clients","SocketIO connected client count"),
@@ -127,6 +129,7 @@
     ("POST", "/api/radio/advert",              "Send a zero-hop or flood advert"),
     ("POST", "/api/radio/test-dm",             "Run a command locally as a test DM without airtime"),
     ("GET",  "/api/recent_commands",           "Most recent bot commands received"),
+    ("GET",  "/api/packets/by-hash/{packet_hash}?near={epoch}", "Stored receptions of one packet heard near a time"),
     ("POST", "/api/stream_data",               "Inject a raw packet into the stream viewer"),
   ]),
   ("Admin", "fa-shield-alt", [
@@ -222,7 +225,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="curlModalLabel"><i class="fas fa-terminal me-2"></i>curl example</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
                 <pre id="curl-output" class="bg-dark text-light p-3 rounded" style="white-space:pre-wrap;word-break:break-all;font-size:0.85rem"></pre>

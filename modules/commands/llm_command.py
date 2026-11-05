@@ -29,9 +29,9 @@ class LlmCommand(BaseCommand):
         return self.public_enabled and self.can_use_service(message, skip_channel_check)
 
     def can_use_service(self, message: MeshMessage, skip_channel_check: bool = False) -> bool:
-        return self.llm_enabled and super().can_execute(message, skip_channel_check)
+        return self.llm_enabled and super().can_use_service(message, skip_channel_check)
 
-    def get_help_text(self) -> str:
+    def get_help_text(self, message: MeshMessage | None = None) -> str:
         return f"Usage: {self._command_prefix}llm <question>"
 
     def _extract_prompt(self, message: MeshMessage) -> str:

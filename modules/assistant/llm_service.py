@@ -61,7 +61,7 @@ class LlmService:
         self.max_tokens = max(
             8,
             min(
-                512,
+                1024,
                 self.get_config_value("Llm_Command", "max_tokens", fallback=80, value_type="int"),
             ),
         )

@@ -32,7 +32,7 @@ class NearCommand(BaseCommand):
         return self.near_enabled and self.can_use_service(message, skip_channel_check)
 
     def can_use_service(self, message: MeshMessage, skip_channel_check: bool = False) -> bool:
-        return super().can_execute(message, skip_channel_check=skip_channel_check)
+        return super().can_use_service(message, skip_channel_check=skip_channel_check)
 
     def _parse_args(self, message: MeshMessage) -> tuple[int, str | None, str | None]:
         """Parse optional count, role, and target node prefix from the message."""

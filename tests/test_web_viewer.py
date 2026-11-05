@@ -9,6 +9,7 @@ side-effect free.
 import configparser
 import json
 import logging
+import re
 import sqlite3
 from contextlib import closing, contextmanager
 from pathlib import Path
@@ -192,49 +193,101 @@ class TestPageRoutes:
     def test_index_loads_the_external_dashboard_script(self, client):
         resp = client.get("/")
         assert resp.status_code == 200
-        html = resp.data.decode()
-        # Dashboard JS is inlined in the template (no external js/dashboard.js)
-        assert 'ModernDashboard' in html
+        assert 'js/dashboard.js' in resp.data.decode()
 
     def test_dashboard_does_not_subscribe_to_live_streams(self, client):
-        """The dashboard index includes a live feed preview section that
+        """The live feed moved to /realtime; the dashboard must not re-add it.
 
-        subscribes to SocketIO streams.  The full monitor is at /realtime.
+        It opened three SocketIO subscriptions and re-rendered on every packet,
+        duplicating a page that already exists, so the dashboard now costs one
+        snapshot read per poll and nothing else.
         """
         html = client.get("/").data.decode()
-        # Live feed preview is present on the index page
+        script = (
+            Path(__file__).resolve().parents[1]
+            / "modules" / "web_viewer" / "static" / "js" / "dashboard.js"
+        ).read_text(encoding="utf-8")
         for marker in ("live-feed", "live-filter-cb", "live-scroll-top"):
-            assert marker in html, marker
+            assert marker not in html, marker
+        for marker in ("subscribe_packets", "subscribe_commands", "subscribe_messages"):
+            assert marker not in script, marker
 
     def test_realtime(self, client):
         resp = client.get("/realtime")
         assert resp.status_code == 200
 
-    def test_realtime_scroll_controls(self, client):
-        """Realtime page has scroll buttons, type filters, and channel labels in messages."""
-        resp = client.get("/realtime")
-        assert resp.status_code == 200
-        html = resp.data.decode()
-        # Scroll buttons present for all three streams
-        assert 'id="cmd-scroll-top"' in html
-        assert 'id="cmd-scroll-bottom"' in html
-        assert 'id="pkt-scroll-top"' in html
-        assert 'id="pkt-scroll-bottom"' in html
-        assert 'id="msg-scroll-top"' in html
-        assert 'id="msg-scroll-bottom"' in html
-        # scrollStream JS function present
-        assert 'scrollStream' in html
-        # Type filter checkboxes for each stream panel
-        assert 'rt-filter-cb' in html
-        assert 'id="rt-filter-command"' in html
-        assert 'id="rt-filter-packet"' in html
-        assert 'id="rt-filter-message"' in html
-        assert 'id="command-card"' in html
-        assert 'id="packet-card"' in html
-        assert 'id="message-card"' in html
-        # Live message helpers: strip duplicate bracket tags, per-channel accent
-        assert 'stripLeadingChannelBracketTag' in html
-        assert 'channelAccentStyles' in html
+    def test_realtime_is_one_tape(self, client):
+        """Realtime is one receiver tape: strip, filters, keep tray, no three-panel grid."""
+        html = client.get("/realtime").data.decode()
+        for marker in ('id="rt-tape"', 'id="rt-lamp"', 'id="rt-last"', 'id="rt-rate"',
+                       'id="rt-pause"', 'id="rt-pending"', 'id="rt-search"', 'id="rt-kept-list"',
+                       'name="rt-kind"', 'id="packetDetailModal"'):
+            assert marker in html, marker
+        for retired in ('id="command-card"', 'id="packet-card"', 'id="message-card"', 'rt-filter-cb'):
+            assert retired not in html, retired
+        # Rows join packet, message and command by hash; replies fold their echoes in
+        for helper in ('replyOwner', 'trigger_packet_hash', 'reply_packet_hash',
+                       'stripLeadingChannelBracketTag', 'function pathByteLength('):
+            assert helper in html, helper
+
+    def test_realtime_lenses_stack_and_rows_carry_hover_detail(self, client):
+        """One tape replaces the three panels, so the lenses have to stack: packets
+        can be read without commands, both tape ends are reachable, and the
+        multi-line detail the panels showed as entry tooltips is still on the row,
+        along with the reply's own state."""
+        html = client.get("/realtime").data.decode()
+        for marker in ('id="rt-kind-packet"', 'value="packet"',
+                       'view.kinds.has(readingOf(tx))', 'function jumpTape(',
+                       'id="rt-newest"', 'id="rt-oldest"',
+                       'function initializeEntryTooltips(', "dataset.bsToggle = 'tooltip'",
+                       'function repeatTooltip(', 'rt-badge'):
+            assert marker in html, marker
+        # Stacking needs checkboxes; a radio group would force a single lens.
+        assert '<input type="radio" class="btn-check" name="rt-kind"' not in html
+
+    def test_realtime_loads_no_cdn_script_of_its_own(self, client):
+        html = client.get("/realtime").data.decode()
+        assert "vendor/js-sha256/sha256.min.js" in html
+        assert "cdnjs.cloudflare.com/ajax/libs/js-sha256" not in html
+
+    def test_templates_load_no_scripts_styles_or_fonts_from_other_hosts(self):
+        """The viewer has to work on a LAN with no internet; libraries are vendored."""
+        templates = Path(__file__).resolve().parents[1] / "modules" / "web_viewer" / "templates"
+        external = re.compile(r'<(?:script|link)\b[^>]*\b(?:src|href)="(?:https?:)?//', re.I)
+        offenders = [
+            str(path.relative_to(templates))
+            for path in templates.rglob("*.html")
+            if external.search(path.read_text(encoding="utf-8"))
+        ]
+        assert offenders == []
+
+    def test_every_vendored_asset_a_template_names_exists(self):
+        root = Path(__file__).resolve().parents[1] / "modules" / "web_viewer"
+        named = set()
+        for path in (root / "templates").rglob("*.html"):
+            named.update(re.findall(r"filename='((?:vendor|fonts)/[^']+)'", path.read_text(encoding="utf-8")))
+        assert named
+        missing = sorted(name for name in named if not (root / "static" / name).is_file())
+        assert missing == []
+
+    def test_banner_actions_leave_the_banners_intact(self, client):
+        """Clearing a flag used to overwrite its banner, so a later drop re-showed a stale success message."""
+        html = client.get("/").data.decode()
+        assert 'id="recovery-banner"' in html
+        assert "Offline flag cleared." not in html
+        assert "b.innerHTML" not in html
+        assert "b.className = 'alert alert-success" not in html
+
+    def test_dashboard_has_a_first_run_panel(self, client):
+        """A fresh install shows one panel instead of a grid of empty boxes."""
+        html = client.get("/").data.decode()
+        assert 'id="first-run"' in html
+        assert 'id="dashboard-body"' in html
+
+    def test_csp_allows_no_cdn_hosts(self, client):
+        csp = client.get("/").headers["Content-Security-Policy"]
+        for host in ("cdn.jsdelivr.net", "cdnjs.cloudflare.com", "unpkg.com", "fonts.googleapis.com"):
+            assert host not in csp, host
 
     def test_logs(self, client):
         resp = client.get("/logs")
@@ -297,6 +350,20 @@ class TestPageRoutes:
         html = resp.data.decode()
         assert 'href="https://meshcore.io"' in html
         assert "meshcore.co.uk" not in html
+
+    def test_infos_lists_commands_with_help(self, client):
+        """The command table is what /infos is for, so it cannot render empty.
+
+        The category names, the excluded categories and the enabled check are class
+        members of the viewer; when they are missing every loaded plugin is dropped
+        and the page falls back to "No command information available", which is what
+        the other /infos tests could not see because they only check the page renders.
+        """
+        html = client.get("/infos").get_data(as_text=True)
+        assert "No command information available" not in html
+        assert "Basic Commands" in html
+        assert "<strong>ping</strong>" in html
+        assert '<code class="usage">' in html
 
     def test_base_footer_uses_meshcore_io_url(self, client):
         """The base footer should link to meshcore.io on all pages."""
@@ -1438,10 +1505,20 @@ class TestRoleBasedAccess:
     """Public allowlist vs fail-closed admin when web_viewer_password is set."""
 
     def test_public_pages_accessible_without_auth(self, auth_client):
-        public_pages = ["/", "/realtime", "/mesh", "/contacts"]
+        public_pages = ["/", "/mesh", "/contacts"]
         for page in public_pages:
             resp = auth_client.get(page)
             assert resp.status_code == 200, f"{page} should be accessible without auth"
+
+    def test_realtime_is_admin_only(self, auth_client):
+        """The live socket is admin-only, so the page is too; the nav hides it."""
+        resp = auth_client.get("/realtime", follow_redirects=False)
+        assert resp.status_code == 302
+        assert "login" in resp.headers["Location"]
+        assert 'href="/realtime"' not in auth_client.get("/").get_data(as_text=True)
+        auth_client.post("/login", data={"password": "secret123"})
+        assert auth_client.get("/realtime").status_code == 200
+        assert 'href="/realtime"' in auth_client.get("/").get_data(as_text=True)
 
     def test_admin_pages_require_auth(self, auth_client):
         admin_pages = ["/logs", "/config", "/plugins", "/radio", "/greeter", "/feeds", "/schedule"]
@@ -1536,7 +1613,7 @@ class TestRoleBasedAccess:
     def test_is_admin_declared_once_per_page(self, auth_client, client):
         """base.html declares IS_ADMIN; a second top-level const is a SyntaxError."""
         for c in (auth_client, client):
-            for page in ("/", "/realtime", "/mesh", "/contacts"):
+            for page in ("/", "/mesh", "/contacts"):
                 html = c.get(page).get_data(as_text=True)
                 assert html.count("const IS_ADMIN") == 1, f"{page} redeclares IS_ADMIN"
 
@@ -2376,6 +2453,65 @@ class TestStreamAndCommandRoutes:
         assert resp.status_code in (200, 400, 500)
 
 
+class TestPacketsByHashRoute:
+    """Real-time fetches the packet behind a message row the replay didn't reach."""
+
+    HASH = "921F4CAF866686AD"
+    NEAR = 1_792_882_591.0
+
+    @pytest.fixture
+    def stored(self, viewer):
+        def packet(ts, packet_hash, snr):
+            return (ts, json.dumps({"packet_hash": packet_hash, "snr": snr, "payload_type_name": "GRP_TXT"}), "packet")
+
+        _insert_packet_stream_rows(viewer.db_path, [
+            packet(self.NEAR - 1, self.HASH, 9.5),
+            packet(self.NEAR - 0.5, self.HASH, -3.25),
+            packet(self.NEAR - 1, "AAAAAAAAAAAAAAAA", 1.0),
+            packet(self.NEAR - 3600, self.HASH, 2.0),
+            (self.NEAR, json.dumps({"packet_hash": self.HASH, "content": "hi"}), "message"),
+            (self.NEAR - 2, "{not json", "packet"),
+        ])
+        yield
+        with closing(sqlite3.connect(viewer.db_path)) as conn:
+            conn.execute("DELETE FROM packet_stream")
+            conn.commit()
+
+    def test_returns_receptions_near_the_time_oldest_first(self, client, stored):
+        resp = client.get(f"/api/packets/by-hash/{self.HASH.lower()}?near={self.NEAR}")
+        assert resp.status_code == 200
+        packets = resp.get_json()["packets"]
+        assert [p["snr"] for p in packets] == [9.5, -3.25]
+        assert all(p["replayed"] is True for p in packets)
+        assert [p["stream_ts"] for p in packets] == [self.NEAR - 1, self.NEAR - 0.5]
+
+    def test_nothing_outside_the_window(self, client, stored):
+        resp = client.get(f"/api/packets/by-hash/{self.HASH}?near={self.NEAR + 7200}")
+        assert resp.status_code == 200
+        assert resp.get_json() == {"packets": []}
+
+    @pytest.mark.parametrize("path", [
+        "/api/packets/by-hash/xyz?near=1",
+        "/api/packets/by-hash/1234?near=1",
+        "/api/packets/by-hash/921F4CAF866686AD",
+        "/api/packets/by-hash/921F4CAF866686AD?near=soon",
+        "/api/packets/by-hash/921F4CAF866686AD?near=nan",
+        "/api/packets/by-hash/921F4CAF866686AD?near=inf",
+    ])
+    def test_rejects_bad_input(self, client, path):
+        assert client.get(path).status_code == 400
+
+    def test_requires_admin_when_a_password_is_set(self, auth_client):
+        resp = auth_client.get(f"/api/packets/by-hash/{self.HASH}?near={self.NEAR}")
+        assert resp.status_code == 401
+
+    def test_realtime_looks_up_a_missing_packet_on_open(self, client):
+        html = client.get("/realtime").get_data(as_text=True)
+        assert "/api/packets/by-hash/" in html
+        assert "if (tx.open) lookUpPacket(tx);" in html
+        assert "packet not on the tape" not in html
+
+
 # ===========================================================================
 # Rate limiter stats API
 # ===========================================================================
@@ -2616,6 +2752,37 @@ class TestRadioPageFirmwareRemoval:
         assert "handleConnectToggle" in html
 
 
+class TestRadioTestDmCard:
+    """The Test DM card lives inside radio.html, in the branch's single-class style.
+
+    Main had the card as a standalone partial with its own self-contained script,
+    included by radio.html in one line. The merge resolved radio.html to the
+    branch's RadioManager page and dropped the include, which left the card
+    unreachable while POST /api/radio/test-dm kept answering. Branch style means
+    the markup is in the page and the handler is a method, so a future rebase
+    cannot lose the wiring by losing an include line.
+    """
+
+    def test_card_is_on_the_page(self, client):
+        html = client.get("/radio").data.decode()
+        assert 'id="test-dm-card"' in html
+        assert 'id="testDmForm"' in html
+        assert 'id="testDmLog"' in html
+
+    def test_handler_is_a_radio_manager_method_not_a_second_script(self, client):
+        html = client.get("/radio").data.decode()
+        assert "setupTestDmHandler()" in html
+        assert "async sendTestDm()" in html
+        # A self-contained script would bind the form separately and would not share
+        # the page's alert helper, which is how the card got orphaned in the first place.
+        assert "function sendTestDm(" not in html
+
+    def test_card_says_it_spends_no_airtime(self, client):
+        """The point of a local test DM is that it is not a transmission."""
+        html = client.get("/radio").data.decode()
+        assert "no airtime" in html
+
+
 # ===========================================================================
 # TASK-02: subscribe_commands history replay (BUG-023)
 # ===========================================================================
@@ -2715,6 +2882,21 @@ class TestSubscribeCommandsHistoryReplay:
         seq_values = [e["args"][0]["seq"] for e in command_events]
         assert seq_values == list(range(5))  # replayed in chronological order
 
+    def test_replayed_rows_are_marked_as_history(self, socketio_viewer):
+        """Replayed rows carry their stream time and a replayed flag, so the page can file them as history."""
+        import json as _json
+        import time as _time
+
+        from flask_socketio import SocketIOTestClient
+
+        ts = _time.time() - 30
+        _insert_packet_stream_rows(socketio_viewer.db_path, [(ts, _json.dumps({"cmd": "ping"}), "command")])
+        sio_client = SocketIOTestClient(socketio_viewer.app, socketio_viewer.socketio)
+        sio_client.emit("subscribe_commands")
+        event = next(e for e in sio_client.get_received() if e["name"] == "command_data")
+        assert event["args"][0]["replayed"] is True
+        assert event["args"][0]["stream_ts"] == pytest.approx(ts)
+
     def test_subscribe_commands_sets_subscription_flag(self, socketio_viewer):
         """subscribed_commands flag is set to True after subscribe event."""
         from flask_socketio import SocketIOTestClient
@@ -2768,6 +2950,29 @@ class TestSubscribeCommandsHistoryReplay:
         command_events = [e for e in received if e["name"] == "command_data"]
         assert len(command_events) == 1
         assert command_events[0]["args"][0]["t"] == "cmd"
+
+    def test_subscribe_handler_accepts_a_client_payload(self, socketio_viewer):
+        """A client that sends data along with the event name must still subscribe.
+
+        The handlers took no arguments, so a client emitting subscribe_packets with a payload
+        raised TypeError inside flask_socketio, the error handler answered, and the
+        subscription was never recorded: no replay, no live packets for that client.
+        """
+        from flask_socketio import SocketIOTestClient
+
+        sio_client = SocketIOTestClient(
+            socketio_viewer.app, socketio_viewer.socketio
+        )
+        sio_client.emit("subscribe_packets", {})
+
+        received = sio_client.get_received()
+        assert not [e for e in received if e["name"] == "error"]
+        with socketio_viewer._clients_lock:
+            flags = [
+                info.get("subscribed_packets", False)
+                for info in socketio_viewer.connected_clients.values()
+            ]
+        assert any(flags), "payload did not register the subscription"
 
     def test_polling_thread_last_timestamp_is_recent(self, socketio_viewer):
         """_start_database_polling initializes last_timestamp ~5 min back, not epoch 0."""
@@ -4561,11 +4766,11 @@ class TestFeedPreviewResponseLimits:
         with (
             patch("modules.web_viewer.app.SafeUrlPolicy.validate", return_value=True),
             patch(
-                "modules.web_viewer.app.create_safe_requests_session",
+                "modules.web_viewer.feeds.create_safe_requests_session",
                 return_value=session_context,
             ),
             patch(
-                "modules.web_viewer.app.safe_requests_request",
+                "modules.web_viewer.feeds.safe_requests_request",
                 return_value=response,
             ) as request_mock,
             pytest.raises(ValueError, match="exceeds .* byte limit"),
@@ -4591,11 +4796,11 @@ class TestFeedPreviewResponseLimits:
         with (
             patch("modules.web_viewer.app.SafeUrlPolicy.validate", return_value=True),
             patch(
-                "modules.web_viewer.app.create_safe_requests_session",
+                "modules.web_viewer.feeds.create_safe_requests_session",
                 return_value=session_context,
             ),
             patch(
-                "modules.web_viewer.app.safe_requests_request",
+                "modules.web_viewer.feeds.safe_requests_request",
                 return_value=response,
             ),
             pytest.raises(ValueError, match="exceeds .* byte limit"),

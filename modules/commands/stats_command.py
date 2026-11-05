@@ -51,6 +51,9 @@ class StatsCommand(BaseCommand):
         {"key": "anonymize_users", "label": "Anonymize users", "type": "bool",
          "default": False,
          "help": "Replace user IDs with anonymous identifiers in stats."},
+        {"key": "collect_stats", "label": "Collect stats", "type": "bool",
+         "default": True,
+         "help": "Write message, command and path stats for the web viewer, even when the stats command is off."},
     ]
 
     def __init__(self, bot: Any):
@@ -343,7 +346,7 @@ class StatsCommand(BaseCommand):
         # If it's already a single node ID or short path, return as-is
         return path
 
-    def get_help_text(self) -> str:
+    def get_help_text(self, message: MeshMessage | None = None) -> str:
         """Get help text for the stats command.
 
         Returns:
@@ -352,7 +355,7 @@ class StatsCommand(BaseCommand):
         return self.translate('commands.stats.help')
 
     def can_use_service(self, message: MeshMessage, skip_channel_check: bool = False) -> bool:
-        return super().can_execute(message, skip_channel_check=skip_channel_check)
+        return super().can_use_service(message, skip_channel_check=skip_channel_check)
 
     async def execute_service(self, message: MeshMessage) -> bool:
         """Read the same Tigro statistics without public enable gate or cleanup."""

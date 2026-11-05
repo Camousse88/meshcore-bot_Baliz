@@ -26,7 +26,7 @@ class MeshCommand(BaseCommand):
         self.service = MeshService(bot, self.get_config_value)
 
     def can_use_service(self, message: MeshMessage, skip_channel_check: bool = False) -> bool:
-        return self.enabled and super().can_execute(message, skip_channel_check)
+        return self.enabled and super().can_use_service(message, skip_channel_check)
 
     def can_execute(self, message: MeshMessage, skip_channel_check: bool = False) -> bool:
         return self.public_enabled and self.can_use_service(message, skip_channel_check)

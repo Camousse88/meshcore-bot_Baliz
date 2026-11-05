@@ -106,7 +106,7 @@ async def test_trace_uses_mock_transport_only(command_mock_bot):
  cmd=TraceCommand(command_mock_bot);cmd.send_response=AsyncMock(return_value=True)
  cmd._format_trace_result=lambda m,r:'Trace terminée'
  cmd.update_graph_one_byte=False
- result=SimpleNamespace(success=True,path_nodes=[])
+ result=SimpleNamespace(success=True,path_nodes=[],flags=0)
  with patch('modules.commands.trace_command.run_trace',new=AsyncMock(return_value=result)) as trace:
   await cmd.execute(mock_message(content='tracer aa,bb',is_dm=True))
   assert trace.call_args.kwargs['path']==['aa','bb','aa']
@@ -122,7 +122,7 @@ async def test_network_adapter_forwards_near_parameters(command_mock_bot):
   m.capture_sink.append('Capteur à 2 km')
  near.execute=AsyncMock(side_effect=run)
  parent=SimpleNamespace(record_execution=lambda u:None)
- dispatcher=SimpleNamespace(owner=SimpleNamespace(bot=command_mock_bot,logger=logging.getLogger(),get_max_message_length=lambda m:158),_command=lambda n:near if n=='near' else parent,_allowed=lambda *a,**k:True,_rf_lock=asyncio.Lock(),_render_tool=AsyncMock(side_effect=lambda q,s,m:s))
+ dispatcher=SimpleNamespace(owner=SimpleNamespace(bot=command_mock_bot,logger=logging.getLogger(),get_max_message_length=lambda m:158),_command=lambda n:near if n=='near' else parent,_allowed=lambda *a,**k:True,_rf_lock=asyncio.Lock(),_render_tool=AsyncMock(side_effect=lambda q,s,m,**kw:s))
  result=await answer_network(dispatcher,Decision(Route.MESH,'capteurs proches','test','near',{'limit':3,'role':'sensor','target':'abcd'}),mock_message())
  assert result=='Capteur à 2 km'
 

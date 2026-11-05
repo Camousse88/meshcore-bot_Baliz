@@ -63,8 +63,12 @@ nav:
     - Universal Wiki.js RAG: wiki-rag.md
     - Baliz assistant: baliz-assistant.md
     - Config validation: config-validation.md
+    - Region scopes: region-scopes.md
     - Region warnings: region-warnings.md
+    - Channel occupancy: channel-occupancy.md
+    - Storage monitoring and power cycle: io-health-monitoring.md
   - Web Viewer: web-viewer.md
+  - Channel message visibility: channel-message-visibility.md
   - Command Reference:
     - Overview: command-reference.md
     - Repeater Commands: repeater-commands.md
@@ -78,6 +82,7 @@ nav:
     - Map Uploader: map-uploader.md
     - Weather Service: weather-service.md
     - Earthquake Service: earthquake-service.md
+    - Vigilance Météo-France: vigilance-service.md
     - Repeater Prefix Collision: repeater-prefix-collision-service.md
     - World Cup: worldcup.md
     - Feed Management: FEEDS.md

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Points d’entrée · Baliz{% endblock %}
 {% block extra_css %}
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="{{ url_for('static', filename='vendor/leaflet/leaflet.css') }}">
 <style>#entry-map{height:62vh;min-height:340px}.entry-arrow{font-size:20px;color:#b45309;text-shadow:0 0 2px white}.entry-row{cursor:pointer}.entry-row::marker{color:#6c757d}.entry-heading{display:inline;font-weight:600;overflow-wrap:anywhere}.entry-meta{display:block;margin:0.4rem 0 0 1rem;font-size:.85rem;color:var(--bs-secondary-color,#6c757d);line-height:1.5}.entry-count{float:right;margin-left:.5rem;font-size:.8rem}.hop-caption{display:flex;justify-content:space-between;gap:1rem;margin-bottom:.3rem}</style>
 {% endblock %}
 {% block content %}
@@ -22,7 +22,7 @@
 <div class="col-lg-4"><h2 class="h5">Relais français d’entrée</h2><p class="small">Clique sur un relais pour voir ses sauts à l’arrivée et le situer. Ce classement dépend de ce que reçoit Baliz, pas de tout le trafic du réseau.</p><div id="entry-ranking"></div></div></div>
 {% endblock %}
 {% block extra_js %}
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="{{ url_for('static', filename='vendor/leaflet/leaflet.js') }}"></script>
 <script>
 (() => {
     const map = L.map('entry-map').setView([48.5, -3], 7);

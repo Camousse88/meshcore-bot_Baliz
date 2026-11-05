@@ -37,7 +37,7 @@ class AdvertCommand(BaseCommand):
         super().__init__(bot)
         self.advert_enabled = self.get_config_value('Advert_Command', 'enabled', fallback=True, value_type='bool')
 
-    def get_help_text(self) -> str:
+    def get_help_text(self, message: MeshMessage | None = None) -> str:
         """Get help text for the advert command.
 
         Returns:
@@ -61,7 +61,7 @@ class AdvertCommand(BaseCommand):
 
     def can_use_service(self, message: MeshMessage, skip_channel_check: bool = False) -> bool:
         # Retain both sender and global radio cooldowns for internal calls.
-        if not super().can_execute(message, skip_channel_check=skip_channel_check):
+        if not super().can_use_service(message, skip_channel_check=skip_channel_check):
             return False
 
         # Additional check for bot's last advert time (legacy support)
