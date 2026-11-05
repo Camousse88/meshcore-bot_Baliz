@@ -57,3 +57,48 @@ test('clock rejection and stale measurements cannot render as success', () => {
     assert.match(viewer.clockStatusBadge('stale'), /Mesure ancienne/);
     assert.doesNotMatch(viewer.clockStatusBadge('rejected'), /bg-success|OK/);
 });
+
+test('real page initialization wires the switch to its saved-setting method', () => {
+    let ready;
+    let host;
+    let refreshes = 0;
+    const puts = [];
+    const doc = {
+        addEventListener: (name, callback) => { if (name === 'DOMContentLoaded') ready = callback; },
+        createElement: () => ({ style: {} }),
+        body: { appendChild: element => { host = element; } },
+        getElementById: () => null,
+    };
+    const runtime = vm.createContext({ document: doc, fetch: async (url, options) => {
+        puts.push({ url, options });
+        return { ok: true };
+    }, alert: message => { throw new Error(message); } });
+    // Run the actual DOMContentLoaded block as well as the class. Avoid unrelated
+    // background polling; the real switch callback and PUT method remain intact.
+    const script = html.slice(start, html.indexOf('</script>', start));
+    vm.runInContext(script + '\nglobalThis.TimeClass = TimeViewer;', runtime);
+    runtime.TimeClass.prototype.init = function () {};
+    runtime.TimeClass.prototype.loadData = async function () { refreshes++; };
+    ready();
+    assert.equal(typeof host.toggleAutoClkreboot, 'function');
+    return host.toggleAutoClkreboot(7, true).then(() => {
+        assert.equal(puts.length, 1);
+        assert.equal(puts[0].url, '/api/clock-sync-targets-admin/7');
+        assert.deepEqual(JSON.parse(puts[0].options.body), { auto_clkreboot_enabled: true });
+        assert.equal(puts[0].options.method, 'PUT');
+        assert.equal(refreshes, 1);
+    });
+});
+
+test('rejected setting updates report the error and reload the persisted value', async () => {
+    const errors = [];
+    const runtime = vm.createContext({ fetch: async () => ({ ok: false, status: 403 }),
+        alert: message => errors.push(message) });
+    vm.runInContext(html.slice(start, end) + '\nglobalThis.TimeClass = TimeViewer;', runtime);
+    const instance = Object.create(runtime.TimeClass.prototype);
+    let reloads = 0;
+    instance.loadData = async () => { reloads++; };
+    await instance.toggleAutoClkreboot(7, true);
+    assert.match(errors[0], /non enregistré.*HTTP 403/);
+    assert.equal(reloads, 1);
+});

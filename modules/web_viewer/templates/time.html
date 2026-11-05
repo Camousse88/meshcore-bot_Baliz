@@ -718,14 +718,18 @@
 
         async toggleAutoClkreboot(id, autoClkrebootEnabled) {
             try {
-                await fetch(`/api/clock-sync-targets-admin/${id}`, {
+                const response = await fetch(`/api/clock-sync-targets-admin/${id}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
                     body: JSON.stringify({ auto_clkreboot_enabled: autoClkrebootEnabled }),
                 });
-                this.loadData();
+                if (!response.ok) {
+                    throw new Error(`Impossible d’enregistrer le réglage (HTTP ${response.status}).`);
+                }
             } catch (err) {
-                alert('Toggle failed: ' + err.message);
+                alert('Réglage Auto clkreboot non enregistré : ' + err.message);
+            } finally {
+                await this.loadData();
             }
         }
 
@@ -756,6 +760,7 @@
         el._viewer = viewer;
         document.body.appendChild(el);
         el.toggleTarget = viewer.toggleTarget.bind(viewer);
+        el.toggleAutoClkreboot = viewer.toggleAutoClkreboot.bind(viewer);
         el.promptDelete = viewer.promptDelete.bind(viewer);
         el.showHistory = viewer.showHistory.bind(viewer);
     });

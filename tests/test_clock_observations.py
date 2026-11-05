@@ -145,3 +145,22 @@ def test_time_api_and_contacts_show_the_same_evidence_and_keep_ack_separate(view
     assert contacts['Concarneau']['clock_state'] == 'awaiting_verification'
     assert contacts['Concarneau']['clock_timestamp_valid'] is False
     assert contacts['Tredudon']['clock_drift_status'] == 'in_sync'
+
+
+def test_auto_clkreboot_setting_survives_reads_and_preserves_other_target_fields(viewer_with_db):
+    viewer = viewer_with_db
+    key = 'ab' * 32
+    with sqlite3.connect(viewer.db_path) as db:
+        target_id = db.execute('INSERT INTO clock_sync_targets (target,enabled) VALUES (?,1)', (key,)).lastrowid
+    with viewer.app.test_client() as client:
+        for enabled in (True, False):
+            result = client.put(f'/api/clock-sync-targets-admin/{target_id}',
+                json={'auto_clkreboot_enabled': enabled}, headers={'X-Requested-With': 'XMLHttpRequest'})
+            assert result.status_code == 200
+            assert result.get_json()['auto_clkreboot_enabled'] is enabled
+            for _ in range(2):
+                saved = client.get('/api/clock-sync-targets-admin').get_json()['targets'][0]
+                assert saved['auto_clkreboot_enabled'] is enabled
+            with sqlite3.connect(viewer.db_path) as db:
+                row = db.execute('SELECT auto_clkreboot_enabled,enabled,last_clkreboot_at FROM clock_sync_targets WHERE id=?', (target_id,)).fetchone()
+                assert row == (int(enabled), 1, None)
