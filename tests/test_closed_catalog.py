@@ -6,6 +6,7 @@ import pytest
 from modules.assistant.catalog import parse_plan, CATALOG
 from modules.assistant.router import AssistantRouter
 from modules.assistant.dispatcher import AssistantDispatcher
+from tests.conftest import mock_message
 
 ALL=set(CATALOG)
 
@@ -22,12 +23,12 @@ def test_disabled_route_rejected():
  with pytest.raises(ValueError): parse_plan('{"route":"path","operation":"message","args":{}}','route',{'wiki'})
 
 @pytest.mark.asyncio
-async def test_model_called_for_every_question():
+async def test_model_called_for_every_question(command_mock_bot):
  d=object.__new__(AssistantDispatcher)
- d.router=AssistantRouter();d.owner=SimpleNamespace(enabled_routes=ALL,logger=logging.getLogger(),route_timeout_seconds=5)
+ d.router=AssistantRouter();d.owner=SimpleNamespace(bot=command_mock_bot,enabled_routes=ALL,logger=logging.getLogger(),route_timeout_seconds=5)
  plan=parse_plan('{"route":"path","operation":"message","args":{}}','quelle est la route ?',ALL)
  d.semantic_router=SimpleNamespace(decide=AsyncMock(return_value=plan)); d._dispatch=AsyncMock(return_value='chemin')
- assert await d.answer('quelle est la route ?',SimpleNamespace())=='chemin'
+ assert await d.answer('quelle est la route ?',mock_message())=='chemin'
  d.semantic_router.decide.assert_awaited_once()
  assert d._dispatch.call_args[0][0].operation=='message'
 

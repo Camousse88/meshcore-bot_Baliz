@@ -165,6 +165,8 @@
     .leaflet-tooltip.combined-warning-label {color:#000;border-color:#737373}
     .leaflet-tooltip.onebyte-warning {background:transparent;border:0;box-shadow:none;padding:0;font-size:17px;line-height:1.2;text-shadow:0 0 3px white}
     .leaflet-tooltip.onebyte-warning::before {display:none}
+    .mesh-clock-symbol {display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-left:3px;vertical-align:middle;border-radius:50%;background:#fff;color:#374151;line-height:1;text-shadow:none;box-shadow:0 0 2px #0005}
+    .mesh-dark .mesh-clock-symbol {background:#fff;color:#374151}
 </style>
 
 <div id="mesh-graph-container" class="d-flex flex-column">
@@ -547,11 +549,23 @@
         touch-action: pan-x pan-y;
     }
     .mesh-node-popup .leaflet-popup-content {
-        margin: 10px 15px;
+        margin: 12px 16px;
+        box-sizing: border-box;
+        overflow-x: hidden;
+        overflow-wrap: anywhere;
+        scrollbar-width: thin;
     }
     .mesh-node-popup .leaflet-popup-content table {
+        width: 100%;
+        table-layout: fixed;
         border-collapse: collapse;
     }
+    .mesh-node-popup .mesh-popup-label {width: 100px;vertical-align:top}
+    .mesh-node-popup .leaflet-popup-content td {overflow-wrap:anywhere;word-break:normal}
+    .mesh-node-popup .leaflet-popup-content code {white-space:normal;overflow-wrap:anywhere;word-break:break-all}
+    .mesh-node-title {display:block;font-size:1.1em;padding-right:18px;overflow-wrap:anywhere}
+    .mesh-node-popup .leaflet-popup-content::-webkit-scrollbar {width:6px;height:0}
+    .mesh-node-popup .leaflet-popup-content::-webkit-scrollbar-thumb {background:#aaa;border-radius:5px}
     .mesh-node-popup .leaflet-popup-content code,
     .mesh-edge-popup .leaflet-popup-content code {
         background-color: var(--mesh-code-bg);
@@ -1271,6 +1285,115 @@
         button.classList.toggle('active', enabled);
         button.classList.toggle('btn-danger', enabled);
         button.classList.toggle('btn-outline-danger', !enabled);
+    }
+
+    function nodeClockNumber(value) {
+        return typeof value === 'number' && Number.isFinite(value) ? value : null;
+    }
+
+    function nodeHasClockWarning(node) {
+        return node.clock_drift_exceeded === true && nodeClockNumber(node.clock_drift_seconds) !== null;
+    }
+
+    function formatClockDriftDuration(value) {
+        const number = nodeClockNumber(value);
+        if (number === null) return 'Non mesuré';
+        const seconds = Math.abs(Math.round(number));
+        if (seconds < 60) return `${seconds} s`;
+        const minutes = Math.floor(seconds / 60);
+        if (minutes < 60) return `${minutes} min ${seconds % 60} s`;
+        const hours = Math.floor(minutes / 60);
+        if (hours < 24) return `${hours} h ${minutes % 60} min`;
+        return `${Math.floor(hours / 24)} j ${hours % 24} h`;
+    }
+
+    function nodeClockSummary(node) {
+        const drift = nodeClockNumber(node.clock_drift_seconds);
+        if (drift === null) return '';
+        const signed = nodeClockNumber(node.clock_signed_drift_seconds);
+        const duration = formatClockDriftDuration(drift);
+        if (signed === null || signed === 0) return `Décalage mesuré : ${duration}`;
+        return `${signed < 0 ? 'En retard' : 'En avance'} de ${duration}`;
+    }
+
+    function nodeClockObservation(node) {
+        const observed = nodeClockNumber(node.clock_observed_at);
+        if (observed === null) return 'Date de mesure inconnue';
+        const date = new Date(observed * 1000);
+        if (Number.isNaN(date.getTime())) return 'Date de mesure inconnue';
+        const source = node.clock_drift_source === 'advert' ? 'annonce' : 'message';
+        return `Mesuré le ${date.toLocaleString('fr-FR')} · ${source}${node.clock_observation_stale ? ' · mesure ancienne' : ''}`;
+    }
+
+    function clockGlyphHTML() {
+        return '<svg class="mesh-clock-outline" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7.5v5l3.3 2"></path></svg>';
+    }
+
+    function nodeClockHTML(node) {
+        const summary = nodeClockSummary(node);
+        if (!summary) return '';
+        const border = nodeHasClockWarning(node) ? '#eab308' : 'var(--bs-border-color,#aaa)';
+        return `<div class="mesh-clock-detail" style="margin-top:8px;padding:8px;border:1px solid ${border};border-radius:5px;"><strong><span class="mesh-clock-symbol">${clockGlyphHTML()}</span> Horloge</strong><div>${escapeHtml(summary)}</div><div class="small text-muted">${escapeHtml(nodeClockObservation(node))}</div></div>`;
+    }
+
+    function nodeNeedsForeground(node) {
+        return nodeWarningReasons(node).length > 0 || nodeHasClockWarning(node);
+    }
+
+    function ensureNodeIndicatorPanes(mapInstance) {
+        // Ordinary labels stay at Leaflet's 650; popups stay above all at 700.
+        for (const [name, zIndex] of [['meshClockLabels', '670'], ['meshConfigurationLabels', '680']]) {
+            const pane = mapInstance.getPane(name) || mapInstance.createPane(name);
+            pane.style.zIndex = zIndex;
+            pane.style.pointerEvents = 'none';
+        }
+    }
+
+    function bindNodeLabel(marker, node) {
+        const toggle = document.getElementById('filter-node-labels');
+        const warning = nodeWarningReasons(node).length > 0;
+        const clockWarning = nodeHasClockWarning(node);
+        const indicator = warning || clockWarning;
+        const showName = (toggle && toggle.checked) || isWarningHighlighted(node);
+        if (!showName && !indicator) return;
+        const label = document.createElement('span');
+        const name = isWarningHighlighted(node) ? `${node.name} - ${nodeWarningLabel(node)}` : getNodeShortLabel(node);
+        label.textContent = showName ? (name || node.name) : (warning ? '⚠️' : '');
+        const descriptions = nodeWarningReasons(node);
+        if (clockWarning) {
+            const clock = document.createElement('span');
+            clock.className = 'mesh-clock-symbol';
+            clock.innerHTML = clockGlyphHTML();
+            label.appendChild(clock);
+            descriptions.push(`${nodeClockSummary(node)}. ${nodeClockObservation(node)}`);
+        }
+        if (indicator) {
+            label.title = descriptions.join(' ');
+            label.setAttribute('aria-label', `${node.name} : ${label.title}`);
+            label.setAttribute('role', 'button');
+            label.tabIndex = 0;
+            label.style.cursor = 'pointer';
+            L.DomEvent.disableClickPropagation(label);
+            const openNode = () => marker.fire('click');
+            label.addEventListener('click', openNode);
+            label.addEventListener('keydown', event => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    openNode();
+                }
+            });
+        }
+        const oneByte = node.path_encoding_badge === 'one_byte';
+        marker.bindTooltip(label, {
+            permanent: true,
+            pane: warning ? 'meshConfigurationLabels' : (clockWarning ? 'meshClockLabels' : 'tooltipPane'),
+            interactive: indicator,
+            direction: showName ? 'top' : 'right',
+            offset: showName ? [0, 0] : [6, 0],
+            className: !showName ? 'onebyte-warning' : (isWarningHighlighted(node) ? `mesh-node-label onebyte-label ${node.unscoped_only_observed ? (oneByte ? 'combined-warning-label' : 'region-warning-label') : ''}` : 'mesh-node-label'),
+            opacity: 1
+        });
     }
 
     function nodeWarningReasons(node) {
@@ -2775,6 +2898,7 @@
             map.createPane('oneBytePane');
             map.getPane('oneBytePane').style.zIndex = '625';
         }
+        ensureNodeIndicatorPanes(map);
         // Add markers for nodes AFTER edges (so they appear on top and are easier to click)
         filteredNodes.forEach(node => {
             // Zoom-scaled size based on current filtered edges (changes with filters/zoom)
@@ -2792,7 +2916,7 @@
                 fillOpacity: 0.8,
                 // Keep flagged repeaters clickable when another node shares
                 // their location, including outside the 1-byte focus mode.
-                pane: nodeWarningReasons(node).length > 0 ? 'oneBytePane' : 'markerPane'
+                pane: nodeNeedsForeground(node) ? 'oneBytePane' : 'markerPane'
             });
             
             // Create information-rich tooltip with all node details
@@ -2819,8 +2943,8 @@
             numBytes = Math.min(3, Math.max(1, numBytes));
             
             const tooltipContent = `
-                <div style="min-width: 250px;">
-                    <strong style="font-size: 1.1em;">${escapeHtml(node.name)}</strong><br>
+                <div class="mesh-node-detail">
+                    <strong class="mesh-node-title">${escapeHtml(node.name)}</strong>
                     <hr class="mesh-popup-rule">
                     <table style="width: 100%; font-size: 0.9em;">
                         <tr>
@@ -2861,51 +2985,20 @@
                         </tr>
                     </table>
                     ${nodeWarningHTML(node)}
+                    ${nodeClockHTML(node)}
                 </div>
             `;
 
             marker.bindPopup(tooltipContent, {
-                maxWidth: 300,
+                minWidth: Math.min(340, map.getSize().x - 60),
+                maxWidth: Math.min(410, map.getSize().x - 60),
                 className: 'mesh-node-popup',
-                autoPan: false  // Prevent bounding box/auto-pan when popup opens
+                maxHeight: Math.max(180, Math.min(560, map.getSize().y - 70, window.innerHeight - 120)),
+                autoPan: true,
+                autoPanPadding: [16, 16]
             });
 
-            const labelsToggle = document.getElementById('filter-node-labels');
-            const oneByte = node.path_encoding_badge === 'one_byte';
-            const warning = nodeWarningReasons(node).length > 0;
-            const showName = (labelsToggle && labelsToggle.checked) || isWarningHighlighted(node);
-            if (showName || warning) {
-                const label = document.createElement('span');
-                const name = isWarningHighlighted(node) ? `${node.name} - ${nodeWarningLabel(node)}` : getNodeShortLabel(node);
-                label.textContent = showName ? (name || node.name) : '⚠️';
-                if (warning) {
-                    label.title = nodeWarningReasons(node).join(' ');
-                    label.setAttribute('aria-label', `${node.name} : relais à vérifier`);
-                    label.setAttribute('role', 'button');
-                    label.tabIndex = 0;
-                    label.style.cursor = 'pointer';
-                    // Co-located repeaters can cover one another: target this
-                    // marker explicitly instead of passing the click to the map.
-                    L.DomEvent.disableClickPropagation(label);
-                    const openWarning = () => marker.fire('click');
-                    label.addEventListener('click', openWarning);
-                    label.addEventListener('keydown', (event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            openWarning();
-                        }
-                    });
-                }
-                marker.bindTooltip(label, {
-                    permanent: true,
-                    interactive: warning,
-                    direction: showName ? 'top' : 'right',
-                    offset: showName ? [0, 0] : [6, 0],
-                    className: !showName ? 'onebyte-warning' : (isWarningHighlighted(node) ? `mesh-node-label onebyte-label ${node.unscoped_only_observed ? (oneByte ? 'combined-warning-label' : 'region-warning-label') : ''}` : 'mesh-node-label'),
-                    opacity: 1
-                });
-            }
+            bindNodeLabel(marker, node);
 
             // Add click handler to highlight connections - pass the actual node object
             marker.on('click', (e) => {
@@ -3004,8 +3097,8 @@
                 }
                 nodeMapById.set(nodeId, {
                     id: nodeId,
-                    label: isWarningHighlighted(node) ? `${shortLabel} - ${nodeWarningLabel(node)}` : shortLabel,
-                    title: `${escapeHtml(node.name)} (${escapeHtml(node.prefix)})`, // Full name in tooltip (rendered as HTML by vis-network)
+                    label: (isWarningHighlighted(node) ? `${shortLabel} - ${nodeWarningLabel(node)}` : shortLabel) + (nodeHasClockWarning(node) ? ' ◷' : ''),
+                    title: `${escapeHtml(node.name)} (${escapeHtml(node.prefix)})${nodeClockHTML(node)}`, // Full name in tooltip (rendered as HTML by vis-network)
                     prefix: node.prefix, // Store prefix for reference
                     color: {
                         background: getNodeFillColor(node),

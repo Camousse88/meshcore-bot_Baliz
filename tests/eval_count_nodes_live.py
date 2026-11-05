@@ -6,11 +6,13 @@ import logging
 from pathlib import Path
 import sqlite3
 import sys
+from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from modules.assistant.catalog import CATALOG
 from modules.assistant.semantic_router import SemanticRouter
 from modules.assistant.network_tools import count_nodes
 from modules.assistant.llm_service import LlmService
+from modules.models import MeshMessage
 
 async def main():
     config=configparser.ConfigParser()
@@ -30,6 +32,11 @@ async def main():
     # wiki initialization or conversation history participates in this call.
     service=object.__new__(LlmService)
     service.logger=owner.logger
+    # Explicit companion fixture for this manual, synthetic no-RF evaluation.
+    test_key='ab'*32
+    service.bot=SimpleNamespace(meshcore=SimpleNamespace(contacts={test_key:{
+        'public_key':test_key,'type':1}},pending_contacts={}),db_manager=None)
+    message=MeshMessage(question,sender_pubkey=test_key,is_dm=True)
     service._answer_lock=asyncio.Lock()
     service.endpoint=config.get('Llm_Command','endpoint')
     service.model=config.get('Llm_Command','model')
@@ -39,7 +46,7 @@ async def main():
     service.top_p=0.9
     service.timeout_seconds=config.getfloat('Llm_Command','timeout_seconds',fallback=20)
     service.strip_thinking_tags=True
-    result=await service.rephrase_tool_result(question,source,context='Faits mesurés localement. Conserve le nombre de nœuds, la période et la source locale. Un seul message de 220 octets UTF-8 maximum.',max_length=220)
+    result=await service.rephrase_tool_result(question,source,message=message,context='Faits mesurés localement. Conserve le nombre de nœuds, la période et la source locale. Un seul message de 220 octets UTF-8 maximum.',max_length=220)
     assert result, 'LLM reformulation unavailable or rejected'
     assert len(result.encode())<=220
     print(json.dumps(dict(plan=dict(route=plan.route.value,operation=plan.operation,args=plan.args),source=source,response=result,bytes=len(result.encode())),ensure_ascii=False))

@@ -1,6 +1,7 @@
 """Direct LLM command; shared engine lives outside command routing."""
 from ..assistant.llm_service import LlmService
 from ..assistant.response import send_answer
+from ..assistant.sender_policy import sender_is_companion
 from ..models import MeshMessage
 from .base_command import BaseCommand
 
@@ -29,7 +30,7 @@ class LlmCommand(BaseCommand):
         return self.public_enabled and self.can_use_service(message, skip_channel_check)
 
     def can_use_service(self, message: MeshMessage, skip_channel_check: bool = False) -> bool:
-        return self.llm_enabled and super().can_use_service(message, skip_channel_check)
+        return sender_is_companion(self.bot, message) and self.llm_enabled and super().can_use_service(message, skip_channel_check)
 
     def get_help_text(self, message: MeshMessage | None = None) -> str:
         return f"Usage: {self._command_prefix}llm <question>"
@@ -39,6 +40,8 @@ class LlmCommand(BaseCommand):
         return prompt if _ else ""
 
     async def execute(self, message: MeshMessage) -> bool:
+        if not sender_is_companion(self.bot, message):
+            return False
         prompt = self._extract_prompt(message)
         if not prompt:
             return await self.send_response(message, self.get_help_text())
