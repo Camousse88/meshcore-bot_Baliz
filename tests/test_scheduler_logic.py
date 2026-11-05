@@ -820,6 +820,8 @@ class TestClockSyncAdminMinDrift:
         return conn
 
     def _run_context(self, scheduler, contact_name, min_sync_drift):
+        # This fixture writes UTC receipt strings for both sources.
+        scheduler.bot.config.set("Bot", "timezone", "UTC")
         scheduler.bot.config.add_section("Clock_Sync_Admin")
         scheduler.bot.config.set("Clock_Sync_Admin", "enabled", "true")
         # target is a public key prefix, resolved via the contacts table

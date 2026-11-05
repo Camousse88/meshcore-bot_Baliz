@@ -741,7 +741,7 @@
                                 <button type="button" class="sort-btn">First Heard&nbsp;<i class="fas fa-sort sort-icon" aria-hidden="true"></i></button>
                             </th>
                             <th class="sortable sort-active" data-sort="last_seen" aria-sort="descending">
-                                <button type="button" class="sort-btn">Last Heard&nbsp;<i class="fas fa-sort-down sort-icon" aria-hidden="true"></i></button>
+                                <button type="button" class="sort-btn">Dernière annonce&nbsp;<i class="fas fa-sort-down sort-icon" aria-hidden="true"></i></button>
                             </th>
                             <th class="sortable" data-sort="advert_count" title="Annonces distinctes reçues sur la période sélectionnée ; All time affiche le total cumulé.">
                                 <button type="button" class="sort-btn"><span id="contacts-adverts-heading">Adverts</span>&nbsp;<i class="fas fa-sort sort-icon" aria-hidden="true"></i></button>
@@ -2854,17 +2854,44 @@ class ModernContactsManager {
             this.executePurge(parseInt(select.value));
         });
     }
+    clockObservationText(contact) {
+        if (!contact.clock_observed_at) return 'Date de mesure inconnue';
+        const date = new Date(Number(contact.clock_observed_at) * 1000);
+        const source = contact.clock_drift_source === 'advert' ? 'annonce' : 'message';
+        return `Mesuré le ${date.toLocaleString('fr-FR')} · ${source}`;
+    }
+
     formatClockDriftBadge(contact) {
+        const badge = this.clockDriftBadge(contact);
+        if (!contact.clock_observed_at) return badge;
+        return badge + `<span class="d-block small text-muted">${this.clockObservationText(contact)}</span>`;
+    }
+
+    clockDriftBadge(contact) {
         const status = contact.clock_drift_status || 'unknown';
         const hasDrift = contact.clock_drift_seconds !== null
             && contact.clock_drift_seconds !== undefined
             && Number.isFinite(Number(contact.clock_drift_seconds));
         const drift = hasDrift ? Math.abs(Number(contact.clock_drift_seconds)) : 0;
 
-        if (status === 'unknown' || !hasDrift) {
+        if (status === 'awaiting_verification') {
+            return ' <span class="badge clock-drift-badge bg-warning text-dark">Horloge à vérifier</span>';
+        }
+        if (status === 'rejected') {
+            return ' <span class="badge clock-drift-badge bg-danger">Commande refusée</span>';
+        }
+        if (status === 'unknown' || (!hasDrift && status !== 'unset')) {
             return ' <span class="badge clock-drift-badge bg-secondary"'
                 + ' data-bs-toggle="tooltip" data-bs-placement="top"'
                  + ' title="No drift data — no recent packet with a timestamp">N/D</span>';
+        }
+
+        if (status === 'stale') {
+            return ` <span class="badge clock-drift-badge bg-secondary">Mesure ancienne${hasDrift ? ` : ${this.formatDriftCompact(drift)}` : ''}</span>`;
+        }
+        if (status === 'unset') {
+            return ' <span class="badge clock-drift-badge bg-danger"'
+                + ` title="${this.clockObservationText(contact)}">Horloge non réglée</span>`;
         }
 
         const compact = this.formatDriftCompact(drift);

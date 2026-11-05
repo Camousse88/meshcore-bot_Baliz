@@ -222,7 +222,8 @@
                     const r = result.result_data || {};
                     this.showRunNowAlert(
                         `Clock_Sync_Admin run complete — sent: ${r.sent ?? 0}, failed: ${r.failed ?? 0}, ` +
-                        `unknown: ${r.unknown ?? 0}, duplicates skipped: ${r.duplicates_skipped ?? 0}.`,
+                        `unknown: ${r.unknown ?? 0}, already in sync: ${r.in_sync_skipped ?? 0}, ` +
+                        `duplicates skipped: ${r.duplicates_skipped ?? 0}.`,
                         (r.failed ?? 0) > 0 ? 'warning' : 'success'
                     );
                 } else if (status === 'timeout') {
@@ -413,12 +414,12 @@
                     content.innerHTML = '<div class="text-muted text-center">No sync history yet.</div>';
                     return;
                 }
-                let html = '<table class="table table-sm mb-0"><thead><tr><th>Time</th><th>Status</th><th>Detail</th></tr></thead><tbody>';
+                let html = '<table class="table table-sm mb-0"><thead><tr><th>Date</th><th>Envoi</th><th>Détail</th></tr></thead><tbody>';
                 history.forEach(h => {
                     const time = this.formatTimestamp(h.at);
                     const status = h.success
-                        ? '<span class="badge bg-success">OK</span>'
-                        : '<span class="badge bg-danger">Fail</span>';
+                        ? '<span class="badge bg-info text-dark">Réception confirmée</span>'
+                        : '<span class="badge bg-secondary">Réception non confirmée</span>';
                     const detail = h.error ? this.escapeHtml(h.error) : '-';
                     html += `<tr><td class="text-muted small">${time}</td><td>${status}</td><td class="small">${detail}</td></tr>`;
                 });
@@ -493,7 +494,7 @@
             }
 
             let html = '<table class="table table-sm align-middle mb-0">';
-            html += '<thead><tr><th>Target</th><th>Drift</th><th>Status</th><th>Battery</th><th>Auto clkreboot</th><th>Last Sync</th><th class="text-end">Actions</th></tr></thead><tbody>';
+            html += '<thead><tr><th>Target</th><th>Décalage mesuré</th><th>Horloge</th><th>Battery</th><th>Auto clkreboot</th><th>Dernier envoi</th><th class="text-end">Actions</th></tr></thead><tbody>';
             targets.forEach(t => {
                 const id = t.id;
                 const displayTarget = this.escapeHtml(t.target || 'unknown');
@@ -503,23 +504,19 @@
                 const toggleIcon = enabled ? 'fa-check' : 'fa-pause';
                 const toggleTitle = enabled ? 'Click to disable' : 'Click to enable';
 
-                // Drift
-                let driftHtml = '<span class="text-muted">-</span>';
-                if (t.clock_drift !== undefined && t.clock_drift !== null) {
-                    const drift = t.clock_drift;
-                    const driftClass = Math.abs(drift) > 300 ? 'text-danger' : (Math.abs(drift) > 60 ? 'text-warning' : 'text-success');
+                let driftHtml = '<span class="text-muted">Non mesuré</span>';
+                if (t.clock_timestamp_valid === false) {
+                    driftHtml = '<span class="text-danger">Horloge non réglée</span>';
+                } else if (t.clock_drift !== undefined && t.clock_drift !== null) {
+                    const drift = Math.abs(t.clock_drift);
+                    const driftClass = drift > 300 ? 'text-danger' : (drift > 60 ? 'text-warning' : 'text-success');
                     driftHtml = `<span class="${driftClass}">${drift}s</span>`;
                 }
-
-                // Sync status
-                let syncBadge = '<span class="badge bg-secondary">No data</span>';
-                if (t.last_sync_at) {
-                    if (t.last_sync_success) {
-                        syncBadge = '<span class="badge bg-success"><i class="fas fa-check"></i> OK</span>';
-                    } else {
-                        syncBadge = `<span class="badge bg-danger" title="${this.escapeHtml(t.last_sync_error || '')}"><i class="fas fa-times"></i> Fail</span>`;
-                    }
+                if (t.clock_observed_at) {
+                    const source = t.clock_source === 'advert' ? 'annonce' : 'message';
+                    driftHtml += `<div class="small text-muted">${this.formatObservation(t.clock_observed_at)} · ${source}</div>`;
                 }
+                const syncBadge = this.clockStatusBadge(t.clock_state);
 
                 // Battery (Battery_Monitor polls this same target list)
                 let batteryHtml = '<span class="text-muted">-</span>';
@@ -546,7 +543,8 @@
                 // Last sync time
                 let lastSync = '-';
                 if (t.last_sync_at) {
-                    lastSync = this.formatTimestamp(t.last_sync_at);
+                    const delivery = t.last_sync_success ? 'Réception confirmée' : 'Réception non confirmée';
+                    lastSync = `${delivery}<div class="small text-muted">${this.formatTimestamp(t.last_sync_at)}</div>`;
                 }
 
                 const deleteTitle = `Delete target ${displayTarget}`;
@@ -666,15 +664,44 @@
             }
         }
 
+        clockStatusBadge(state) {
+            const states = {
+                in_sync: ['success', 'À l’heure'],
+                warning: ['warning text-dark', 'Décalage à corriger'],
+                out_of_sync: ['danger', 'Décalage observé'],
+                unset: ['danger', 'Horloge non réglée'],
+                awaiting_verification: ['warning text-dark', 'Horloge à vérifier'],
+                rejected: ['danger', 'Commande refusée'],
+                stale: ['secondary', 'Mesure ancienne'],
+                unknown: ['secondary', 'Non mesurée'],
+            };
+            const [color, label] = states[state] || states.unknown;
+            return `<span class="badge bg-${color}">${label}</span>`;
+        }
+
+        timestampDate(ts) {
+            if (typeof ts === 'number') return new Date(ts * 1000);
+            if (typeof ts !== 'string' || !ts.trim()) return null;
+            let text = ts.trim().replace(' ', 'T');
+            // SQLite sync/battery log dates are UTC, including legacy responses.
+            if (!/(Z|[+-]\d{2}:?\d{2})$/i.test(text)) text += 'Z';
+            const date = new Date(text);
+            return Number.isNaN(date.getTime()) ? null : date;
+        }
+
+        formatObservation(ts) {
+            const date = this.timestampDate(ts);
+            return date ? `Mesuré le ${date.toLocaleString('fr-FR')}` : 'Date inconnue';
+        }
+
         formatTimestamp(ts) {
-            if (!ts) return '-';
-            const date = new Date(ts.includes('T') || ts.includes(' ') ? ts : ts * 1000);
-            const now = new Date();
-            const diff = Math.floor((now - date) / 1000);
-            if (diff < 60) return `${diff}s ago`;
-            if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-            if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-            return `${Math.floor(diff / 86400)}d ago`;
+            const date = this.timestampDate(ts);
+            if (!date) return '-';
+            const diff = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+            if (diff < 60) return `il y a ${diff} s`;
+            if (diff < 3600) return `il y a ${Math.floor(diff / 60)} min`;
+            if (diff < 86400) return `il y a ${Math.floor(diff / 3600)} h`;
+            return `il y a ${Math.floor(diff / 86400)} j`;
         }
 
         async toggleTarget(id, currentEnabled) {

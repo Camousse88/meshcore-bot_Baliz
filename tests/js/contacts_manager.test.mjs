@@ -534,3 +534,22 @@ test('setupBatteryBadges wires a click handler once per badge', () => {
     manager.setupBatteryBadges();
     assert.equal(badge.listeners.click, previousHandler);
 });
+
+test('unset clock and old measurements are readable and show the observation date', () => {
+    const { Manager } = loadManagerClass();
+    const manager = Object.create(Manager.prototype);
+    const unset = manager.formatClockDriftBadge({
+        clock_drift_status: 'unset', clock_drift_seconds: null,
+        clock_observed_at: 1793840295, clock_drift_source: 'advert',
+    });
+    assert.match(manager.formatClockDriftBadge({
+        clock_drift_status: 'awaiting_verification', clock_drift_seconds: null,
+    }), /Horloge à vérifier/);
+    assert.match(unset, /Horloge non réglée/);
+    assert.match(unset, /Mesuré le/);
+    assert.doesNotMatch(unset, /20754|1793177892|N\/D/);
+    assert.match(manager.formatClockDriftBadge({
+        clock_drift_status: 'stale', clock_drift_seconds: 27,
+        clock_observed_at: 1793818149, clock_drift_source: 'advert',
+    }), /Mesure ancienne/);
+});
