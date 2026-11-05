@@ -2874,24 +2874,13 @@ class ModernContactsManager {
             && Number.isFinite(Number(contact.clock_drift_seconds));
         const drift = hasDrift ? Math.abs(Number(contact.clock_drift_seconds)) : 0;
 
-        if (status === 'awaiting_verification') {
-            return ' <span class="badge clock-drift-badge bg-warning text-dark">Horloge à vérifier</span>';
-        }
-        if (status === 'rejected') {
-            return ' <span class="badge clock-drift-badge bg-danger">Commande refusée</span>';
-        }
-        if (status === 'unknown' || (!hasDrift && status !== 'unset')) {
+        if (!hasDrift) {
             return ' <span class="badge clock-drift-badge bg-secondary"'
                 + ' data-bs-toggle="tooltip" data-bs-placement="top"'
                  + ' title="No drift data — no recent packet with a timestamp">N/D</span>';
         }
-
         if (status === 'stale') {
-            return ` <span class="badge clock-drift-badge bg-secondary">Mesure ancienne${hasDrift ? ` : ${this.formatDriftCompact(drift)}` : ''}</span>`;
-        }
-        if (status === 'unset') {
-            return ' <span class="badge clock-drift-badge bg-danger"'
-                + ` title="${this.clockObservationText(contact)}">Horloge non réglée</span>`;
+            return ` <span class="badge clock-drift-badge bg-secondary" title="Mesure ancienne : ${this.formatDrift(drift)}">${this.formatDriftCompact(drift)}</span>`;
         }
 
         const compact = this.formatDriftCompact(drift);

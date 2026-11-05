@@ -236,7 +236,6 @@ class ContactTrackingMixin:
                     clock_status = target_clock_status(clock_samples.get(entry['username']),
                         clock_attempts.get(entry['user_id']), self.config)
                     entry.update(clock_status)
-                    entry['clock_drift_status'] = clock_status['clock_state']
                     windows = advert_windows.get(entry['user_id'], {})
                     entry['advert_counts'] = {**{window: windows.get(window, 0)
                                                 for window in ('24h', '7d', '30d', '90d')},
@@ -409,7 +408,7 @@ class ContactTrackingMixin:
             # Per-contact clock drift (freshest clocked packet wins) and the latest
             # Battery_Monitor reading, both keyed for the contacts-page badges.
             drift_sample = clock_drift_samples.get(row['name'])
-            drift_value = drift_sample['drift'] if drift_sample and drift_sample['timestamp_valid'] else None
+            drift_value = drift_sample['drift'] if drift_sample else None
             drift_status = target_clock_status(drift_sample, None, self.config)['clock_state']
             battery_sample = battery_samples.get(row['public_key'])
             battery_voltage = battery_sample['voltage'] if battery_sample is not None else None

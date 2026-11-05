@@ -535,21 +535,20 @@ test('setupBatteryBadges wires a click handler once per badge', () => {
     assert.equal(badge.listeners.click, previousHandler);
 });
 
-test('unset clock and old measurements are readable and show the observation date', () => {
+test('Contacts always shows numeric drift, independently of clock verification', () => {
     const { Manager } = loadManagerClass();
     const manager = Object.create(Manager.prototype);
-    const unset = manager.formatClockDriftBadge({
-        clock_drift_status: 'unset', clock_drift_seconds: null,
-        clock_observed_at: 1793840295, clock_drift_source: 'advert',
-    });
-    assert.match(manager.formatClockDriftBadge({
-        clock_drift_status: 'awaiting_verification', clock_drift_seconds: null,
-    }), /Horloge à vérifier/);
-    assert.match(unset, /Horloge non réglée/);
-    assert.match(unset, /Mesuré le/);
-    assert.doesNotMatch(unset, /20754|1793177892|N\/D/);
+    for (const state of ['unset', 'awaiting_verification', 'rejected', 'stale']) {
+        const badge = manager.formatClockDriftBadge({
+            clock_drift_status: state, clock_drift_seconds: 1793177892,
+            clock_observed_at: 1793840295, clock_drift_source: 'advert',
+        });
+        assert.match(badge, />\s*20754d8h</);
+        assert.match(badge, /Mesuré le/);
+        assert.doesNotMatch(badge, /Horloge à vérifier|Horloge non réglée|Commande refusée|N\/D/);
+    }
     assert.match(manager.formatClockDriftBadge({
         clock_drift_status: 'stale', clock_drift_seconds: 27,
         clock_observed_at: 1793818149, clock_drift_source: 'advert',
-    }), /Mesure ancienne/);
+    }), />27s</);
 });

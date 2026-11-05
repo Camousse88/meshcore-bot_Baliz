@@ -505,9 +505,7 @@
                 const toggleTitle = enabled ? 'Click to disable' : 'Click to enable';
 
                 let driftHtml = '<span class="text-muted">Non mesuré</span>';
-                if (t.clock_timestamp_valid === false) {
-                    driftHtml = '<span class="text-danger">Horloge non réglée</span>';
-                } else if (t.clock_drift !== undefined && t.clock_drift !== null) {
+                if (t.clock_drift !== undefined && t.clock_drift !== null) {
                     const drift = Math.abs(t.clock_drift);
                     const driftClass = drift > 300 ? 'text-danger' : (drift > 60 ? 'text-warning' : 'text-success');
                     driftHtml = `<span class="${driftClass}">${drift}s</span>`;

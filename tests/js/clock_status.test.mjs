@@ -25,18 +25,19 @@ test('UTC sync time is minutes ago, not an hour ago, in the French timezone', ()
     assert.equal(viewer.timestampDate('2026-11-05 14:00:45').toISOString(), '2026-11-05T14:00:45.000Z');
 });
 
-test('Concarneau ACK with old unset clock has no OK badge or huge duration', () => {
+test('Concarneau keeps its numeric drift and restricts verification to the clock column', () => {
     viewer.updateTargets([{ id: 1, target: 'ab'.repeat(32), contact_name: 'Concarneau', enabled: true,
-        clock_state: 'awaiting_verification', clock_timestamp_valid: false, clock_drift: null,
+        clock_state: 'awaiting_verification', clock_timestamp_valid: false, clock_drift: 1793177892,
         clock_observed_at: Date.parse('2026-11-05T00:58:15Z') / 1000, clock_source: 'advert',
         last_sync_success: true, last_sync_at: '2026-11-05T14:01:10+00:00',
     }]);
     assert.match(container.innerHTML, /Horloge à vérifier/);
     assert.match(container.innerHTML, /Réception confirmée/);
-    assert.match(container.innerHTML, /Horloge non réglée/);
+    assert.match(container.innerHTML, />1793177892s</);
     assert.match(container.innerHTML, /Mesuré le/);
     assert.doesNotMatch(container.innerHTML, />\s*OK\s*</);
-    assert.doesNotMatch(container.innerHTML, /1793177892|20754d/);
+    assert.doesNotMatch(container.innerHTML, /Horloge non réglée/);
+    assert.equal((container.innerHTML.match(/Horloge à vérifier/g) || []).length, 1);
 });
 
 test('Trédudon good measurement and earlier missing ACK are presented separately', () => {

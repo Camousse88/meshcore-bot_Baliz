@@ -133,7 +133,7 @@ def test_time_api_and_contacts_show_the_same_evidence_and_keep_ack_separate(view
         assert rows['Tredudon']['clock_state'] == 'in_sync'
         assert rows['Concarneau']['clock_state'] == 'awaiting_verification'
         assert rows['Concarneau']['clock_timestamp_valid'] is False
-        assert rows['Concarneau']['clock_drift'] is None
+        assert rows['Concarneau']['clock_drift'] == old - 662403
         assert rows['Concarneau']['last_sync_at'].endswith('+00:00')
         history = client.get('/api/clock-sync-targets-admin/1/history').get_json()['history']
         assert history[0]['at'].endswith('+00:00')
@@ -141,6 +141,7 @@ def test_time_api_and_contacts_show_the_same_evidence_and_keep_ack_separate(view
     for name in rows:
         assert contacts[name]['clock_drift_seconds'] == rows[name]['clock_drift']
         assert contacts[name]['clock_observed_at'] == rows[name]['clock_observed_at']
-    assert contacts['Concarneau']['clock_drift_status'] == 'awaiting_verification'
+    assert contacts['Concarneau']['clock_drift_status'] == 'unset'
+    assert contacts['Concarneau']['clock_state'] == 'awaiting_verification'
     assert contacts['Concarneau']['clock_timestamp_valid'] is False
     assert contacts['Tredudon']['clock_drift_status'] == 'in_sync'

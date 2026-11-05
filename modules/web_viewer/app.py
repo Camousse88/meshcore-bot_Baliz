@@ -6010,7 +6010,7 @@ class BotDataViewer(DashboardSnapshotMixin, LiveStreamMixin, SocketClientsMixin,
                         drift_data[row[0]] = {
                             'received_at': sample['received_at'],
                             'sender_timestamp': sample['sender_timestamp'],
-                            'drift_seconds': sample['drift'] if sample['timestamp_valid'] else None,
+                            'drift_seconds': sample['drift'],
                             'sample': sample,
                         }
                     last_heard_data[row[0]] = parse_timestamp(row[2], config=self.config)

@@ -39,9 +39,9 @@ def utc_iso(value):
 def latest_clock_samples(cursor, config):
     """Latest received clock-bearing packet per unique contact name.
 
-    Keep the numeric drift internally even for an unset clock: the scheduler
-    must attempt to correct it. Presentation uses timestamp_valid to avoid
-    displaying a meaningless multi-decade duration.
+    Keep the numeric drift even for an unset clock. Measurement displays use
+    that value independently of the synchronization/verification state;
+    timestamp_valid remains available to the clock-status column.
     """
     samples = {}
 
@@ -130,4 +130,4 @@ def target_clock_status(sample, attempt, config, *, now=None):
             'clock_observed_at': observed,
             'clock_timestamp_valid': sample['timestamp_valid'] if sample else None,
             'clock_source': sample['source'] if sample else None,
-            'clock_drift': sample['drift'] if sample and sample['timestamp_valid'] else None}
+            'clock_drift': sample['drift'] if sample else None}
