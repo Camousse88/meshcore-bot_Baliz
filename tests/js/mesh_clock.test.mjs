@@ -39,6 +39,7 @@ test('clock-only relay gets a clock, never the region/configuration triangle', (
     assert.match(m.label.children[0].innerHTML, /stroke="currentColor"/);
     assert.match(m.label.title, /En retard de 10 min 1 s/);
     assert.equal(m.options.permanent, true);
+    assert.equal(m.options.pane, 'meshClockLabels');
     assert.equal(m.options.interactive, true);
     assert.equal(ctx.nodeNeedsForeground(badClock), true);
 });
@@ -48,6 +49,7 @@ test('region and clock symbols coexist and open the correct repeater on click/ke
     const m = marker();
     ctx.bindNodeLabel(m, { ...badClock, unscoped_only_observed: true });
     assert.equal(m.label.textContent, '⚠️');
+    assert.equal(m.options.pane, 'meshConfigurationLabels');
     assert.match(m.label.children[0].innerHTML, /mesh-clock-outline/);
     m.label.listeners.click();
     m.label.listeners.keydown({ key: 'Enter', preventDefault() {}, stopPropagation() {} });
@@ -95,4 +97,19 @@ test('existing region and one-byte indicators remain triangles without clock evi
         assert.equal(m.label.children.length, 0);
         assert.equal(m.options.permanent, true);
     }
+});
+
+test('configuration warning labels stay above clocks and ordinary labels after repeated renders', () => {
+    const panes = new Map();
+    const map = { getPane: name => panes.get(name), createPane: name => {
+        const pane = { style: {} }; panes.set(name, pane); return pane;
+    } };
+    ctx.ensureNodeIndicatorPanes(map);
+    ctx.ensureNodeIndicatorPanes(map);
+    const warning = panes.get('meshConfigurationLabels');
+    const clock = panes.get('meshClockLabels');
+    assert.ok(Number(warning.style.zIndex) > Number(clock.style.zIndex));
+    assert.ok(Number(clock.style.zIndex) > 650);
+    assert.ok(Number(warning.style.zIndex) < 700);
+    assert.equal(warning.style.pointerEvents, 'none');
 });
