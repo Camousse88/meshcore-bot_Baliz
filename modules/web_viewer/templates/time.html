@@ -5,7 +5,6 @@
 {% block extra_css %}
 <style>
     .time-page-heading {gap:12px;flex-wrap:wrap}
-    .time-config-panel > summary {cursor:pointer;list-style-position:inside}
     .time-config-panel code {overflow-wrap:anywhere;white-space:normal}
     #clock-sync-targets-container {max-width:100%;overflow-x:auto}
     .time-targets-table {width:100%}
@@ -52,10 +51,10 @@
 <!-- Configuration Info Section -->
 <div class="row mb-4">
     <div class="col-12">
-        <details class="card h-100 time-config-panel">
-            <summary class="card-header">
-                <i class="fas fa-info-circle"></i> Configuration et mode d’emploi
-            </summary>
+        <div class="card h-100 time-config-panel">
+            <div class="card-header">
+                <i class="fas fa-info-circle"></i> Configuration
+            </div>
             <div class="card-body">
                 <div class="alert alert-secondary small mb-3" style="opacity:0.9;">
                     <i class="fas fa-info-circle me-1"></i>
@@ -102,7 +101,7 @@
                     </div>
                 </div>
             </div>
-        </details>
+        </div>
     </div>
 </div>
 
