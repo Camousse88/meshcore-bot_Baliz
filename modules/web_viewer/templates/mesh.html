@@ -165,8 +165,8 @@
     .leaflet-tooltip.combined-warning-label {color:#000;border-color:#737373}
     .leaflet-tooltip.onebyte-warning {background:transparent;border:0;box-shadow:none;padding:0;font-size:17px;line-height:1.2;text-shadow:0 0 3px white}
     .leaflet-tooltip.onebyte-warning::before {display:none}
-    .mesh-clock-symbol {display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;margin-left:3px;border-radius:50%;background:#fff;color:#111827;font-size:14px;line-height:1;text-shadow:none;box-shadow:0 0 2px #555}
-    .mesh-dark .mesh-clock-symbol {background:#111827;color:#f8fafc;box-shadow:0 0 2px #ddd}
+    .mesh-clock-symbol {display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-left:3px;vertical-align:middle;background:transparent;color:#647d91;line-height:1;text-shadow:none;filter:drop-shadow(0 0 1px #fff)}
+    .mesh-dark .mesh-clock-symbol {color:#a7bbc9;filter:drop-shadow(0 0 1px #1f2937)}
 </style>
 
 <div id="mesh-graph-container" class="d-flex flex-column">
@@ -1313,11 +1313,15 @@
         return `Mesuré le ${date.toLocaleString('fr-FR')} · ${source}${node.clock_observation_stale ? ' · mesure ancienne' : ''}`;
     }
 
+    function clockGlyphHTML() {
+        return '<svg class="mesh-clock-outline" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7.5v5l3.3 2"></path></svg>';
+    }
+
     function nodeClockHTML(node) {
         const summary = nodeClockSummary(node);
         if (!summary) return '';
         const border = nodeHasClockWarning(node) ? '#eab308' : 'var(--bs-border-color,#aaa)';
-        return `<div class="mesh-clock-detail" style="margin-top:8px;padding:8px;border:1px solid ${border};border-radius:5px;"><strong><i class="fas fa-clock" aria-hidden="true"></i> Horloge</strong><div>${escapeHtml(summary)}</div><div class="small text-muted">${escapeHtml(nodeClockObservation(node))}</div></div>`;
+        return `<div class="mesh-clock-detail" style="margin-top:8px;padding:8px;border:1px solid ${border};border-radius:5px;"><strong><span class="mesh-clock-symbol">${clockGlyphHTML()}</span> Horloge</strong><div>${escapeHtml(summary)}</div><div class="small text-muted">${escapeHtml(nodeClockObservation(node))}</div></div>`;
     }
 
     function nodeNeedsForeground(node) {
@@ -1338,7 +1342,7 @@
         if (clockWarning) {
             const clock = document.createElement('span');
             clock.className = 'mesh-clock-symbol';
-            clock.innerHTML = '<i class="fas fa-clock" aria-hidden="true"></i>';
+            clock.innerHTML = clockGlyphHTML();
             label.appendChild(clock);
             descriptions.push(`${nodeClockSummary(node)}. ${nodeClockObservation(node)}`);
         }
@@ -2965,7 +2969,9 @@
             marker.bindPopup(tooltipContent, {
                 maxWidth: 300,
                 className: 'mesh-node-popup',
-                autoPan: false  // Prevent bounding box/auto-pan when popup opens
+                maxHeight: Math.max(180, Math.min(360, map.getSize().y - 80)),
+                autoPan: true,
+                autoPanPadding: [16, 16]
             });
 
             bindNodeLabel(marker, node);

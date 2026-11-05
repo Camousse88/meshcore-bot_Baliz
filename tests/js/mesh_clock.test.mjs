@@ -33,8 +33,10 @@ test('clock-only relay gets a clock, never the region/configuration triangle', (
     ctx.bindNodeLabel(m, badClock);
     assert.equal(m.label.textContent, '');
     assert.equal(m.label.children.length, 1);
-    assert.match(m.label.children[0].innerHTML, /fa-clock/);
+    assert.match(m.label.children[0].innerHTML, /mesh-clock-outline/);
     assert.doesNotMatch(m.label.children[0].innerHTML, /⚠|exclamation/);
+    assert.match(m.label.children[0].innerHTML, /fill="none"/);
+    assert.match(m.label.children[0].innerHTML, /stroke="currentColor"/);
     assert.match(m.label.title, /En retard de 10 min 1 s/);
     assert.equal(m.options.permanent, true);
     assert.equal(m.options.interactive, true);
@@ -46,7 +48,7 @@ test('region and clock symbols coexist and open the correct repeater on click/ke
     const m = marker();
     ctx.bindNodeLabel(m, { ...badClock, unscoped_only_observed: true });
     assert.equal(m.label.textContent, '⚠️');
-    assert.match(m.label.children[0].innerHTML, /fa-clock/);
+    assert.match(m.label.children[0].innerHTML, /mesh-clock-outline/);
     m.label.listeners.click();
     m.label.listeners.keydown({ key: 'Enter', preventDefault() {}, stopPropagation() {} });
     assert.equal(m.clicks, 2);
@@ -59,7 +61,7 @@ test('clock remains attached when node names are shown', () => {
     const m = marker();
     ctx.bindNodeLabel(m, badClock);
     assert.equal(m.label.textContent, 'Relay');
-    assert.match(m.label.children[0].innerHTML, /fa-clock/);
+    assert.match(m.label.children[0].innerHTML, /mesh-clock-outline/);
     assert.equal(m.options.direction, 'top');
     labels.checked = false;
 });
