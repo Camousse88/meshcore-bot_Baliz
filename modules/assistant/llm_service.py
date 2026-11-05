@@ -21,6 +21,7 @@ from ..utils import geocode_city_sync, get_cpu_temperature, get_cpu_usage, get_r
 from ..wiki_rag import LocalWikiRag, WikiJsSource
 from .llm_client import apply_reasoning_effort, configured_reasoning_effort, post_chat
 from .rag_config import read_rag_config
+from .sender_policy import sender_is_companion
 
 
 class LlmService:
@@ -1387,11 +1388,14 @@ class LlmService:
         *,
         context: str = "",
         max_length: int = 220,
+        message: MeshMessage | None = None,
     ) -> str | None:
         """Rephrase trusted tool output without RAG, history or local context.
 
         Returning ``None`` tells the dispatcher to use the original tool output.
         """
+        if message is None or not sender_is_companion(self.bot, message):
+            return None
         messages = [
             {
                 "role": "system",
@@ -1533,6 +1537,8 @@ class LlmService:
         Serialize shared context/cache access across callers. Query SQL is exclusively
         owned by MeshService; conversation and Wiki can never execute model SQL.
         """
+        if not sender_is_companion(self.bot, message):
+            return ""
         if mode not in {"general", "clarify", "wiki", "auto"}:
             raise ValueError("Unknown LLM mode")
         if self.cpu_temp_threshold > 0:

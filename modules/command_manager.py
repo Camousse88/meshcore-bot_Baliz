@@ -53,7 +53,7 @@ from .models import (
 
 # Default for [Bot] dm_min_ack_timeout: the shortest per-attempt wait for a DM's
 # ACK, in seconds. See CommandManager._dm_min_ack_timeout.
-DM_MIN_ACK_TIMEOUT_DEFAULT = 8.0
+DM_MIN_ACK_TIMEOUT_DEFAULT = 30.0
 DM_MIN_ACK_TIMEOUT_MAX = 60.0
 
 # Links the bot puts on the air, for keeping them intact across a chunk boundary.

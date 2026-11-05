@@ -1707,14 +1707,14 @@ class TestDMAckTimeoutFloor:
     @pytest.mark.parametrize(
         ("configured", "expected"),
         [
-            (None, 8.0),
+            (None, 30.0),
             ("15", 15.0),
             ("2.5", 2.5),
             ("0", 0.0),
-            ("-1", 8.0),
-            ("soon", 8.0),
+            ("-1", 30.0),
+            ("soon", 30.0),
             ("8000", 60.0),
-            ("nan", 8.0),
+            ("nan", 30.0),
             ("inf", 60.0),
         ],
     )

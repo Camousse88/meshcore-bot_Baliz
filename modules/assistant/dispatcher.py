@@ -9,6 +9,7 @@ from ..models import MeshMessage
 from .response import split_reply
 from .router import Decision, Route
 from .semantic_router import SemanticRouter
+from .sender_policy import sender_is_companion
 
 HELP = "ask <question> — réseau, Wiki, météo, réception ou chemin. Routes explicites : mesh, wiki, test, path, weather, llm."
 
@@ -33,6 +34,8 @@ class AssistantDispatcher:
         return bool(check(message))
 
     async def answer(self, question: str, message: MeshMessage) -> str:
+        if not sender_is_companion(self.owner.bot, message):
+            return ""
         if not question.strip():
             return HELP
         decision = await self.semantic_router.decide(question, self.owner.enabled_routes)
@@ -91,7 +94,7 @@ class AssistantDispatcher:
         llm = self._command("llm")
         if self._allowed(llm, message, service=True):
             result = await llm.service.rephrase_tool_result(
-                question, source,
+                question, source, message=message,
                 context=(context or "Faits mesurés localement.") + f" Ne change aucun nom ni mesure. Un message, {budget} octets UTF-8 maximum.",
                 max_length=budget,
             )
@@ -128,6 +131,7 @@ class AssistantDispatcher:
                         reformulated = await llm.service.rephrase_tool_result(
                             question,
                             measurements,
+                            message=message,
                             context=(
                                 "Il s'agit de la mesure de réception du message par le bot. "
                                 "Réponds directement par oui et reformule brièvement les mesures. "
@@ -410,6 +414,7 @@ class AssistantDispatcher:
             reformulated = await llm.service.rephrase_tool_result(
                 question,
                 labelled_answer,
+                message=message,
                 context=context,
                 max_length=self.owner.get_max_message_length(message),
             )

@@ -248,11 +248,11 @@ async def test_tool_rephrase_accepts_grounded_values_and_rejects_changed_values(
         "Demain à Brest, ciel couvert, de 14 à 27 °C, vent 12 km/h, rafales 25 km/h."
     )
     with patch("modules.assistant.llm_service.post_chat", side_effect=[good, bad, concise, completed]):
-        assert await service.rephrase_tool_result("météo demain à Brest", source) == (
+        assert await service.rephrase_tool_result("météo demain à Brest", source, message=mock_message()) == (
             "Demain à Brest, ciel couvert, de 14 à 27 °C, vent 12 km/h, rafales 25 km/h."
         )
-        assert await service.rephrase_tool_result("météo demain à Brest", source) is None
-        assert await service.rephrase_tool_result("météo demain à Brest", source) == (
+        assert await service.rephrase_tool_result("météo demain à Brest", source, message=mock_message()) is None
+        assert await service.rephrase_tool_result("météo demain à Brest", source, message=mock_message()) == (
             "Demain à Brest, ciel couvert, de 14 à 27 °C, vent 12 km/h, rafales 25 km/h."
         )
 

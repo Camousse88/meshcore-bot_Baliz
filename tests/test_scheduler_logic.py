@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from zoneinfo import ZoneInfo
 
 import pytest
-from meshcore.events import Event, EventType
+from meshcore.events import Event, EventDispatcher, EventType
 
 from modules.scheduled_message_cron import parse_schedule_key
 from modules.scheduler import MessageScheduler
@@ -404,6 +404,7 @@ class TestClockSyncAdminScheduler:
             "repA, repa, abcdef12, unknown",
         )
         scheduler.bot.config.set("Clock_Sync_Admin", "command_payload", "clock sync admin")
+        scheduler.bot.config.set("Clock_Sync_Admin", "clock_sync_admin_reply_window_seconds", "0.01")
         scheduler.bot.connected = True
         scheduler.bot.is_radio_zombie = False
         scheduler.bot.is_radio_offline = False
@@ -456,6 +457,7 @@ class TestClockSyncAdminScheduler:
         scheduler.bot.config.set("Clock_Sync_Admin", "enabled", "true")
         scheduler.bot.config.set("Clock_Sync_Admin", "targets", "repA,repB")
         scheduler.bot.config.set("Clock_Sync_Admin", "command_payload", "clock sync admin")
+        scheduler.bot.config.set("Clock_Sync_Admin", "clock_sync_admin_reply_window_seconds", "0.01")
         scheduler.bot.connected = True
         scheduler.bot.is_radio_zombie = False
         scheduler.bot.is_radio_offline = False
@@ -489,6 +491,7 @@ class TestClockSyncAdminScheduler:
         scheduler.bot.config.set("Clock_Sync_Admin", "enabled", "true")
         scheduler.bot.config.set("Clock_Sync_Admin", "targets", ",".join(targets))
         scheduler.bot.config.set("Clock_Sync_Admin", "command_payload", "clock sync admin")
+        scheduler.bot.config.set("Clock_Sync_Admin", "clock_sync_admin_reply_window_seconds", "0.01")
         scheduler.bot.connected = True
         scheduler.bot.is_radio_zombie = False
         scheduler.bot.is_radio_offline = False
@@ -496,9 +499,16 @@ class TestClockSyncAdminScheduler:
         scheduler.bot.meshcore = Mock()
         scheduler.bot.meshcore.get_contact_by_name = Mock(side_effect=lambda value: None)
         scheduler.bot.meshcore.dispatcher = Mock()
+        scheduler.bot.meshcore.subscribe = EventDispatcher().subscribe
         scheduler.bot.meshcore.dispatcher.wait_for_event = AsyncMock(return_value=None)
         scheduler.bot.command_manager = Mock()
-        scheduler.bot.command_manager.send_dm = AsyncMock(return_value=False)
+        async def send(*args, **kwargs):
+            event = await scheduler.bot.meshcore.dispatcher.wait_for_event()
+            if event:
+                for sub in list(scheduler.bot.meshcore.subscribe.__self__.subscriptions):
+                    sub.callback(event)
+            return False
+        scheduler.bot.command_manager.send_dm = AsyncMock(side_effect=send)
         return scheduler
 
     def test_send_fail_with_dm_reply_counts_as_sent(self, scheduler):
@@ -526,9 +536,6 @@ class TestClockSyncAdminScheduler:
 
         assert scheduler.bot.command_manager.send_dm.await_count == 1
         assert scheduler.bot.meshcore.dispatcher.wait_for_event.await_count == 1
-        assert scheduler.bot.meshcore.dispatcher.wait_for_event.await_args.kwargs[
-            "attribute_filters"
-        ] == {"pubkey_prefix": "deadbeef0011"}
         record.assert_called_once_with(
             ("deadbeef00112233" + "ab" * 24), "TargetA", True, "ERR: clock cannot go backwards"
         )
@@ -554,7 +561,7 @@ class TestClockSyncAdminScheduler:
             ("deadbeef00112233" + "ab" * 24), "TargetA", False, "Send returned False"
         )
 
-    def test_stale_reply_before_run_start_counts_as_failed(self, scheduler):
+    def test_live_reply_with_unsynced_sender_clock_counts_as_delivered(self, scheduler):
         self._clock_sync_admin_context(scheduler, ("deadbeef00112233" + "ab" * 24))
         scheduler.bot.meshcore.contacts = {
             "t": {"name": "TargetA", "public_key": ("deadbeef00112233" + "ab" * 24)},
@@ -578,7 +585,7 @@ class TestClockSyncAdminScheduler:
 
         assert scheduler.bot.command_manager.send_dm.await_count == 1
         record.assert_called_once_with(
-            ("deadbeef00112233" + "ab" * 24), "TargetA", False, "Send returned False"
+            ("deadbeef00112233" + "ab" * 24), "TargetA", True, None
         )
 
 
@@ -818,6 +825,7 @@ class TestClockSyncAdminMinDrift:
         # target is a public key prefix, resolved via the contacts table
         scheduler.bot.config.set("Clock_Sync_Admin", "targets", "aa0000000000")
         scheduler.bot.config.set("Clock_Sync_Admin", "command_payload", "clock sync admin")
+        scheduler.bot.config.set("Clock_Sync_Admin", "clock_sync_admin_reply_window_seconds", "0.01")
         scheduler.bot.config.set("Clock_Sync_Admin", "min_sync_drift", str(min_sync_drift))
         scheduler.bot.connected = True
         scheduler.bot.is_radio_zombie = False
@@ -940,6 +948,7 @@ class TestClockSyncAdminAutoClkreboot:
         scheduler.bot.config.set("Clock_Sync_Admin", "enabled", "true")
         scheduler.bot.config.set("Clock_Sync_Admin", "targets", pubkey)
         scheduler.bot.config.set("Clock_Sync_Admin", "command_payload", "clock sync admin")
+        scheduler.bot.config.set("Clock_Sync_Admin", "clock_sync_admin_reply_window_seconds", "0.01")
         scheduler.bot.config.set("Clock_Sync_Admin", "auto_clkreboot_cooldown_days", "7")
         scheduler.bot.config.set("Clock_Sync_Admin", "auto_clkreboot_resync_delay_seconds", "60")
         scheduler.bot.connected = True
@@ -964,7 +973,14 @@ class TestClockSyncAdminAutoClkreboot:
             )
         )
         scheduler.bot.command_manager = Mock()
-        scheduler.bot.command_manager.send_dm = AsyncMock(side_effect=send_dm_side_effect)
+        scheduler.bot.meshcore.subscribe = EventDispatcher().subscribe
+        results = iter(send_dm_side_effect)
+        async def send(*args, **kwargs):
+            event = await scheduler.bot.meshcore.dispatcher.wait_for_event()
+            for sub in list(scheduler.bot.meshcore.subscribe.__self__.subscriptions):
+                sub.callback(event)
+            return next(results)
+        scheduler.bot.command_manager.send_dm = AsyncMock(side_effect=send)
         scheduler._apscheduler = Mock()
 
     def test_ahead_target_with_opt_in_sends_clkreboot_and_schedules_resync(self, scheduler, tmp_path):
@@ -1041,6 +1057,7 @@ class TestClockSyncAdminAutoClkreboot:
     def test_post_clkreboot_resync_job_resends_payload(self, scheduler):
         scheduler.bot.config.add_section("Clock_Sync_Admin")
         scheduler.bot.config.set("Clock_Sync_Admin", "command_payload", "clock sync admin")
+        scheduler.bot.config.set("Clock_Sync_Admin", "clock_sync_admin_reply_window_seconds", "0.01")
         scheduler.bot.command_manager = Mock()
         scheduler.bot.command_manager.send_dm = AsyncMock(return_value=True)
 

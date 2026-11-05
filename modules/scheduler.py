@@ -24,6 +24,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.date import DateTrigger
 from meshcore.events import EventType
 
+from .clock_reply import ClockReplyWatch
 from .flood_scope import scope_key_hex
 from .maintenance import MaintenanceRunner, read_smtp_settings, send_smtp_message
 from .models import CHANNEL_REGIONAL_FLOOD_SCOPE_BODY_OVERHEAD, channel_body_limit, self_info_name
@@ -553,76 +554,23 @@ class MessageScheduler:
         samples.sort(key=lambda item: item[0], reverse=True)
         return samples[0][1]
 
-    async def _wait_for_clock_sync_reply(
-        self, public_key: str, run_started_at: int
-    ) -> tuple[bool, str]:
-        """Wait a short window for a DM reply from the target (best-effort).
+    def _clock_reply_window(self) -> float:
+        return max(0.0, self.bot.config.getfloat(
+            "Clock_Sync_Admin", "clock_sync_admin_reply_window_seconds", fallback=30.0,
+        ))
 
-        send_msg_with_retry() returns None when the radio ACK is not received,
-        even though the DM may still have been delivered (targets that process
-        the command often reply via a DM). If a fresh DM from the target arrives
-        within the window, treat the delivery as confirmed.
+    async def _wait_for_clock_sync_reply(self, replies: ClockReplyWatch) -> tuple[bool, str]:
+        result = await replies.wait(self._clock_reply_window())
+        if result[0]:
+            self.logger.debug("Clock_Sync_Admin confirmed delivery via target DM reply")
+        return result
 
-        Args:
-            public_key: Full public key of the target contact.
-            run_started_at: Epoch second this job run started, to discard stale
-                DMs from before the run that could otherwise be mistaken for a reply.
-
-        Returns:
-            (True, reply_text) when a fresh reply arrived, (False, "") otherwise.
-        """
-        meshcore = getattr(self.bot, "meshcore", None)
-        dispatcher = getattr(meshcore, "dispatcher", None) if meshcore else None
-        if dispatcher is None or not hasattr(dispatcher, "wait_for_event"):
-            return (False, "")
-        prefix = (public_key or "")[:12]
-        if len(prefix) < 12:
-            return (False, "")
-        window = self.bot.config.getfloat(
-            "Clock_Sync_Admin",
-            "clock_sync_admin_reply_window_seconds",
-            fallback=30.0,
-        )
-        if window <= 0:
-            return (False, "")
-
-        try:
-            reply = await dispatcher.wait_for_event(
-                EventType.CONTACT_MSG_RECV,
-                attribute_filters={"pubkey_prefix": prefix},
-                timeout=window,
-            )
-        except Exception as exc:
-            self.logger.debug(
-                "Clock_Sync_Admin reply wait error for %s: %s",
-                sanitize_name(prefix),
-                exc,
-            )
-            return (False, "")
-
-        if reply is None:
-            return (False, "")
-
-        payload = getattr(reply, "payload", None)
-        reply_text = ""
-        if isinstance(payload, dict):
-            reply_text = (payload.get("text", "") or "").strip()
-            reply_ts = payload.get("sender_timestamp")
-            if isinstance(reply_ts, int) and reply_ts < run_started_at:
-                self.logger.debug(
-                    "Clock_Sync_Admin discarding stale DM from %s (ts=%s < run start %s)",
-                    sanitize_name(prefix),
-                    reply_ts,
-                    run_started_at,
-                )
-                return (False, "")
-
-        self.logger.debug(
-            "Clock_Sync_Admin confirmed delivery to %s via DM reply %r",
-            sanitize_name(prefix),
-            sanitize_name(reply_text or ""),
-        )
-        return (True, reply_text)
+    def _clock_sync_timeout(self, targets: int = 1) -> float:
+        # Include recipient preparation, all existing retries, reply collection
+        # and the optional clkreboot send. Waiting here does not block the loop.
+        attempts = max(1, self.bot.config.getint('Bot', 'dm_max_retries', fallback=3))
+        send_budget = 20.0 + attempts * 60.0 + 30.0
+        return max(300.0, targets * (2 * send_budget + self._clock_reply_window()) + 60.0)
 
     def _log_clock_sync_admin_attempt(
         self, public_key: str, target_name: str, success: bool, error_message: Optional[str] = None
@@ -745,7 +693,7 @@ class MessageScheduler:
         """APScheduler sync wrapper: resend the clock-sync payload once, giving
         a target time to finish rebooting after an auto-clkreboot."""
         self._run_async_on_main_loop(
-            self._post_clkreboot_resync_job_async(recipient, contact_name), timeout=60.0
+            self._post_clkreboot_resync_job_async(recipient, contact_name), timeout=self._clock_sync_timeout()
         )
 
     async def _post_clkreboot_resync_job_async(self, recipient: str, contact_name: str) -> None:
@@ -770,7 +718,10 @@ class MessageScheduler:
 
     def run_clock_sync_admin_job_sync(self) -> None:
         """APScheduler sync wrapper for the async Clock_Sync_Admin DM run."""
-        self._run_async_on_main_loop(self._run_clock_sync_admin_job_async(), timeout=300.0)
+        self._run_async_on_main_loop(
+            self._run_clock_sync_admin_job_async(),
+            timeout=self._clock_sync_timeout(max(1, len(self._get_clock_sync_targets()))),
+        )
 
     async def _run_clock_sync_admin_job_async(self) -> dict[str, Any]:
         """Resolve targets and send configured clock-sync admin payload via DM.
@@ -820,7 +771,6 @@ class MessageScheduler:
         skipped_in_sync_count = 0
         min_sync_drift = self._get_clock_sync_min_drift()
         seen_contacts: set[str] = set()
-        run_started_at = int(time.time())
 
         for target in targets:
             self.logger.debug(
@@ -883,69 +833,67 @@ class MessageScheduler:
             # _maybe_auto_clkreboot's opt-in + cooldown check.
             target_row = self._get_clock_sync_target_row(target)
             try:
-                delivery_report: dict[str, str] = {}
-                ok = await command_manager.send_dm(
-                    recipient,
-                    payload,
-                    skip_user_rate_limit=True,
-                    delivery_report=delivery_report,
-                )
-                reply_text = ""
-                if ok:
-                    sent_count += 1
-                    self.logger.info(
-                        "Clock_Sync_Admin sent to %s",
-                        sanitize_name(contact_name),
+                with ClockReplyWatch(self.bot, public_key) as replies:
+                    delivery_report: dict[str, str] = {}
+                    ok = await command_manager.send_dm(
+                        recipient,
+                        payload,
+                        skip_user_rate_limit=True,
+                        delivery_report=delivery_report,
                     )
-                    # Log successful send
-                    self._log_clock_sync_admin_attempt(public_key, contact_name, True)
-                    # A radio ACK only confirms delivery, not what the firmware
-                    # replied — only pay the reply-wait latency here for targets
-                    # that opted into auto-clkreboot, since that's the only
-                    # place the reply's content matters on this path.
-                    if target_row and target_row.get("auto_clkreboot_enabled"):
-                        _, reply_text = await self._wait_for_clock_sync_reply(
-                            public_key, run_started_at
-                        )
-                elif delivery_report.get('state') == 'not_sent':
-                    failed_count += 1
-                    self.logger.warning('Clock_Sync_Admin not emitted for %s | Reason: %s',
-                                        sanitize_name(contact_name), delivery_report.get('reason', 'unknown'))
-                    self._log_clock_sync_admin_attempt(public_key, contact_name, False,
-                                                       'Not emitted: ' + delivery_report.get('reason', 'unknown'))
-                else:
-                    reply_ok, reply_text = await self._wait_for_clock_sync_reply(
-                        public_key, run_started_at
-                    )
-                    if reply_ok:
+                    _, reply_text = await replies.wait(0)
+                    if ok:
                         sent_count += 1
-                        error_message = (
-                            reply_text if reply_text.startswith("ERR:") else None
-                        )
                         self.logger.info(
-                            "Clock_Sync_Admin sent to %s (confirmed by DM reply%s)",
+                            "Clock_Sync_Admin sent to %s",
                             sanitize_name(contact_name),
-                            f" - {sanitize_name(reply_text)}" if error_message else "",
                         )
-                        # Log successful send, carrying any firmware error body.
+                        # A radio ACK only confirms delivery, not what the firmware
+                        # replied — only pay the reply-wait latency here for targets
+                        # that opted into auto-clkreboot, since that's the only
+                        # place the reply's content matters on this path.
+                        if target_row and target_row.get("auto_clkreboot_enabled"):
+                            _, reply_text = await self._wait_for_clock_sync_reply(replies)
                         self._log_clock_sync_admin_attempt(
-                            public_key, contact_name, True, error_message
+                            public_key, contact_name, True,
+                            reply_text if reply_text.startswith("ERR:") else None,
                         )
-                    else:
+                    elif delivery_report.get('state') == 'not_sent':
                         failed_count += 1
-                        self.logger.warning(
-                            "Clock_Sync_Admin send failed for %s",
-                            sanitize_name(contact_name),
-                        )
-                        # Log failed send
-                        self._log_clock_sync_admin_attempt(
-                            public_key, contact_name, False, "Send returned False"
-                        )
+                        self.logger.warning('Clock_Sync_Admin not emitted for %s | Reason: %s',
+                                            sanitize_name(contact_name), delivery_report.get('reason', 'unknown'))
+                        self._log_clock_sync_admin_attempt(public_key, contact_name, False,
+                                                           'Not emitted: ' + delivery_report.get('reason', 'unknown'))
+                    else:
+                        reply_ok, reply_text = await self._wait_for_clock_sync_reply(replies)
+                        if reply_ok:
+                            sent_count += 1
+                            error_message = (
+                                reply_text if reply_text.startswith("ERR:") else None
+                            )
+                            self.logger.info(
+                                "Clock_Sync_Admin sent to %s (confirmed by DM reply; firmware_error=%s)",
+                                sanitize_name(contact_name), bool(error_message),
+                            )
+                            # Log successful send, carrying any firmware error body.
+                            self._log_clock_sync_admin_attempt(
+                                public_key, contact_name, True, error_message
+                            )
+                        else:
+                            failed_count += 1
+                            self.logger.warning(
+                                "Clock_Sync_Admin send failed for %s",
+                                sanitize_name(contact_name),
+                            )
+                            # Log failed send
+                            self._log_clock_sync_admin_attempt(
+                                public_key, contact_name, False, "Send returned False"
+                            )
 
-                if reply_text:
-                    await self._maybe_auto_clkreboot(
-                        target, public_key, contact_name, recipient, reply_text, target_row
-                    )
+                    if reply_text:
+                        await self._maybe_auto_clkreboot(
+                            target, public_key, contact_name, recipient, reply_text, target_row
+                        )
             except Exception as e:
                 failed_count += 1
                 self.logger.warning(

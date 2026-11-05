@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 from modules.assistant.catalog import parse_plan, CATALOG
 from modules.assistant.dispatcher import AssistantDispatcher
+from tests.conftest import mock_message
 
 @pytest.mark.parametrize('q,route,op,args',[
  ('Baliz statistique des canaux','mesh','stats',{'topic':'channels','hashes':False}),
@@ -15,22 +16,22 @@ from modules.assistant.dispatcher import AssistantDispatcher
  ('les relais à proximité','mesh','near',{'limit':5,'role':'repeater','target':''}),
 ])
 @pytest.mark.asyncio
-async def test_selected_plan_is_executed_without_lexical_override(q,route,op,args):
+async def test_selected_plan_is_executed_without_lexical_override(q,route,op,args,command_mock_bot):
     plan=parse_plan(json.dumps(dict(route=route,operation=op,args=args)),q,set(CATALOG))
     d=object.__new__(AssistantDispatcher)
-    d.owner=SimpleNamespace(enabled_routes=set(CATALOG),logger=logging.getLogger(),route_timeout_seconds=2)
+    d.owner=SimpleNamespace(bot=command_mock_bot,enabled_routes=set(CATALOG),logger=logging.getLogger(),route_timeout_seconds=2)
     d.semantic_router=SimpleNamespace(decide=AsyncMock(return_value=plan))
     d._dispatch=AsyncMock(return_value='ok')
-    assert await d.answer(q,SimpleNamespace())=='ok'
+    assert await d.answer(q,mock_message())=='ok'
     assert d._dispatch.call_args.args[0]==plan
 
 @pytest.mark.asyncio
-async def test_classifier_failure_never_dispatches():
+async def test_classifier_failure_never_dispatches(command_mock_bot):
     d=object.__new__(AssistantDispatcher)
-    d.owner=SimpleNamespace(enabled_routes=set(CATALOG))
+    d.owner=SimpleNamespace(bot=command_mock_bot,enabled_routes=set(CATALOG))
     d.semantic_router=SimpleNamespace(decide=AsyncMock(return_value=None))
     d._dispatch=AsyncMock()
-    assert 'service d’interprétation est momentanément indisponible' in await d.answer('tu as mis du temps',SimpleNamespace())
+    assert 'service d’interprétation est momentanément indisponible' in await d.answer('tu as mis du temps',mock_message())
     d._dispatch.assert_not_called()
 
 @pytest.mark.parametrize('args',[
