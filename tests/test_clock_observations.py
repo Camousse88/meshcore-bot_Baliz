@@ -140,6 +140,7 @@ def test_time_api_and_contacts_show_the_same_evidence_and_keep_ack_separate(view
     contacts = {row['username']: row for row in viewer._get_tracking_data(since='all')['tracking_data']}
     for name in rows:
         assert contacts[name]['clock_drift_seconds'] == rows[name]['clock_drift']
+        assert contacts[name]['clock_drift_status'] == rows[name]['clock_drift_status']
         assert contacts[name]['clock_observed_at'] == rows[name]['clock_observed_at']
     assert contacts['Concarneau']['clock_drift_status'] == 'unset'
     assert contacts['Concarneau']['clock_state'] == 'awaiting_verification'

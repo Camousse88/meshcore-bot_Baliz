@@ -90,6 +90,7 @@ function loadManagerClass() {
             setTimeout,
         },
     });
+    vm.runInContext(fs.readFileSync(new URL('../../modules/web_viewer/static/js/clock_drift.js', import.meta.url), 'utf8'), context);
     vm.runInContext(
         `${classSource}\nglobalThis.ModernContactsManager = ModernContactsManager;`,
         context,

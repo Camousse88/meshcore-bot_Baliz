@@ -152,6 +152,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', filename='js/clock_drift.js') }}"></script>
 <script>
     class TimeViewer {
         constructor() {
@@ -504,12 +505,10 @@
                 const toggleIcon = enabled ? 'fa-check' : 'fa-pause';
                 const toggleTitle = enabled ? 'Click to disable' : 'Click to enable';
 
-                let driftHtml = '<span class="text-muted">Non mesuré</span>';
-                if (t.clock_drift !== undefined && t.clock_drift !== null) {
-                    const drift = Math.abs(t.clock_drift);
-                    const driftClass = drift > 300 ? 'text-danger' : (drift > 60 ? 'text-warning' : 'text-success');
-                    driftHtml = `<span class="${driftClass}">${drift}s</span>`;
-                }
+                let driftHtml = globalThis.MeshClockBadges.badge({
+                    clock_drift_seconds: t.clock_drift,
+                    clock_drift_status: t.clock_drift_status,
+                });
                 if (t.clock_observed_at) {
                     const source = t.clock_source === 'advert' ? 'annonce' : 'message';
                     driftHtml += `<div class="small text-muted">${this.formatObservation(t.clock_observed_at)} · ${source}</div>`;

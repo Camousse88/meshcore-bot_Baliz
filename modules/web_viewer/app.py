@@ -5237,6 +5237,7 @@ class BotDataViewer(DashboardSnapshotMixin, LiveStreamMixin, SocketClientsMixin,
                             attempt = {'at': t['last_sync_at'], 'success': t['last_sync_success'],
                                        'error': t.get('last_sync_error')} if t.get('last_sync_at') else None
                             t.update(target_clock_status(sample, attempt, self.config))
+                            t['clock_drift_status'] = target_clock_status(sample, None, self.config)['clock_state']
                     except Exception:
                         pass
                     # Enrich with battery level (same Battery_Monitor data as
