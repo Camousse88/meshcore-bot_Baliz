@@ -165,8 +165,8 @@
     .leaflet-tooltip.combined-warning-label {color:#000;border-color:#737373}
     .leaflet-tooltip.onebyte-warning {background:transparent;border:0;box-shadow:none;padding:0;font-size:17px;line-height:1.2;text-shadow:0 0 3px white}
     .leaflet-tooltip.onebyte-warning::before {display:none}
-    .mesh-clock-symbol {display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-left:3px;vertical-align:middle;background:transparent;color:#647d91;line-height:1;text-shadow:none;filter:drop-shadow(0 0 1px #fff)}
-    .mesh-dark .mesh-clock-symbol {color:#a7bbc9;filter:drop-shadow(0 0 1px #1f2937)}
+    .mesh-clock-symbol {display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-left:3px;vertical-align:middle;border-radius:50%;background:#fff;color:#374151;line-height:1;text-shadow:none;box-shadow:0 0 2px #0005}
+    .mesh-dark .mesh-clock-symbol {background:#fff;color:#374151}
 </style>
 
 <div id="mesh-graph-container" class="d-flex flex-column">
@@ -1314,7 +1314,7 @@
     }
 
     function clockGlyphHTML() {
-        return '<svg class="mesh-clock-outline" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7.5v5l3.3 2"></path></svg>';
+        return '<svg class="mesh-clock-outline" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7.5v5l3.3 2"></path></svg>';
     }
 
     function nodeClockHTML(node) {

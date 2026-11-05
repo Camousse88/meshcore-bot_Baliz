@@ -14,3 +14,5 @@ Validation: 141 targeted Python 3.13 checks passed, two skipped, and the same tw
 Deployment verifies source hashes, unchanged configuration/channel visibility/clock preferences, live node metadata, service/radio health and the actual map UI. No production clock setting is changed and no RF test message is sent.
 
 Follow-up appearance: replace the filled/dark clock with a thin blue-grey outline SVG on a transparent background, with a lighter night variant. The clock remains separate from the yellow triangle. Node popups now pan into view and have a bounded content height so the added clock detail and close button remain accessible. Six map-rendering checks, HTMLHint and ESLint passed for this adjustment.
+
+Final appearance requested by the user: white round clock face with dark-grey outline and hands, including on the night map. The thin transparent version was too faint. No clock/threshold logic changed.
