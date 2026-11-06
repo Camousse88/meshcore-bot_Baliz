@@ -72,6 +72,16 @@ Les sections techniques ci-dessous décrivent le profil historique relevé en
 septembre 2026 ; elles ne constituent pas un inventaire de la configuration
 actuelle de production.
 
+## Vigilance météo
+
+Le département par défaut de Baliz est le **Finistère (29)** : `vigi` sans
+argument demande la vigilance du Finistère. Un autre département peut toujours
+être précisé, par exemple `vigi 22`.
+
+Le profil public conserve ce choix dans `[Vigilance_Service]` avec
+`department = 29` et `enabled = false`. Les alertes automatiques restent
+désactivées ; la consultation ponctuelle avec `vigi` reste disponible.
+
 ## Identité et fonctionnement conservés
 
 - Nom `[BOT] Baliz`, français, fuseau `Europe/Paris` et coordonnées de Morlaix.

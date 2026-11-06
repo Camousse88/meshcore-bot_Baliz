@@ -669,3 +669,7 @@ max_pages = 4
 [Mesh_Command]
 enabled = true
 public_enabled = true
+
+[Vigilance_Service]
+enabled = false
+department = 29
