@@ -92,6 +92,22 @@ des booléens ou des audiences publiques, pas des jetons d'authentification.
 Les fichiers externes, bases de données, configuration des plugins locaux et
 clés des canaux restent des dépendances de l'installation.
 
+## Airtime
+
+Le profil Baliz active `[Channel_Occupancy] enabled = true` avec les paramètres
+de Tigro. La modulation annoncée par la radio prévaut sur les valeurs de secours.
+L'airtime est une estimation des paquets observés ; son historique commence à
+l'activation, sans reconstituer les périodes précédentes.
+
+Le 6 novembre 2026, cette section a été ajoutée au fichier actif du LXC103 sans
+modifier ses autres réglages. Le fichier d'exemple installé a aussi été aligné sur
+le code déployé. Les options facultatives absentes conservent leur comportement
+par défaut ; aucune autre fonction n'est activée par cet ajout.
+
+Le fichier générique `config.ini.example` reste désactivé par défaut. L'activation
+concerne le profil `config.ini.baliz`, sur la branche `baliz`, sans intégrer la
+branche `dev` de Tigro dans GitHub ni publier la configuration privée du serveur.
+
 ## Utilisation
 
 Sauvegarder le fichier actif avant de copier le profil à son emplacement.

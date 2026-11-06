@@ -672,3 +672,18 @@ max_pages = 1
 [Mesh_Command]
 enabled = true
 public_enabled = true
+
+[Channel_Occupancy]
+# Estimation de l'airtime et historique local. La modulation de la radio prévaut.
+enabled = true
+sample_seconds = 60
+fast_window_seconds = 10
+window_seconds = 60
+slow_window_seconds = 900
+half_life_seconds = 300
+max_samples = 5000
+use_device_modulation = true
+spreading_factor = 9
+bandwidth_khz = 125
+coding_rate = 5
+preamble_symbols = 8
