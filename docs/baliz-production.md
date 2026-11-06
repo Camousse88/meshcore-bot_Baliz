@@ -13,6 +13,12 @@
 
 Les mises à jour de Tigro sont intégrées dans Baliz en conservant ses particularités. Publier une version de production ne remplace pas `main`, ne réécrit pas l'historique et ne supprime pas les branches de travail existantes.
 
+## Intégration locale de dev pour le LXC103 — 6 novembre 2026
+
+La branche locale `deploy/tigro-dev-local-20261106` reprend Tigro `dev` au commit `522409eb23288d2fc4ffae3a409db0be493e7f3c`, avec le BBS, la vigilance et l'indication de région dans Contacts. Elle conserve les particularités de Baliz et utilise la migration 35 pour le BBS, sans réutiliser la migration 34 d'occupation radio.
+
+Cette intégration est destinée au LXC103 uniquement. Elle n'est pas poussée sur GitHub ; la branche distante `baliz` reste au commit `1f5556b847fa98f11f970964c7cbfe3141188073`. Voir la [validation locale](validation/baliz-dev-lxc103-20261106.md).
+
 ## Synchronisation GitHub du 6 novembre 2026
 
 La branche `baliz` intègre le `main` de Tigro au commit `d040c5ad94c03b29b29ade6001e1084264adc46f` (PR #80). Cette fusion conserve les fonctions propres à Baliz et rapproche les historiques des corrections DM et horloges déjà présentes dans les deux versions.
