@@ -687,3 +687,7 @@ spreading_factor = 9
 bandwidth_khz = 125
 coding_rate = 5
 preamble_symbols = 8
+
+[Vigilance_Service]
+enabled = false
+department = 29
