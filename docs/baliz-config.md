@@ -27,6 +27,32 @@ Les statistiques reflètent ce que Baliz observe depuis sa position, pas
 l’ensemble du réseau. Le projet s’appuie sur le bot de Tigro et dispose de sa
 propre version adaptée à la Bretagne.
 
+### Guide de synchronisation d’horloge
+
+La page **Time** présente un tutoriel en français pour autoriser Baliz à
+synchroniser l’horloge d’un répéteur. Deux méthodes sont proposées :
+
+1. Dans l’application officielle MeshCore, ouvrir l’administration du répéteur,
+   puis **Contrôle d’accès**, ajouter **[BOT] Baliz** et choisir **Admin**.
+2. Dans la CLI du répéteur, exécuter :
+
+   ```text
+   setperm 44c4ed01d4d6015c8047acf5d5539812e6a5a826c8236f704347fd608229659d 3
+   ```
+
+Le tutoriel se termine par l’ajout du répéteur dans le champ de
+**Clock_Sync_Admin Targets**. Les méthodes s’affichent côte à côte sur ordinateur
+et l’une sous l’autre sur téléphone.
+
+La version anglaise et le résumé des réglages techniques (planification,
+commande de synchronisation et seuils) ne sont pas affichés. Les valeurs de
+configuration et le fonctionnement de Clock Sync restent inchangés.
+
+Cette présentation propre à Baliz est publiée dans
+`modules/web_viewer/templates/time.html` sur la branche `baliz`. La branche
+`config/baliz-identity` en conserve la description sans intégrer les mises à jour
+du code du bot.
+
 ### Liens de référence
 
 La rubrique **Useful Links** de la page Infos contient uniquement :
