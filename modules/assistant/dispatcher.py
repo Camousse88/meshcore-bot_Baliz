@@ -9,7 +9,7 @@ from ..models import MeshMessage
 from .response import split_reply
 from .router import Decision, Route
 from .semantic_router import SemanticRouter
-from .sender_policy import sender_is_companion
+from .sender_policy import sender_may_use_llm
 
 HELP = "ask <question> — réseau, Wiki, météo, réception ou chemin. Routes explicites : mesh, wiki, test, path, weather, llm."
 
@@ -34,7 +34,7 @@ class AssistantDispatcher:
         return bool(check(message))
 
     async def answer(self, question: str, message: MeshMessage) -> str:
-        if not sender_is_companion(self.owner.bot, message):
+        if not sender_may_use_llm(self.owner.bot, message):
             return ""
         if not question.strip():
             return HELP

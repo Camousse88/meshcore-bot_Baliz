@@ -16,7 +16,7 @@ from ..db_manager import validate_readonly_sql
 from ..models import MeshMessage
 from ..utils import get_cpu_temperature
 from .llm_client import apply_reasoning_effort, configured_reasoning_effort, post_chat
-from .sender_policy import sender_is_companion
+from .sender_policy import sender_may_use_llm
 
 DB_SCHEMA = """\
 Tables:
@@ -564,7 +564,7 @@ class MeshService:
     _DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?$")
 
     async def answer(self, question: str, message: MeshMessage) -> str:
-        if not sender_is_companion(self.bot, message):
+        if not sender_may_use_llm(self.bot, message):
             return ""
         if question.strip().casefold() in {
             "tables", "table", "schema", "db", "base de données", "base de donnees", "database"
