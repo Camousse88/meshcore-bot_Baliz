@@ -4,13 +4,24 @@
 
 | Branche | Rôle |
 | --- | --- |
-| `baliz` | Version de Baliz validée pour la production, avec ses fonctions et particularités. Cible des PR de synchronisation de production. |
+| `baliz` | Dernière version publiée de Baliz, avec ses fonctions et particularités. Le commit effectivement déployé est indiqué dans le suivi de production ci-dessous. |
 | `main` | Branche historique du fork, distincte de la production Baliz. Cette synchronisation ne la modifie pas. |
 | `config/baliz-identity` | Travail dédié au profil public et à l'identité de Baliz. Cette synchronisation ne la modifie pas. |
 | `sync/production-20261105` | Publication des changements déjà déployés le 5 novembre 2026, puis intégration dans `baliz`. |
+| `sync/tigro-20261106` | Intégration de `Tigro14/meshcore-bot:main` après fusion de la PR #80. |
 | `feat/*`, `fix/*`, `sync/tigro-*` | Développements et intégrations isolés, à relire avant intégration dans `baliz`. |
 
 Les mises à jour de Tigro sont intégrées dans Baliz en conservant ses particularités. Publier une version de production ne remplace pas `main`, ne réécrit pas l'historique et ne supprime pas les branches de travail existantes.
+
+## Synchronisation GitHub du 6 novembre 2026
+
+La branche `baliz` intègre le `main` de Tigro au commit `d040c5ad94c03b29b29ade6001e1084264adc46f` (PR #80). Cette fusion conserve les fonctions propres à Baliz et rapproche les historiques des corrections DM et horloges déjà présentes dans les deux versions.
+
+Les corrections de typage et d'isolation des tests de Tigro, la documentation des DM et horloges et l'exécution des tests JavaScript dans le workflow sont reprises. Les textes français de Baliz, ses symboles de configuration, ses filtres et ses analyses de carte sont conservés. Le LLM, le routage sémantique, les règles d'accès et le profil public ne changent pas.
+
+Les nouveautés BBS, vigilance et indication de région dans Contacts présentes uniquement sur `dev` de Tigro ne font pas partie de cette fusion de `main`. Voir le [compte rendu de validation](validation/baliz-sync-20261106.md).
+
+Cette synchronisation met à jour le dépôt GitHub ; elle ne déploie pas de nouvelle version sur le LXC103.
 
 ## Production du 5 novembre 2026
 

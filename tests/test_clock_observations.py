@@ -53,11 +53,11 @@ def test_scheduler_contacts_and_time_share_exact_same_samples(config, monkeypatc
             CREATE TABLE message_stats (id INTEGER PRIMARY KEY, sender_id TEXT, created_at TEXT, timestamp INTEGER);
         ''')
         db.executemany('INSERT INTO complete_contact_tracking VALUES (?,?,?)', [
-            ('Lanmeur', '2026-11-04 19:49:09.249557', json.dumps({'advert_time': 1793818176})),
-            ('Tredudon', '2026-11-04 22:07:09.374754', json.dumps({'advert_time': 1793826421})),
-            ('Concarneau', '2026-11-05 01:58:15.959008', json.dumps({'advert_time': 662403})),
+            ('RelayA', '2026-11-04 19:49:09.249557', json.dumps({'advert_time': 1793818176})),
+            ('RelayB', '2026-11-04 22:07:09.374754', json.dumps({'advert_time': 1793826421})),
+            ('RelayC', '2026-11-05 01:58:15.959008', json.dumps({'advert_time': 662403})),
         ])
-        db.execute('INSERT INTO message_stats VALUES (1,?,?,?)', ('Tredudon', '2026-11-05 11:52:11', 1793879522))
+        db.execute('INSERT INTO message_stats VALUES (1,?,?,?)', ('RelayB', '2026-11-05 11:52:11', 1793879522))
         viewer = BotDataViewer.__new__(BotDataViewer)
         viewer.config = config; viewer.logger = Mock()
         scheduler = MessageScheduler.__new__(MessageScheduler)
@@ -66,10 +66,10 @@ def test_scheduler_contacts_and_time_share_exact_same_samples(config, monkeypatc
         monkeypatch.setattr('modules.scheduler.time.time', lambda: NOW)
         samples = viewer._get_latest_clock_drift_samples(db.cursor())
         assert samples == latest_clock_samples(db.cursor(), config)
-        for name, expected in [('Lanmeur', 27), ('Tredudon', 9), ('Concarneau', 1793177892)]:
+        for name, expected in [('RelayA', 27), ('RelayB', 9), ('RelayC', 1793177892)]:
             assert samples[name]['drift'] == expected
             assert scheduler._get_clock_sync_target_drift(name) == expected
-        assert samples['Concarneau']['timestamp_valid'] is False
+        assert samples['RelayC']['timestamp_valid'] is False
 
 
 @pytest.mark.parametrize('sample', [None, evidence(27, NOW - 3600), evidence(1793177892, NOW - 3600, False)])
@@ -115,26 +115,26 @@ def test_time_api_and_contacts_show_the_same_evidence_and_keep_ack_separate(view
     sent = datetime.fromtimestamp(now - 60, timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
     with sqlite3.connect(viewer.db_path) as db:
         db.execute('CREATE TABLE IF NOT EXISTS message_stats (id INTEGER PRIMARY KEY, sender_id TEXT, timestamp INTEGER, created_at TEXT)')
-        for name, key, sender in [('Lanmeur', 'ab'*32, old + 27), ('Tredudon', 'cd'*32, old - 30),
-                                  ('Concarneau', 'ef'*32, 662403)]:
+        for name, key, sender in [('RelayA', 'ab'*32, old + 27), ('RelayB', 'cd'*32, old - 30),
+                                  ('RelayC', 'ef'*32, 662403)]:
             db.execute('INSERT INTO complete_contact_tracking (name,public_key,role,last_heard,raw_advert_data) VALUES (?,?,?,?,?)',
                        (name, key, 'repeater', local, json.dumps({'advert_time': sender})))
             db.execute('INSERT INTO clock_sync_targets (target) VALUES (?)', (key,))
             db.execute('INSERT INTO clock_sync_admin_log (public_key,target_name,success,sent_at) VALUES (?,?,?,?)',
-                       (key, name, 0 if name == 'Tredudon' else 1, sent))
-        db.execute('INSERT INTO message_stats (sender_id,created_at,timestamp) VALUES (?,?,?)', ('Tredudon', utc, old - 9))
+                       (key, name, 0 if name == 'RelayB' else 1, sent))
+        db.execute('INSERT INTO message_stats (sender_id,created_at,timestamp) VALUES (?,?,?)', ('RelayB', utc, old - 9))
     with viewer.app.test_client() as client:
         response = client.get('/api/clock-sync-targets-admin')
         assert response.status_code == 200
         rows = {row['contact_name']: row for row in response.get_json()['targets']}
-        assert rows['Lanmeur']['clock_drift'] == 27
-        assert rows['Lanmeur']['clock_state'] == 'awaiting_verification'
-        assert rows['Tredudon']['clock_drift'] == 9
-        assert rows['Tredudon']['clock_state'] == 'in_sync'
-        assert rows['Concarneau']['clock_state'] == 'awaiting_verification'
-        assert rows['Concarneau']['clock_timestamp_valid'] is False
-        assert rows['Concarneau']['clock_drift'] == old - 662403
-        assert rows['Concarneau']['last_sync_at'].endswith('+00:00')
+        assert rows['RelayA']['clock_drift'] == 27
+        assert rows['RelayA']['clock_state'] == 'awaiting_verification'
+        assert rows['RelayB']['clock_drift'] == 9
+        assert rows['RelayB']['clock_state'] == 'in_sync'
+        assert rows['RelayC']['clock_state'] == 'awaiting_verification'
+        assert rows['RelayC']['clock_timestamp_valid'] is False
+        assert rows['RelayC']['clock_drift'] == old - 662403
+        assert rows['RelayC']['last_sync_at'].endswith('+00:00')
         history = client.get('/api/clock-sync-targets-admin/1/history').get_json()['history']
         assert history[0]['at'].endswith('+00:00')
     contacts = {row['username']: row for row in viewer._get_tracking_data(since='all')['tracking_data']}
@@ -142,10 +142,10 @@ def test_time_api_and_contacts_show_the_same_evidence_and_keep_ack_separate(view
         assert contacts[name]['clock_drift_seconds'] == rows[name]['clock_drift']
         assert contacts[name]['clock_drift_status'] == rows[name]['clock_drift_status']
         assert contacts[name]['clock_observed_at'] == rows[name]['clock_observed_at']
-    assert contacts['Concarneau']['clock_drift_status'] == 'unset'
-    assert contacts['Concarneau']['clock_state'] == 'awaiting_verification'
-    assert contacts['Concarneau']['clock_timestamp_valid'] is False
-    assert contacts['Tredudon']['clock_drift_status'] == 'in_sync'
+    assert contacts['RelayC']['clock_drift_status'] == 'unset'
+    assert contacts['RelayC']['clock_state'] == 'awaiting_verification'
+    assert contacts['RelayC']['clock_timestamp_valid'] is False
+    assert contacts['RelayB']['clock_drift_status'] == 'in_sync'
 
 
 def test_auto_clkreboot_setting_survives_reads_and_preserves_other_target_fields(viewer_with_db):

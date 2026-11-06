@@ -3098,7 +3098,7 @@
                 nodeMapById.set(nodeId, {
                     id: nodeId,
                     label: (isWarningHighlighted(node) ? `${shortLabel} - ${nodeWarningLabel(node)}` : shortLabel) + (nodeHasClockWarning(node) ? ' ◷' : ''),
-                    title: `${escapeHtml(node.name)} (${escapeHtml(node.prefix)})${nodeClockHTML(node)}`, // Full name in tooltip (rendered as HTML by vis-network)
+                    title: `${escapeHtml(node.name)} (${escapeHtml(node.prefix)})` + nodeClockHTML(node), // Full name in tooltip (rendered as HTML by vis-network)
                     prefix: node.prefix, // Store prefix for reference
                     color: {
                         background: getNodeFillColor(node),

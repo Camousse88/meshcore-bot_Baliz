@@ -11,8 +11,8 @@ from meshcore.events import Event
 
 from modules.dm_contacts import DmContactResolver
 
-KEY = 'a013c915ea86' + '01' * 26
-OTHER = 'a013c915ea86' + '02' * 26
+KEY = 'aabbccddee01' + '01' * 26
+OTHER = 'aabbccddee01' + '02' * 26
 
 
 def contact(key=KEY, name='Peer'):
