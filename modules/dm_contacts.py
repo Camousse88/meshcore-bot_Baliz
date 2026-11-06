@@ -189,7 +189,7 @@ class DmContactResolver:
     async def _resolve(self, key: str, row: dict[str, Any] | None) -> ResolvedContact:
         # A cleanup already in progress must finish before we claim this node.
         manager = getattr(self.bot, 'repeater_manager', None)
-        purging = getattr(manager, '_purge_inflight_keys', set())
+        purging: set[str] = getattr(manager, '_purge_inflight_keys', set())
         if isinstance(purging, set) and any(str(k).lower() == key for k in purging):
             return ResolvedContact(None, 'contact_cleanup_in_progress')
         cached = next((r for r in self._radio_contacts() if self._key(r) == key), None)
