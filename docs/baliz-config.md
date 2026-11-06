@@ -7,6 +7,16 @@ revérifiées dans la console Proxmox du 103 via Safari le même jour, après
 le redémarrage du service à 21:37:48 CEST.
 Ce profil est propre au fork Baliz. Il ne remplace pas `config.ini.example`.
 
+## Vigilance météo
+
+Le département par défaut de Baliz est le **Finistère (29)** : `vigi` sans
+argument demande la vigilance du Finistère. Un autre département peut toujours
+être précisé, par exemple `vigi 22`.
+
+Le profil public conserve ce choix dans `[Vigilance_Service]` avec
+`department = 29` et `enabled = false`. Les alertes automatiques restent
+désactivées ; la consultation ponctuelle avec `vigi` reste disponible.
+
 ## Identité et fonctionnement conservés
 
 - Nom `[BOT] Baliz`, français, fuseau `Europe/Paris` et coordonnées de Morlaix.
