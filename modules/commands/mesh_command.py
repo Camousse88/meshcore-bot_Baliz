@@ -1,7 +1,7 @@
 """Public entry to the mesh database capability, formerly inside ask."""
 from ..assistant.mesh_service import MeshService
 from ..assistant.response import send_answer
-from ..assistant.sender_policy import sender_is_companion
+from ..assistant.sender_policy import sender_may_use_llm
 from ..models import MeshMessage
 from .base_command import BaseCommand
 
@@ -27,13 +27,13 @@ class MeshCommand(BaseCommand):
         self.service = MeshService(bot, self.get_config_value)
 
     def can_use_service(self, message: MeshMessage, skip_channel_check: bool = False) -> bool:
-        return sender_is_companion(self.bot, message) and self.enabled and super().can_use_service(message, skip_channel_check)
+        return sender_may_use_llm(self.bot, message) and self.enabled and super().can_use_service(message, skip_channel_check)
 
     def can_execute(self, message: MeshMessage, skip_channel_check: bool = False) -> bool:
         return self.public_enabled and self.can_use_service(message, skip_channel_check)
 
     async def execute(self, message: MeshMessage) -> bool:
-        if not sender_is_companion(self.bot, message):
+        if not sender_may_use_llm(self.bot, message):
             return False
         _, question = self.split_trigger_and_args(message.content)
         if not question or question.lower() in {"help", "?", "h"}:

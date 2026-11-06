@@ -75,7 +75,7 @@ def command_mock_bot(mock_logger, minimal_config):
     bot.command_manager = MagicMock()
     bot.command_manager.monitor_channels = ["general", "test", "emergency"]
     bot.command_manager.send_response = AsyncMock(return_value=True)
-    # A known companion origin for assistant tests; unknown origins stay denied.
+    # A known companion origin for assistant tests; only repeaters are denied.
     bot.meshcore.contacts = {"ab" * 32: {
         "public_key": "ab" * 32, "adv_name": "TestUser", "type": 1,
     }}
@@ -101,7 +101,7 @@ def command_mock_bot_with_db(mock_logger, minimal_config, tmp_path):
     bot.command_manager = MagicMock()
     bot.command_manager.monitor_channels = ["general", "test", "emergency"]
     bot.command_manager.send_response = AsyncMock(return_value=True)
-    # A known companion origin for assistant tests; unknown origins stay denied.
+    # A known companion origin for assistant tests; only repeaters are denied.
     bot.meshcore.contacts = {"ab" * 32: {
         "public_key": "ab" * 32, "adv_name": "TestUser", "type": 1,
     }}
