@@ -6,12 +6,43 @@
 | --- | --- |
 | `baliz` | Dernière version publiée de Baliz, avec ses fonctions et particularités. Le commit effectivement déployé est indiqué dans le suivi de production ci-dessous. |
 | `main` | Branche historique du fork, distincte de la production Baliz. Cette synchronisation ne la modifie pas. |
-| `config/baliz-identity` | Travail dédié au profil public et à l'identité de Baliz. Cette synchronisation ne la modifie pas. |
+| `config/baliz-identity` | Profil public et documentation de l'identité de Baliz, actualisés séparément du code. |
 | `sync/production-20261105` | Publication des changements déjà déployés le 5 novembre 2026, puis intégration dans `baliz`. |
 | `sync/tigro-20261106` | Intégration de `Tigro14/meshcore-bot:main` après fusion de la PR #80. |
+| `sync/lxc103-production-20261107` | Publication de la source réellement déployée dans le LXC103, avec ses correctifs et ses réglages publics. |
 | `feat/*`, `fix/*`, `sync/tigro-*` | Développements et intégrations isolés, à relire avant intégration dans `baliz`. |
 
 Les mises à jour de Tigro sont intégrées dans Baliz en conservant ses particularités. Publier une version de production ne remplace pas `main`, ne réécrit pas l'historique et ne supprime pas les branches de travail existantes.
+
+## Alignement avec le LXC103 — 7 novembre 2026
+
+La source de production est `75e06d7256b93fa627314137c84ab4eac8992b19`. Les
+empreintes de 296 fichiers applicatifs ont été comparées au serveur : aucune
+différence, aucun fichier applicatif supplémentaire. L'intégration conserve ces
+fichiers à l'identique et reprend les tests déjà publiés pour le démarrage du
+viewer.
+
+Le BBS, la vigilance, les régions de Contacts et la migration BBS 35 font
+désormais partie de `baliz`. Les corrections DM, Clock Sync, accès au LLM et le
+tutoriel français de Time sont conservés. Aucun nouveau code de Tigro, postérieur
+à celui déployé, n'est intégré par cette synchronisation.
+
+Le profil public reprend les valeurs vérifiées du LXC103, notamment les deux
+limites de sauts à 10 et le délai du routeur à 300 secondes. L'identité est
+actualisée séparément. Le fichier actif privé, les bases de données, les messages
+et les préférences de canaux et d'horloges restent sur le serveur.
+
+Cette opération publie la production existante ; elle ne redéploie ni ne
+redémarre le LXC103. La branche historique `main` reste inchangée. Voir la
+[validation de l'alignement](validation/baliz-production-sync-20261107.md).
+
+## Intégration initialement locale de dev — 6 novembre 2026
+
+La branche locale `deploy/tigro-dev-local-20261106` reprend Tigro `dev` au commit `522409eb23288d2fc4ffae3a409db0be493e7f3c`, avec le BBS, la vigilance et l'indication de région dans Contacts. Elle conserve les particularités de Baliz et utilise la migration 35 pour le BBS, sans réutiliser la migration 34 d'occupation radio.
+
+Cette intégration avait été limitée au LXC103, sans publication sur GitHub.
+L'alignement du 7 novembre décrit ci-dessus l'intègre maintenant dans `baliz`.
+Voir la [validation locale initiale](validation/baliz-dev-lxc103-20261106.md).
 
 ## Synchronisation GitHub du 6 novembre 2026
 

@@ -1886,6 +1886,21 @@ enabled = true
 [Contact_Command]
 enabled = true
 # channels =
+[BBS_Command]
+# Store-and-forward private mailbox between mesh nodes (keywords: bbs, s, send).
+# Mailboxes are keyed on full public keys, so same-name nodes stay separate.
+enabled = true
+# Max unread messages one recipient may hold (0 = unlimited)
+max_messages_per_user = 10
+# Messages older than this many days are purged on the next BBS activity
+max_message_age_days = 7
+# Max messages one sender may store per day (0 = unlimited)
+max_messages_per_sender_per_day = 20
+# Max BBS commands one user may issue per minute (0 = no limit)
+rate_limit_per_minute = 10
+# Minimum seconds between two inbox reminders to the same user
+notify_cooldown_seconds = 300
+# channels =
 [Cmd_Command]
 enabled = true
 # Optional: override `cmd` output with a link to your full docs page
@@ -2779,13 +2794,22 @@ send_link = true
 
 [Vigilance_Service]
 # Météo-France weather vigilance alert monitor (France only)
-# Polls vigilance.meteofrance.fr and posts to a channel when Orange or Rouge
-# vigilance is active for the configured department.
+# Polls the vigilance level and posts to a channel when Orange or Rouge is active for a
+# monitored department.
 # Requires: requests, beautifulsoup4
 enabled = false
 
-# French department number to monitor (e.g. 75 for Paris, 25 for Doubs)
+# French department(s) to monitor: number (75 for Paris, 25 for Doubs, 95 for Val-d'Oise),
+# Corsican code (2A/2B), or a department name. Comma-separated for several, and one alert is
+# posted per department that is at an alert level.
+# Example: department = 75, 77, 78, 91, 92, 93, 94, 95, 60, 27
 department = 75
+
+# Optional key from https://portail-api.meteofrance.fr, subscribed to
+# DonneesPubliquesVigilance. Without it the level comes from the site's own JSON endpoint,
+# using the session cookie the page sets, which covers metropolitan France and Corsica only:
+# an overseas department needs the key.
+# api_key =
 
 # Channel to post vigilance alerts to
 channel = #general
@@ -2796,7 +2820,12 @@ channel = #general
 # How often to check Météo-France (milliseconds). Default: 28800000 (8 hours)
 poll_interval = 28800000
 
-# Minimum seconds between successive alerts for the same event (throttle).
+# Pause between two requests of the same poll, in seconds, so a list of departments is
+# spread out instead of sent as one burst. The first request of a poll is not preceded by a
+# pause. Default: 2. 0 sends the requests back to back.
+request_delay = 2
+
+# Minimum seconds between successive alerts for the same department (throttle).
 # Default: 3600 (1 hour)
 alert_throttle = 3600
 
