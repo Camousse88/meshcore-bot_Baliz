@@ -136,6 +136,38 @@ status
 
 ---
 
+### `bbs`
+
+Store-and-forward private mailbox between mesh nodes. Mailboxes are keyed on each node's full public key, so nodes that share a name still get separate mailboxes and queued messages survive a rename.
+
+**Usage:**
+- `s <name>` - look up a contact and show a numbered shortlist (each candidate shown with its key prefix)
+- `s <N> <message>` - store the message for candidate N of the shortlist
+- `s <hex-prefix> <message>` - send directly to the contact whose public key starts with the prefix (4+ hex characters)
+- `bbs r` - read your pending messages (DM only)
+- `bbs list` - count your pending messages (DM only)
+- `bbs whoami` - show the name and key prefix the BBS uses for you (DM only)
+
+**Examples:**
+```
+s Tom COD
+s 2 Meet at noon.
+bbs s a1b2c3 Meet at noon.
+bbs r
+bbs list
+```
+
+**Response:** Confirmation when a message is stored; the stored messages themselves when reading.
+
+**Notes:**
+- Recipients are resolved in order: exact name, then public-key prefix (for hexadecimal tokens), then partial name match.
+- Reading is DM-only for privacy. Pending messages are marked read only after the full reply went out on the radio, so a failed send never silently drops them.
+- Senders are notified of pending messages when they DM the bot (unless the DM is itself a `bbs`/`s`/`send` command).
+- Limits are configured in `[BBS_Command]`: mailbox size, daily per-sender quota, commands per minute, message age purge, notification cooldown.
+- The full guide — resolution order, examples, limits, web viewer page — is in [BBS.md](BBS.md).
+
+---
+
 ## Information Commands
 
 ### `channels`
@@ -305,8 +337,11 @@ When no location is given, uses the sender's companion location if known, then t
 
 ### `vigi` or `vigilance`
 
-Current Météo-France weather vigilance for a French department (France only). Scrapes
-[vigilance.meteofrance.fr](https://vigilance.meteofrance.fr) directly — no API key.
+Current Météo-France weather vigilance for a French department (France only). The level comes
+from JSON, never from the page markup, which JavaScript fills: the site's own endpoint when
+`[Vigilance_Service] api_key` is empty, the
+[DonneesPubliquesVigilance](https://portail-api.meteofrance.fr/web/fr/api/DonneesPubliquesVigilance)
+product when it is set.
 
 **Usage:**
 ```
@@ -318,7 +353,8 @@ vigi [department_number]
 ```
 vigi
 vigi 75
-vigi 25
+vigi 95
+vigi 2A
 ```
 
 **Response:** the active level with an emoji, plus the first phenomenon line when the page
@@ -331,9 +367,12 @@ Levels: ✅ Vert, ⚠️ Jaune, 🟠 Orange, 🔴 Rouge. The answer is capped at
 single mesh transmission carries it.
 
 **Configuration:** the department comes from `[Vigilance_Service]` (`department`, default
-`75`), the same section used by the [Vigilance Météo-France Service](vigilance-service.md)
-that posts proactive Orange/Rouge alerts. The command has no own section, so the two cannot
-disagree.
+`75`, comma-separated for several), the same section used by the
+[Vigilance Météo-France Service](vigilance-service.md) that posts proactive Orange/Rouge
+alerts. With several departments configured, `vigi` without an argument answers for the first
+one: a reply naming all of them would not fit the RF budget. The lookup is paced by
+`[Vigilance_Service] request_delay` (default 2 s) between its page fetch and its endpoint call.
+The command has no own section, so the two cannot disagree.
 
 **Note:** `alert` and `alerte` are not keywords of this command — they belong to
 [`alert <location>`](command-reference.md#alert-location-all).

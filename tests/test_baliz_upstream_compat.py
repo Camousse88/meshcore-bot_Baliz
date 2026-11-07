@@ -75,7 +75,7 @@ def test_radio_markdown_cleanup_keeps_region_literals_and_command_placeholders()
 
 def test_upgrade_from_baliz_version_30_preserves_usage_data():
     import sqlite3
-    from modules.db_migrations import MigrationRunner
+    from modules.db_migrations import MIGRATIONS, MigrationRunner
     conn = sqlite3.connect(':memory:')
     conn.executescript('''
         CREATE TABLE schema_version (version INTEGER PRIMARY KEY, description TEXT, applied_at TEXT);
@@ -90,4 +90,5 @@ def test_upgrade_from_baliz_version_30_preserves_usage_data():
     assert conn.execute('SELECT * FROM assistant_function_usage').fetchall() == [(123, 'weather.forecast')]
     assert 'adverts_singlebyte_total' in {r[1] for r in conn.execute('PRAGMA table_info(daily_rollup)')}
     assert 'scope_verdict' in {r[1] for r in conn.execute('PRAGMA table_info(message_stats)')}
-    assert conn.execute('SELECT MAX(version) FROM schema_version').fetchone()[0] == 34
+    assert conn.execute('SELECT MAX(version) FROM schema_version').fetchone()[0] == max(v for v, _, _ in MIGRATIONS)
+    assert conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='bbs_inbox'").fetchone() == ('bbs_inbox',)

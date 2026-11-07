@@ -11,22 +11,33 @@ from tests.conftest import mock_message
 from tests.test_web_viewer_app import viewer_with_db  # noqa: F401, F811
 
 
-def test_upgrade_from_deployed_baliz_keeps_usage_and_channel_consent():
+@pytest.mark.parametrize('starting_version', [33, 34])
+def test_upgrade_from_deployed_baliz_keeps_usage_and_channel_consent(starting_version):
     conn = sqlite3.connect(':memory:')
     for version, _name, migrate in MIGRATIONS:
-        if version <= 33:
+        if version <= starting_version:
             migrate(conn.cursor())
     conn.execute('CREATE TABLE schema_version(version INTEGER PRIMARY KEY, description TEXT, applied_at TEXT)')
     conn.executemany('INSERT INTO schema_version(version,description) VALUES (?,?)',
-                     [(version, name) for version, name, _ in MIGRATIONS if version <= 33])
+                     [(version, name) for version, name, _ in MIGRATIONS if version <= starting_version])
     conn.execute("INSERT INTO assistant_function_usage VALUES (123, 'weather.forecast')")
     conn.execute("INSERT INTO channel_web_visibility VALUES ('existing-channel-identity', 1)")
+    conn.execute("INSERT INTO bbs_messages(sender_id,recipient_name,message) VALUES ('old-sender','recipient','legacy private message')")
+    conn.execute("INSERT INTO clock_sync_targets(target,enabled,auto_clkreboot_enabled) VALUES ('existing-target',1,1)")
     conn.commit()
     MigrationRunner(conn, logging.getLogger(__name__)).run()
     MigrationRunner(conn, logging.getLogger(__name__)).run()
     assert conn.execute('SELECT * FROM assistant_function_usage').fetchall() == [(123, 'weather.forecast')]
     assert conn.execute('SELECT * FROM channel_web_visibility').fetchall() == [('existing-channel-identity', 1)]
-    assert conn.execute('SELECT MAX(version) FROM schema_version').fetchone()[0] == 34
+    assert conn.execute('SELECT MAX(version) FROM schema_version').fetchone()[0] == 35
+    assert conn.execute('SELECT description FROM schema_version WHERE version=34').fetchone()[0] == 'channel occupancy buckets and sender share'
+    assert conn.execute('SELECT message FROM bbs_messages').fetchall() == [('legacy private message',)]
+    assert conn.execute('SELECT target,enabled,auto_clkreboot_enabled FROM clock_sync_targets').fetchall() == [('existing-target',1,1)]
+    assert conn.execute('SELECT COUNT(*) FROM bbs_inbox').fetchone()[0] == 0
+    conn.execute("INSERT INTO bbs_inbox(sender_key,recipient_key,message) VALUES ('sender-key','recipient-key','new private message')")
+    conn.commit()
+    MigrationRunner(conn, logging.getLogger(__name__)).run()
+    assert conn.execute('SELECT message FROM bbs_inbox').fetchall() == [('new private message',)]
     assert conn.execute('SELECT COUNT(*) FROM occupancy_samples').fetchone()[0] == 0
     assert conn.execute('SELECT COUNT(*) FROM occupancy_senders').fetchone()[0] == 0
 

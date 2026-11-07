@@ -71,7 +71,7 @@ schedule = 0 3 * * *
 targets = 
 command_payload = clock sync admin
 min_sync_drift = 60
-dashboard_hop_radius = 5
+dashboard_hop_radius = 10
 dashboard_check_window_hours = 24
 dashboard_max_clock_drift_seconds = 300
 clock_sync_admin_reply_window_seconds = 60
@@ -80,7 +80,7 @@ clock_sync_admin_reply_window_seconds = 60
 startup_flood_scope = fr-bre
 monitor_channels = #bzh-bot,Aar29,#bretagne
 respond_to_dms = true
-max_response_hops = 7
+max_response_hops = 10
 
 [Banned_Users]
 banned_users = 
@@ -666,7 +666,7 @@ enabled = true
 aliases = baliz
 enabled_routes = test,path,mesh,wiki,weather,llm
 route_timeout_seconds = 120
-semantic_timeout_seconds = 45
+semantic_timeout_seconds = 300
 max_pages = 1
 
 [Mesh_Command]
