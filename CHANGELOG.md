@@ -8,6 +8,8 @@ semantic versioning.
 
 ### Baliz compatibility
 
+- Integrate Tigro main `d3ba8888`: private staged BBS notifications, current contact names in BBS statistics and public read-only viewer pages. Append notification stamps as migration 36 without changing Baliz migrations 1–35, the public profile, assistant, DM/clock handling or map. Preserve the French Time guide and mobile layout.
+
 - Align with Tigro main through `b4a85ebc`, preserving the closed assistant catalogue, Wiki policy, mentions, private activation, city-grounded weather, integrated mesh sidebars and period-aware advert counts. Append occupancy as migration 34 so deployed assistant statistics and channel-publication consent survive the upgrade. Existing production settings continue to control optional services.
 
 
@@ -20,7 +22,28 @@ semantic versioning.
 
 ### Added
 
-- Rebuilt the **BBS** store-and-forward mailbox on `bbs_inbox` (migration 34), keyed on full public
+- BBS recipients now get **private staged notifications**: one aggregate DM on
+  arrival, one at +24h if still unread, and a final notice at +73h naming the purge
+  age — always a single DM per recipient carrying the unread count, never one DM per
+  stored message. The 24h/73h stages are swept by a scheduler job every
+  `notify_check_minutes` minutes (default 30) and stamped per message in `bbs_inbox`
+  (migration 36 in Baliz) only after the DM actually went out on the radio: a stage is sent
+  at most once per message, survives bot restarts and retries unreachable recipients
+  on the next sweep. New `[BBS_Command]` keys: `notify_on_arrival`,
+  `notify_reminder_hours`, `notify_final_hours`, `notify_check_minutes` (a stage
+  hour of 0 turns that stage off; both at 0 removes the sweep job). See `docs/BBS.md`.
+
+- Web viewer anonymous surface now covers **Region**, **Airtime**, **BBS statistics**, **Time
+  synchronization** (`/time`) and **Infos** in addition to Dashboard, Contacts and Mesh Graph,
+  with those entries visible in the main navbar without a login. `/time` is read-only for
+  anonymous visitors: add/delete/toggle controls and Run Now are hidden server-side, and the
+  target table drops its admin columns client-side. `GET /api/regions`, `GET /api/bbs` and
+  `GET /api/clock-sync-targets-admin` join the public allowlist — the payloads are the same
+  mesh-visible aggregates `/contacts` already publishes (counts, names, key prefixes, drift,
+  battery badges). The clock-sync write routes, per-target history, Run Now, battery history and
+  the `/time/admin` editor stay admin-only. See `docs/web-viewer.md`.
+
+- Rebuilt the **BBS** store-and-forward mailbox on `bbs_inbox` (migration 35 in Baliz), keyed on full public
   keys: two nodes advertising the same name no longer share a mailbox, and a queued message stays
   deliverable when the recipient renames its node. Recipients resolve in MeshCore-BBS order —
   exact name, then public-key prefix (4+ hex characters), then partial name — and ambiguous
@@ -181,6 +204,14 @@ semantic versioning.
 
 ### Changed
 
+- The `{bbs_messages_today}`, `{bbs_pending_messages}` and `{bbs_users_with_pending}`
+  scheduled-message placeholders are gone: `_get_mesh_info` no longer collects BBS
+  stats and `_has_mesh_info_placeholders` no longer recognises the keys. They were
+  never substituted anyway — `format_keyword_response_with_placeholders` never wired
+  them in, so a `#bot:` announcement using them broadcast the literal braces to the
+  channel (confirmed in the production journal). The public BBS announcement they fed
+  is replaced by the private staged notifications above.
+
 - `bbs r` marks messages read only after the whole reply went out on the radio; a failed send now
   leaves the mailbox unread so `bbs r` can be retried instead of silently dropping the messages.
   New messages land only in `bbs_inbox`; the legacy name-keyed `bbs_messages` table stays served
@@ -255,6 +286,16 @@ semantic versioning.
 - Baliz weather replies keep the location returned by the weather provider.
   Remove the Brest-specific reformulation example and reject prose that changes
   or omits the source location, using the factual forecast as fallback.
+
+- Web Viewer `/bbs` top senders now print the sender **name** instead of the raw public key for
+  legacy `bbs_messages` rows. Rows written after BBS went key-based hold the sender public key in
+  `sender_id` and the display name in `sender_name`, but the stats query used `sender_id` as the
+  name. Those rows now map back onto the key for grouping and the 4-character prefix, exactly like
+  `bbs_inbox` rows, while the oldest name-only rows keep showing their stored name. Pending
+  recipients and top senders also resolve both sides through `complete_contact_tracking`, which
+  carries the name MeshCore currently knows for a key and wins over stored names that are stale or
+  just the 4-character key prefix (the collapsed join never inflates the message counts).
+
 - The vigilance level is read from JSON. The department page Météo-France serves is filled by
   JavaScript, so the parser had nothing to read and `vigi` answered `Vert` for every department
   — verified on a live case: the Bouches-du-Rhône were in Jaune while the bot reported Vert. The

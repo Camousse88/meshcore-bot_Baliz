@@ -14,6 +14,25 @@
 
 Les mises à jour de Tigro sont intégrées dans Baliz en conservant ses particularités. Publier une version de production ne remplace pas `main`, ne réécrit pas l'historique et ne supprime pas les branches de travail existantes.
 
+## Intégration de Tigro main — 7 novembre 2026
+
+La branche `sync/tigro-main-20261107` intègre Tigro `main` au commit
+`d3ba88887b19f123dd9a8905a31857da4472f4a9`, puis rejoint `baliz` par PR.
+Elle reprend les notifications privées du BBS, la résolution des noms dans ses
+statistiques et les pages publiques en lecture seule de Tigro. Les commandes
+administratives restent protégées lorsque l’authentification est activée.
+
+La migration des rappels BBS utilise le numéro 36 : les migrations 1 à 35 de Baliz
+restent inchangées. Le profil public, l’assistant, les règles d’accès au LLM,
+les corrections DM et horloges, la carte et le tutoriel français de Time sont
+conservés. Les anciens substituts BBS des messages planifiés sont retirés comme
+chez Tigro ; les nouveaux rappels passent en DM.
+
+Cette mise à jour concerne GitHub uniquement. Le LXC103 reste sur la source
+`75e06d7256b93fa627314137c84ab4eac8992b19` et n’est ni modifié ni redémarré.
+Les branches `main` et `config/baliz-identity` ne changent pas.
+Voir la [validation de l’intégration](validation/baliz-tigro-main-20261107.md).
+
 ## Alignement avec le LXC103 — 7 novembre 2026
 
 La source de production est `75e06d7256b93fa627314137c84ab4eac8992b19`. Les
