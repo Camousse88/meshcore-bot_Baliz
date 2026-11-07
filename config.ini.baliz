@@ -73,7 +73,7 @@ schedule = 0 3 * * *
 targets = 
 command_payload = clock sync admin
 min_sync_drift = 60
-dashboard_hop_radius = 5
+dashboard_hop_radius = 10
 dashboard_check_window_hours = 24
 dashboard_max_clock_drift_seconds = 300
 clock_sync_admin_reply_window_seconds = 60
@@ -81,7 +81,7 @@ clock_sync_admin_reply_window_seconds = 60
 [Channels]
 monitor_channels = #bzh-bot,Aar29,#bretagne
 respond_to_dms = true
-max_response_hops = 7
+max_response_hops = 10
 
 [Banned_Users]
 banned_users = 
@@ -408,12 +408,12 @@ enabled = false
 [Llm_Command]
 enabled = true
 endpoint = http://192.168.0.104:11434/v1/chat/completions
-model = gemma3:4b
+model = qwen3.5:2b-q4_K_M
 system_prompt = Tu es Baliz, l'assistant du reseau MeshCore Bretagne, base a Morlaix dans le Finistere. MeshCore est un projet mondial open source de reseau maille LoRa pour la messagerie texte hors infrastructure, utilisant notamment des Companions, Repeaters et Room Servers.Reponds en francais naturel, precis et factuel. Reste bref sans etre telegraphique : moins de 300 caracteres, une ou deux phrases courtes. Adapte le niveau de detail a la question et reformule naturellement les donnees du contexte.N'invente aucune information absente du contexte. Pour l'etat du reseau, rapporte uniquement les faits disponibles sans conclure qu'il est stable, bon ou mauvais sauf si le contexte le permet explicitement.Maintiens la continuite de la conversation. Garde un ton cordial mais evite les salutations et formules de politesse inutiles.
 max_tokens = 100
 temperature = 0.4
 top_p = 0.9
-timeout_seconds = 90
+timeout_seconds = 300
 strip_thinking_tags = true
 include_local_context = true
 context_include_weather = true
@@ -662,9 +662,10 @@ enabled = false
 [Ask_Command]
 enabled = true
 aliases = baliz
-enabled_routes = mesh,wiki,llm
+enabled_routes = test,path,mesh,wiki,weather,llm
 route_timeout_seconds = 120
-max_pages = 4
+max_pages = 1
+semantic_timeout_seconds = 300
 
 [Mesh_Command]
 enabled = true
@@ -673,3 +674,17 @@ public_enabled = true
 [Vigilance_Service]
 enabled = false
 department = 29
+
+[Channel_Occupancy]
+enabled = true
+sample_seconds = 60
+fast_window_seconds = 10
+window_seconds = 60
+slow_window_seconds = 900
+half_life_seconds = 300
+max_samples = 5000
+use_device_modulation = true
+spreading_factor = 9
+bandwidth_khz = 125
+coding_rate = 5
+preamble_symbols = 8

@@ -7,6 +7,11 @@ revérifiées dans la console Proxmox du 103 via Safari le même jour, après
 le redémarrage du service à 21:37:48 CEST.
 Ce profil est propre au fork Baliz. Il ne remplace pas `config.ini.example`.
 
+Les réglages publics de fonctionnement ont été alignés sur le LXC103 le
+7 novembre 2026 : limites de sauts, modèle et délais, routes de l’assistant,
+Airtime et département de vigilance. Les prompts, clés et autres données privées
+du fichier actif ne sont pas recopiés par cet alignement.
+
 ## Présentation publique de Baliz
 
 Baliz est un assistant accessible par radio sur le réseau MeshCore en Bretagne.
@@ -72,6 +77,11 @@ Les sections techniques ci-dessous décrivent le profil historique relevé en
 septembre 2026 ; elles ne constituent pas un inventaire de la configuration
 actuelle de production.
 
+## Airtime
+
+Le profil active `[Channel_Occupancy] enabled = true` avec les paramètres du
+LXC103. La modulation annoncée par la radio prévaut sur les valeurs de secours.
+
 ## Vigilance météo
 
 Le département par défaut de Baliz est le **Finistère (29)** : `vigi` sans
@@ -86,15 +96,15 @@ désactivées ; la consultation ponctuelle avec `vigi` reste disponible.
 
 - Nom `[BOT] Baliz`, français, fuseau `Europe/Paris` et coordonnées de Morlaix.
 - Canaux surveillés : `#bzh-bot`, `Aar29`, `#bretagne` ; réponses aux DM et
-  limite de 7 sauts conservées. Ce sont les noms des canaux déjà présents
+  limite de 10 sauts conservées. Ce sont les noms des canaux déjà présents
   sur le companion : le profil ne crée pas les canaux et ne fournit pas leurs clés.
-- Prompt système LLM intégral, sans reformulation, modèle `gemma3:4b`, endpoint
+- Prompt système LLM intégral, sans reformulation, modèle `qwen3.5:2b-q4_K_M`, endpoint
   `http://192.168.0.104:11434/v1/chat/completions`, budget de 100 tokens et
-  délai de 90 secondes. Historique de 600 secondes / 5 tours, contexte réseau,
+  délai de 300 secondes. Historique de 600 secondes / 5 tours, contexte réseau,
   contacts et météo conservés, ainsi que le seuil thermique de 85 °C.
 - Port série par identifiant USB, chemins de données et de logs, limites de
   débit, réglages Web, horloge et états activés/désactivés des services conservés.
-  Le rayon du tableau de synchronisation d'horloge est de 5 sauts
+  Le rayon du tableau de synchronisation d'horloge est de 10 sauts
   (`Clock_Sync_Admin.dashboard_hop_radius`).
 
 `[Bot] timezone = Europe/Paris` règle les opérations du bot en heure française
@@ -106,14 +116,16 @@ change ; seules les nouvelles observations utilisent l'heure courante du systèm
 
 ## Adaptation au routeur
 
-`[Ask_Command]` active `ask` avec l'alias `baliz`, quatre messages maximum par
-réponse et un délai global de 120 secondes. Les routes actives sont `mesh,wiki,llm`.
+`[Ask_Command]` active `ask` avec l'alias `baliz`, une page maximum par réponse
+et un délai global de 120 secondes. Le routage sémantique dispose de 300 secondes,
+comme les autres appels au LLM. Les routes actives sont
+`test,path,mesh,wiki,weather,llm`.
 `[Mesh_Command]` active l'interrogation réseau/SQL et son accès direct.
 L'accès direct `llm` reste disponible (`public_enabled = true`).
 
-`test` et `path` sont désactivés dans le fichier du 103 : le profil conserve ce
-choix et ne les annonce pas comme routes actives. Pour les utiliser derrière
-`baliz`, activer leurs sections et ajouter `test,path` à `enabled_routes`.
+Les réglages d'accès direct aux commandes `test` et `path` sont conservés.
+Leurs routes sont disponibles derrière l'assistant selon les autorisations du
+bot ; les ajouter aux routes ne modifie pas l'activation des commandes directes.
 
 ## Wiki MeshCore Bretagne
 
