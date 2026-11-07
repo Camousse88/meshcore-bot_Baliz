@@ -942,8 +942,12 @@ class BotDataViewer(DashboardSnapshotMixin, LiveStreamMixin, SocketClientsMixin,
 
         # Issue #240 public HTML surface. Realtime is admin-only: its live socket
         # is, so an anonymous visit would only ever show an empty page.
+        # Read-only explainers (regions, airtime, time, infos, bbs) join the
+        # public surface: every card they render is fed by the public GET APIs
+        # below, and their write controls are hidden from anonymous visitors.
         _PUBLIC_PAGE_PATHS = frozenset([
             '/', '/contacts', '/mesh',
+            '/regions', '/airtime', '/bbs', '/time', '/infos',
         ])
 
         # Anonymous-safe GET APIs: mesh-visible / aggregate data only. No channel
@@ -975,6 +979,14 @@ class BotDataViewer(DashboardSnapshotMixin, LiveStreamMixin, SocketClientsMixin,
             '/api/mesh/nodes',
             '/api/mesh/edges',
             '/api/mesh/stats',
+            # /regions explainer. Public aggregates only: no settings, no per-sender data.
+            '/api/regions',
+            # /bbs stats: counts, names and key prefixes only — never message bodies.
+            '/api/bbs',
+            # GET only: the /time page renders targets with the same enrichment
+            # /contacts already publishes publicly (name, key, drift, battery).
+            # POST/PUT/DELETE and the per-target history/run-now routes stay admin.
+            '/api/clock-sync-targets-admin',
         ])
 
         # Read-only POST helpers used by public Contacts / Mesh info panels.
@@ -3953,14 +3965,19 @@ class BotDataViewer(DashboardSnapshotMixin, LiveStreamMixin, SocketClientsMixin,
 
                 cursor.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' "
-                    "AND name IN ('bbs_messages', 'bbs_inbox')"
+                    "AND name IN ('bbs_messages', 'bbs_inbox', 'complete_contact_tracking')"
                 )
-                bbs_tables = {row[0] for row in cursor.fetchall()}
+                db_tables = {row[0] for row in cursor.fetchall()}
+                bbs_tables = db_tables & {'bbs_messages', 'bbs_inbox'}
                 if not bbs_tables:
                     return jsonify({**empty_payload, 'error': 'BBS tables not found'})
 
-                # One view over both tables. Legacy rows are name-keyed: they have
-                # no public-key columns, so the key fields stay NULL.
+                # One view over both tables. bbs_messages predates the pubkey rework:
+                # the oldest rows are name-keyed (sender_id holds the name, sender_name
+                # is NULL), and the rows written after BBS went key-based hold the
+                # public key in sender_id with the display name in sender_name. Map
+                # those back onto the key so grouping and key prefixes behave like
+                # bbs_inbox, and surface the stored name as the sender name.
                 union_parts = []
                 if 'bbs_inbox' in bbs_tables:
                     union_parts.append(
@@ -3969,11 +3986,40 @@ class BotDataViewer(DashboardSnapshotMixin, LiveStreamMixin, SocketClientsMixin,
                     )
                 if 'bbs_messages' in bbs_tables:
                     union_parts.append(
-                        "SELECT NULL AS sender_key, sender_id AS sender_name, "
+                        "SELECT CASE WHEN COALESCE(sender_name, '') = '' THEN NULL ELSE sender_id END "
+                        "AS sender_key, "
+                        "COALESCE(NULLIF(sender_name, ''), sender_id) AS sender_name, "
                         "NULL AS recipient_key, recipient_name, sent_at, read_at "
                         "FROM bbs_messages"
                     )
                 union = " UNION ALL ".join(union_parts)
+
+                # complete_contact_tracking carries the name MeshCore currently knows
+                # for a public key; it wins over the name stored on the message row,
+                # which can be stale or just the key prefix (rows written right after
+                # BBS went key-based stored the prefix as sender_name). The tracking
+                # table has no unique constraint on public_key, so it is collapsed
+                # before the LEFT JOIN to keep the message counts exact.
+                tracked_ct = (
+                    "SELECT public_key, MAX(name) AS name FROM complete_contact_tracking "
+                    "GROUP BY public_key"
+                )
+                if 'complete_contact_tracking' in db_tables:
+                    pending_from = (
+                        f"({union}) m LEFT JOIN ({tracked_ct}) ct_r "
+                        "ON ct_r.public_key = m.recipient_key"
+                    )
+                    pending_name = "COALESCE(NULLIF(MAX(ct_r.name), ''), MAX(recipient_name))"
+                    senders_from = (
+                        f"({union}) m LEFT JOIN ({tracked_ct}) ct_s "
+                        "ON ct_s.public_key = m.sender_key"
+                    )
+                    senders_name = "COALESCE(NULLIF(MAX(ct_s.name), ''), MAX(sender_name))"
+                else:
+                    pending_from = f"({union}) m"
+                    pending_name = "MAX(recipient_name)"
+                    senders_from = f"({union}) m"
+                    senders_name = "MAX(sender_name)"
 
                 cursor.execute(f'''
                     SELECT COUNT(*) AS stored_total,
@@ -3998,14 +4044,14 @@ class BotDataViewer(DashboardSnapshotMixin, LiveStreamMixin, SocketClientsMixin,
                 # A mailbox is one recipient key (or a legacy recipient name when no
                 # key column exists); key and name identities never merge.
                 cursor.execute(f'''
-                    SELECT COALESCE(recipient_key, recipient_name) AS identity,
-                           MAX(recipient_key) AS recipient_key,
-                           MAX(recipient_name) AS name,
+                    SELECT COALESCE(m.recipient_key, m.recipient_name) AS identity,
+                           MAX(m.recipient_key) AS recipient_key,
+                           {pending_name} AS name,
                            COUNT(*) AS pending,
-                           MIN(sent_at) AS oldest,
-                           MAX(sent_at) AS newest
-                    FROM ({union})
-                    WHERE read_at IS NULL
+                           MIN(m.sent_at) AS oldest,
+                           MAX(m.sent_at) AS newest
+                    FROM {pending_from}
+                    WHERE m.read_at IS NULL
                     GROUP BY identity
                     ORDER BY pending DESC, name ASC
                     LIMIT 200
@@ -4022,12 +4068,12 @@ class BotDataViewer(DashboardSnapshotMixin, LiveStreamMixin, SocketClientsMixin,
                 ]
 
                 cursor.execute(f'''
-                    SELECT COALESCE(sender_key, sender_name) AS identity,
-                           MAX(sender_key) AS sender_key,
-                           MAX(sender_name) AS name,
+                    SELECT COALESCE(m.sender_key, m.sender_name) AS identity,
+                           MAX(m.sender_key) AS sender_key,
+                           {senders_name} AS name,
                            COUNT(*) AS sent_total,
-                           SUM(date(sent_at) = date('now')) AS sent_today
-                    FROM ({union})
+                           SUM(date(m.sent_at) = date('now')) AS sent_today
+                    FROM {senders_from}
                     GROUP BY identity
                     ORDER BY sent_total DESC, name ASC
                     LIMIT 10

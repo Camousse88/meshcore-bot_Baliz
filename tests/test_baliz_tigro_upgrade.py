@@ -11,7 +11,7 @@ from tests.conftest import mock_message
 from tests.test_web_viewer_app import viewer_with_db  # noqa: F401, F811
 
 
-@pytest.mark.parametrize('starting_version', [33, 34])
+@pytest.mark.parametrize('starting_version', [33, 34, 35])
 def test_upgrade_from_deployed_baliz_keeps_usage_and_channel_consent(starting_version):
     conn = sqlite3.connect(':memory:')
     for version, _name, migrate in MIGRATIONS:
@@ -24,20 +24,23 @@ def test_upgrade_from_deployed_baliz_keeps_usage_and_channel_consent(starting_ve
     conn.execute("INSERT INTO channel_web_visibility VALUES ('existing-channel-identity', 1)")
     conn.execute("INSERT INTO bbs_messages(sender_id,recipient_name,message) VALUES ('old-sender','recipient','legacy private message')")
     conn.execute("INSERT INTO clock_sync_targets(target,enabled,auto_clkreboot_enabled) VALUES ('existing-target',1,1)")
+    if starting_version >= 35:
+        conn.execute("INSERT INTO bbs_inbox(sender_key,recipient_key,message) VALUES ('saved-sender','saved-recipient','stored private message')")
     conn.commit()
     MigrationRunner(conn, logging.getLogger(__name__)).run()
     MigrationRunner(conn, logging.getLogger(__name__)).run()
     assert conn.execute('SELECT * FROM assistant_function_usage').fetchall() == [(123, 'weather.forecast')]
     assert conn.execute('SELECT * FROM channel_web_visibility').fetchall() == [('existing-channel-identity', 1)]
-    assert conn.execute('SELECT MAX(version) FROM schema_version').fetchone()[0] == 35
+    assert conn.execute('SELECT MAX(version) FROM schema_version').fetchone()[0] == 36
     assert conn.execute('SELECT description FROM schema_version WHERE version=34').fetchone()[0] == 'channel occupancy buckets and sender share'
     assert conn.execute('SELECT message FROM bbs_messages').fetchall() == [('legacy private message',)]
     assert conn.execute('SELECT target,enabled,auto_clkreboot_enabled FROM clock_sync_targets').fetchall() == [('existing-target',1,1)]
-    assert conn.execute('SELECT COUNT(*) FROM bbs_inbox').fetchone()[0] == 0
+    expected_inbox = [('stored private message', None, None)] if starting_version >= 35 else []
+    assert conn.execute('SELECT message,reminder_sent_at,final_notice_sent_at FROM bbs_inbox').fetchall() == expected_inbox
     conn.execute("INSERT INTO bbs_inbox(sender_key,recipient_key,message) VALUES ('sender-key','recipient-key','new private message')")
     conn.commit()
     MigrationRunner(conn, logging.getLogger(__name__)).run()
-    assert conn.execute('SELECT message FROM bbs_inbox').fetchall() == [('new private message',)]
+    assert conn.execute('SELECT message FROM bbs_inbox ORDER BY id').fetchall() == [(row[0],) for row in expected_inbox] + [('new private message',)]
     assert conn.execute('SELECT COUNT(*) FROM occupancy_samples').fetchone()[0] == 0
     assert conn.execute('SELECT COUNT(*) FROM occupancy_senders').fetchone()[0] == 0
 
