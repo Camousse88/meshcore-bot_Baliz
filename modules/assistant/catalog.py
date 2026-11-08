@@ -1,8 +1,9 @@
 """Closed assistant capabilities and strict model-output validation."""
 import json
 import re
+
+from .network_plan import ACTIVE, infer_operation
 from .router import Decision, Route, normalize
-from .network_plan import infer_operation, ACTIVE
 
 CATALOG = {
     'test': {'receive': 'Réception du message actuel : test, ping, tu me reçois, SNR, RSSI. Pas un test actif distant.'},
@@ -21,6 +22,12 @@ CATALOG = {
         'trace': 'Test actif de trajet radio vers une cible ou un chemin explicite.',
         'advert': 'Demande explicite que le bot émette une annonce radio, en privé uniquement.',
         'unsupported': 'Mesure réseau précise indisponible. Jamais une demande documentée, sociale ou un simple test.'},
+    'bbs': {
+        'send': 'Déposer un message privé pour un compagnon connu. recipient=nom exact demandé ou vide, text=texte exact demandé ou vide. Ne réécris jamais le message.',
+        'count': 'Compter mes messages privés BBS en attente.',
+        'read': 'Lire les messages de ma boîte aux lettres privée BBS.',
+        'continue': 'Réponse à une précision BBS en cours seulement. selection=nom ou numéro copié de la réponse, text=contenu exact si demandé, sinon vide.',
+        'cancel': 'Annuler un envoi BBS en cours.'},
     'weather': {'forecast': 'Météo : température, pluie et vent. location=lieu exact demandé ou vide ; period=today/tomorrow.'},
     'wiki': {'lookup': 'Documentation MeshCore : configuration, régions/scopes, région par défaut sur compagnon, routage, canaux à rejoindre.'},
     'llm': {'clarify': 'Donnée essentielle manquante ; meilleur relais sans critère, télémétrie sans mesure précisée.',
@@ -56,6 +63,10 @@ ROUTING_DIALOG_EXAMPLES = CLARIFICATION_EXAMPLES[:1] + [
     ('Par quels relais passe mon message ?', {'route': 'path', 'operation': 'message', 'args': {}}),
     ('météo à Quimper', {'route': 'weather', 'operation': 'forecast', 'args': {'location': 'Quimper', 'period': 'today'}}),
     ('quel temps demain à Rennes ?', {'route': 'weather', 'operation': 'forecast', 'args': {'location': 'Rennes', 'period': 'tomorrow'}}),
+    ('Laisse un message à Alpha : rendez-vous à midi', {'route': 'bbs', 'operation': 'send', 'args': {'recipient': 'Alpha', 'text': 'rendez-vous à midi'}}),
+    ('Laisse un message à Camille', {'route': 'bbs', 'operation': 'send', 'args': {'recipient': 'Camille', 'text': ''}}),
+    ('J’ai des messages ?', {'route': 'bbs', 'operation': 'count', 'args': {}}),
+    ('Lis mes messages', {'route': 'bbs', 'operation': 'read', 'args': {}}),
     ('merci', {'route': 'llm', 'operation': 'chat', 'args': {}}),
     ('qui utilise le plus Baliz ?', {'route': 'mesh', 'operation': 'stats', 'args': {'topic': 'messages', 'hashes': False}}),
     ('statistique des canaux', {'route': 'mesh', 'operation': 'stats', 'args': {'topic': 'channels', 'hashes': False}}),
@@ -143,6 +154,9 @@ def parse_plan(text, question, enabled):
         expected_period = 'tomorrow' if re.search(r'\b(demain|tomorrow)\b', normalize(question)) else 'today'
         if args['period'] != expected_period:
             raise ValueError('Wrong forecast date')
+    elif route == 'bbs':
+        from .bbs_service import validate_bbs_arguments
+        validate_bbs_arguments(operation, args, question)
     elif route == 'mesh':
         if operation in ACTIVE and infer_operation(question) != operation:
             raise ValueError('Active radio action requires explicit user intent')

@@ -166,3 +166,9 @@ Les rapports sont conservés dans `/var/lib/baliz-test/reports/assistant-*`.
 Le conteneur 103 n'a pas été modifié et aucun service radio n'a été démarré.
 Une recette RF réelle et la validation humaine des formulations du modèle
 restent nécessaires avant le passage en production.
+
+## Boîte aux lettres en langage naturel
+
+La route optionnelle `bbs` permet de déposer, compter et lire ses messages BBS sans syntaxe de commande. Un contact ambigu ou un texte manquant donne lieu à un échange limité à cinq minutes, lié à l’expéditeur et au canal ou DM. Les contenus lus restent gérés directement par la BBS, sans passage par le LLM. La lecture et le comptage restent réservés aux DM ; les commandes `bbs s`, `bbs list` et `bbs r` restent disponibles.
+
+Voir la [validation locale du 8 novembre](validation/baliz-bbs-assistant-20261108.md).

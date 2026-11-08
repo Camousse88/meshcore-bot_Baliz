@@ -19,7 +19,7 @@ class AskCommand(BaseCommand):
     examples = ["ask comment tu me reçois ?", "ask combien de répéteurs actifs ?"]
     settings_schema = [
         {"key": "enabled_routes", "label": "Enabled routes", "type": "list",
-         "default": "test,path,mesh,wiki,weather,llm", "help": "Allowed capabilities: test,path,mesh,wiki,weather,llm."},
+         "default": "test,path,mesh,wiki,weather,llm,bbs", "help": "Allowed capabilities: test,path,mesh,wiki,weather,llm,bbs."},
         {"key": "route_timeout_seconds", "label": "Processing timeout", "type": "int",
          "default": 120, "min": 1, "max": 300, "unit": "seconds"},
         {"key": "semantic_timeout_seconds", "label": "Classification timeout", "type": "int",
@@ -34,9 +34,9 @@ class AskCommand(BaseCommand):
         super().__init__(bot)
         self.ask_enabled = self.get_config_value("Ask_Command", "enabled", fallback=True, value_type="bool")
         self.enabled_routes = {r.strip().lower() for r in self.get_config_value(
-            "Ask_Command", "enabled_routes", fallback="test,path,mesh,wiki,weather,llm", value_type="str"
+            "Ask_Command", "enabled_routes", fallback="test,path,mesh,wiki,weather,llm,bbs", value_type="str"
         ).split(",") if r.strip()}
-        unknown = self.enabled_routes - {"test", "path", "mesh", "wiki", "weather", "llm"}
+        unknown = self.enabled_routes - {"test", "path", "mesh", "wiki", "weather", "llm", "bbs"}
         if unknown:
             raise ValueError(f"Unknown assistant routes: {sorted(unknown)}")
         self.route_timeout_seconds = max(1, min(300, self.get_config_value(
@@ -71,6 +71,17 @@ class AskCommand(BaseCommand):
     async def execute(self, message: MeshMessage) -> bool:
         if not sender_may_use_llm(self.bot, message):
             return False
-        _, question = self.split_trigger_and_args(self._strip_mentions(message.content))
+        # Matching may strip mentions or collapse spaces. Read the immutable
+        # on-air body so a BBS message retains mentions and original spacing.
+        source = message.original_content or message.content
+        name = self._get_bot_name()
+        if isinstance(name, str) and name:
+            source = re.sub(r'^\s*' + re.escape('@[' + name + ']') + r'\s*', '', source, count=1, flags=re.I)
+            trigger, _ = self.split_trigger_and_args(source)
+            if not message.is_dm and trigger is None:
+                source = re.sub(r'\s*' + re.escape('@[' + name + ']') + r'\s*$', '', source, count=1, flags=re.I)
+        _, question = self.split_trigger_and_args(source)
         text = await self.dispatcher.answer(question, message)
+        if text is None:  # BBS has already sent the reply and committed delivery.
+            return True
         return await send_answer(self, message, text, max_pages=self.max_pages)

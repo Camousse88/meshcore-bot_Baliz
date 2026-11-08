@@ -2,6 +2,8 @@
 import time
 
 LABELS = {
+    'bbs.send': 'BBS : dépôt', 'bbs.count': 'BBS : boîte en attente',
+    'bbs.read': 'BBS : lecture', 'bbs.continue': 'BBS : précision', 'bbs.cancel': 'BBS : annulation',
     'mesh.summary': 'Résumé du réseau',
     'mesh.hfcond': 'Conditions radio HF',
     'weather.forecast': 'Météo', 'wiki.lookup': 'Documentation',

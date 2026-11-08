@@ -11,7 +11,7 @@ from .router import Decision, Route
 from .semantic_router import SemanticRouter
 from .sender_policy import sender_may_use_llm
 
-HELP = "ask <question> — réseau, Wiki, météo, réception ou chemin. Routes explicites : mesh, wiki, test, path, weather, llm."
+HELP = "ask <question> — réseau, Wiki, météo, réception ou chemin. Boîte aux lettres : laisse un message, lis mes messages."
 
 
 class AssistantDispatcher:
@@ -19,6 +19,8 @@ class AssistantDispatcher:
         self.owner = owner
         self.semantic_router = SemanticRouter(owner)
         self._rf_lock = asyncio.Lock()
+        from .bbs_service import BBSAssistant
+        self.bbs = BBSAssistant(self)
 
     def record_function(self, function: str) -> None:
         from .usage import record
@@ -33,12 +35,16 @@ class AssistantDispatcher:
         check = command.can_use_service if service else command.can_execute
         return bool(check(message))
 
-    async def answer(self, question: str, message: MeshMessage) -> str:
+    async def answer(self, question: str, message: MeshMessage) -> str | None:
         if not sender_may_use_llm(self.owner.bot, message):
             return ""
         if not question.strip():
             return HELP
-        decision = await self.semantic_router.decide(question, self.owner.enabled_routes)
+        context = self.bbs.context(message) if hasattr(self, "bbs") else None
+        if context:
+            decision = await self.semantic_router.decide(question, self.owner.enabled_routes, bbs_context=context)
+        else:
+            decision = await self.semantic_router.decide(question, self.owner.enabled_routes)
         if decision is None:
             return "Le service d’interprétation est momentanément indisponible. Réessaie plus tard."
         self.owner.logger.info("Assistant route=%s operation=%s reason=%s", decision.route.value, decision.operation, decision.reason)
@@ -54,10 +60,12 @@ class AssistantDispatcher:
             self.owner.logger.exception("Assistant capability failed: %s", decision.route.value)
             return "Ce traitement est momentanément indisponible."
 
-    async def _dispatch(self, decision: Decision, message: MeshMessage) -> str:
+    async def _dispatch(self, decision: Decision, message: MeshMessage) -> str | None:
         route = decision.route
         if route.value not in self.owner.enabled_routes:
             return f"La fonction {route.value} est désactivée."
+        if route is Route.BBS:
+            return await self.bbs.execute(decision, message)
         if route in {Route.TEST, Route.PATH}:
             return await self._rf_tool(route.value, decision.question, message)
         if route is Route.WEATHER:

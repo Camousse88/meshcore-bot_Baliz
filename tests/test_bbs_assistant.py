@@ -1,0 +1,218 @@
+"""BBS routing, recipient conversations and real delivery boundary (radio mocked)."""
+import json
+import time
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
+
+import pytest
+
+from modules.assistant.bbs_service import BBSAssistant
+from modules.assistant.catalog import CATALOG, parse_plan
+from modules.assistant.dispatcher import AssistantDispatcher
+from modules.assistant.router import Decision, Route
+from modules.commands.ask_command import AskCommand
+from modules.commands.bbs_command import BBSCommand
+from tests.commands.test_bbs_command import _TRACKED_CONNECTIONS, _add_contact, _make_bot
+from tests.conftest import mock_message
+
+ALICE, BOB, BOB2 = 'a1' * 32, 'b2' * 32, 'c3' * 32
+
+
+@pytest.fixture
+def environment():
+    bot = _make_bot()
+    command = BBSCommand(bot)
+    bot.command_manager.send_response = AsyncMock(return_value=True)
+    bot.command_manager.send_dm = AsyncMock(return_value=True)
+    _add_contact(bot.db_manager, 'Alice', public_key=ALICE)
+    _add_contact(bot.db_manager, 'Bob Alpha', public_key=BOB)
+    _add_contact(bot.db_manager, 'Bob Bravo', public_key=BOB2)
+    dispatcher = SimpleNamespace(_command=lambda name: command,
+                                 _allowed=lambda cmd, message: cmd.can_execute(message),
+                                 record_function=Mock())
+    service = BBSAssistant(dispatcher)
+    yield service, command, bot
+    while _TRACKED_CONNECTIONS:
+        _TRACKED_CONNECTIONS.pop().close()
+
+
+def message(text='question', key=ALICE, dm=True, channel=None):
+    return mock_message(text, sender_id='Alice', sender_pubkey=key, is_dm=dm, channel=channel)
+
+
+def plan(operation, **args):
+    return Decision(Route.BBS, 'question', 'catalog', operation, args)
+
+
+async def test_send_keeps_literal_text_and_notifies(environment):
+    service, bbs, bot = environment
+    text = 'Météo Brest ? Non, rendez-vous à 12h !'
+    assert await service.execute(plan('send', recipient='Bob Alpha', text=text), message()) is None
+    assert bbs._get_pending_messages_by_key(BOB)[0][2] == text
+    assert not service.pending
+    assert 'Message déposé pour Bob Alpha' in bot.command_manager.send_response.call_args.args[1]
+    assert bot.command_manager.send_dm.call_args.args[0] == BOB
+
+
+async def test_ambiguous_name_keeps_body_until_choice(environment):
+    service, bbs, _ = environment
+    response = await service.execute(plan('send', recipient='Bob', text='À demain !'), message())
+    assert 'Bob Alpha' in response and 'Bob Bravo' in response
+    context = service.context(message())
+    assert context['text_already_provided'] is True
+    assert 'À demain !' not in json.dumps(context)
+    await service.execute(plan('continue', selection='Alpha', text=''), message('Alpha'))
+    assert bbs._get_pending_messages_by_key(BOB)[0][2] == 'À demain !'
+    assert not bbs._get_pending_messages_by_key(BOB2)
+
+
+async def test_can_supply_recipient_then_body_in_three_turns(environment):
+    service, bbs, _ = environment
+    assert 'À quel' in await service.execute(plan('send', recipient='', text=''), message())
+    assert 'Quel message' in await service.execute(plan('continue', selection='Bob Alpha', text=''), message())
+    await service.execute(plan('continue', selection='', text='Bonjour !'), message('Bonjour !'))
+    assert bbs._get_pending_messages_by_key(BOB)[0][2] == 'Bonjour !'
+
+
+async def test_shortlist_number_and_same_name_users_are_isolated(environment):
+    service, bbs, _ = environment
+    await service.execute(plan('send', recipient='Bob', text='secret'), message())
+    assert service.context(message(key=BOB)) is None
+    result = await service.execute(plan('continue', selection='1', text=''), message(key=BOB))
+    assert 'Aucun envoi' in result
+    assert not bbs._get_pending_messages_by_key(BOB)
+    await service.execute(plan('continue', selection='1', text=''), message('1'))
+    assert sum(len(bbs._get_pending_messages_by_key(k)) for k in [BOB, BOB2]) == 1
+
+
+async def test_channel_context_cannot_be_used_from_dm(environment):
+    service, bbs, _ = environment
+    await service.execute(plan('send', recipient='Bob', text='Bonjour'), message(dm=False, channel='general'))
+    assert service.pending
+    assert service.context(message()) is None
+    assert not bbs._get_pending_messages_by_key(BOB)
+
+
+async def test_expired_cancelled_or_unknown_selection_never_sends(environment):
+    service, bbs, _ = environment
+    await service.execute(plan('send', recipient='Bob', text='Bonjour'), message())
+    assert 'Je ne trouve' in await service.execute(plan('continue', selection='Absent', text=''), message())
+    assert not bbs._get_pending_messages_by_key(BOB)
+    for state in service.pending.values():
+        state.expires = time.monotonic() - 1
+    assert 'expirée' in await service.execute(plan('continue', selection='1', text=''), message())
+    await service.execute(plan('send', recipient='Bob', text='Bonjour'), message())
+    await service.execute(plan('cancel'), message())
+    assert not service.pending
+
+
+async def test_count_and_read_remain_private_and_preserve_failed_delivery(environment):
+    service, bbs, bot = environment
+    bbs._store_message(BOB, 'Bob', ALICE, 'Alice', 'Contenu privé')
+    for operation in ['count', 'read']:
+        assert 'en privé' in await service.execute(plan(operation), message(dm=False, channel='general'))
+    assert '1 message' in await service.execute(plan('count'), message())
+    bot.command_manager.send_response.return_value = False
+    await service.execute(plan('read'), message())
+    assert bbs._get_pending_count(ALICE, 'Alice') == 1
+    bot.command_manager.send_response.return_value = True
+    await service.execute(plan('read'), message())
+    assert bbs._get_pending_count(ALICE, 'Alice') == 0
+
+
+async def test_disabled_capture_self_send_and_quotas(environment):
+    service, bbs, _ = environment
+    bbs.enabled = False
+    assert 'indisponible' in await service.execute(plan('send', recipient='Bob Alpha', text='x'), message())
+    bbs.enabled = True
+    msg = message()
+    msg.capture_sink = []
+    assert 'échange direct' in await service.execute(plan('read'), msg)
+    assert 'toi-même' in await service.execute(plan('send', recipient='Alice', text='x'), message())
+    bbs.max_messages_per_user = 1
+    await service.execute(plan('send', recipient='Bob Alpha', text='x'), message())
+    assert 'pleine' in await service.execute(plan('send', recipient='Bob Alpha', text='y'), message())
+    assert len(bbs._get_pending_messages_by_key(BOB)) == 1
+
+
+@pytest.mark.parametrize('operation,args,question', [
+    ('send', {'recipient': 'Bob', 'text': 'inventé'}, 'Écris à Bob : bonjour'),
+    ('send', {'recipient': 'Autre', 'text': 'bonjour'}, 'Écris à Bob : bonjour'),
+    ('send', {'recipient': 'Bob', 'text': 'Bonjour'}, 'Écris à Bob : bonjour'),
+    ('continue', {'selection': '1', 'text': ''}, 'Alpha'),
+    ('read', {'key': BOB}, 'Lis les messages de Bob'),
+])
+def test_model_cannot_invent_rewrite_or_read_someone_else(operation, args, question):
+    with pytest.raises(ValueError):
+        parse_plan(json.dumps({'route': 'bbs', 'operation': operation, 'args': args}), question, set(CATALOG))
+
+
+async def test_ask_does_not_send_empty_reply_after_bbs_delivery(environment):
+    _service, _bbs, bot = environment
+    bot.config.add_section('Ask_Command')
+    ask = AskCommand(bot)
+    ask.dispatcher.answer = AsyncMock(return_value=None)
+    await ask.execute(message('ask lis mes messages'))
+    bot.command_manager.send_response.assert_not_called()
+
+
+def test_notification_offers_natural_reading_when_enabled(environment):
+    _service, bbs, bot = environment
+    bot.command_manager.commands = {'ask': SimpleNamespace(enabled_routes={'bbs'})}
+    assert 'lis mes messages' in bbs._arrival_text(1)
+    assert 'lis mes messages' in bbs._reminder_text(1)
+    assert '7 jours' in bbs._final_notice_text(1)
+
+
+async def test_dispatcher_passes_only_pending_metadata_to_router(environment):
+    service, bbs, bot = environment
+    dispatcher = object.__new__(AssistantDispatcher)
+    dispatcher.owner = SimpleNamespace(bot=bot, enabled_routes={'bbs'}, logger=Mock(), route_timeout_seconds=2)
+    dispatcher.bbs = service
+    dispatcher.semantic_router = SimpleNamespace(decide=AsyncMock(return_value=plan('count')))
+    dispatcher._dispatch = AsyncMock(return_value='ok')
+    await service.execute(plan('send', recipient='Bob', text='Texte jamais repris dans le contexte'), message())
+    assert await dispatcher.answer('Alpha', message('Alpha')) == 'ok'
+    kwargs = dispatcher.semantic_router.decide.call_args.kwargs
+    assert 'bbs_context' in kwargs and 'Texte jamais' not in str(kwargs)
+
+
+@pytest.mark.parametrize('question,extracted,expected', [
+    ('Dis à Alpha : météo Brest demain ?', 'météo Brest demain', 'météo Brest demain ?'),
+    ('Laisse à Alpha : rendez-vous à midi.', 'rendez-vous à midi', 'rendez-vous à midi.'),
+    ('Dis à Alpha « Bonjour ! »', 'Bonjour !', 'Bonjour !'),
+])
+def test_message_text_comes_from_source_with_terminal_punctuation(question, extracted, expected):
+    decision = parse_plan(json.dumps({'route':'bbs','operation':'send',
+        'args':{'recipient':'Alpha','text':extracted}}), question, set(CATALOG))
+    assert decision.args['text'] == expected
+
+
+async def test_ask_extracts_literal_body_before_mention_cleanup(environment):
+    _service, _bbs, bot = environment
+    bot.config.add_section('Ask_Command')
+    bot.config.set('Ask_Command', 'aliases', 'Baliz')
+    ask = AskCommand(bot)
+    ask.dispatcher.answer = AsyncMock(return_value=None)
+    msg = message('Baliz Dis à Bob : Salut @[Cam] !  À midi.')
+    msg.content = 'ask Dis à Bob : Salut ! À midi.'
+    await ask.execute(msg)
+    assert ask.dispatcher.answer.call_args.args[0] == 'Dis à Bob : Salut @[Cam] !  À midi.'
+
+
+def test_pending_body_schema_copies_entire_current_reply():
+    from unittest.mock import patch
+
+    from modules.assistant.semantic_router import SemanticRouter
+    router = SemanticRouter(SimpleNamespace(logger=Mock(), get_config_value=lambda *a, fallback=None, **k: fallback))
+    body = 'Salut @[Cam] !  À demain.'
+    response = SimpleNamespace(raise_for_status=lambda: None, json=lambda: {
+        'choices': [{'message': {'content': json.dumps({'function': 'bbs.continue', 'args': {'selection': '', 'text': body}})}}]})
+    with patch('modules.assistant.semantic_router.post_chat', return_value=response) as post:
+        result = router._classify(body, set(CATALOG), {'awaiting':'text','recipient':'Bob Alpha',
+                                'candidates':['Bob Alpha'],'text_already_provided':False})
+    assert result.args['text'] == body
+    variants = post.call_args.args[1]['response_format']['json_schema']['schema']['anyOf']
+    schema = next(v['properties']['args'] for v in variants if v['properties']['function']['const'] == 'bbs.continue')
+    assert schema['properties']['text']['const'] == body
+    assert schema['properties']['selection']['const'] == ''

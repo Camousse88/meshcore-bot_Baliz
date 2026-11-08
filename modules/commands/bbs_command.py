@@ -489,6 +489,8 @@ class BBSCommand(BaseCommand):
                 f"\U0001f4ec You have {count} pending BBS message(s). "
                 "Send 'bbs r' to read."
             )
+            if self._natural_bbs_enabled():
+                notification = self._arrival_text(count)
             try:
                 await self.bot.command_manager.send_response(
                     message, notification, skip_user_rate_limit=True
@@ -585,8 +587,14 @@ class BBSCommand(BaseCommand):
                 )
         return summary
 
+    def _natural_bbs_enabled(self) -> bool:
+        ask = self.bot.command_manager.commands.get("ask")
+        return bool(ask and getattr(ask, "ask_enabled", True) and "bbs" in getattr(ask, "enabled_routes", ()))
+
     def _arrival_text(self, count: int) -> str:
         """Stage 1 DM body."""
+        if self._natural_bbs_enabled():
+            return f"📬 Tu as {count} message(s) en attente. Écris « lis mes messages » ou bbs r."
         return (
             f"\U0001f4ec New BBS message: you have {count} pending. "
             "Send 'bbs r' to read."
@@ -594,6 +602,8 @@ class BBSCommand(BaseCommand):
 
     def _reminder_text(self, count: int) -> str:
         """Stage 2 (24h) DM body."""
+        if self._natural_bbs_enabled():
+            return f"📬 Rappel : {count} message(s) non lu(s). Écris « lis mes messages » ou bbs r."
         return (
             f"\U0001f4ec BBS reminder: you still have {count} unread message(s). "
             "Send 'bbs r' to read."
@@ -601,6 +611,8 @@ class BBSCommand(BaseCommand):
 
     def _final_notice_text(self, count: int) -> str:
         """Stage 3 (73h) DM body — names the age purge so it reads as final."""
+        if self._natural_bbs_enabled():
+            return f"📬 Dernier rappel : {count} message(s) non lu(s), conservés {self.max_message_age_days} jours. Écris « lis mes messages » ou bbs r."
         return (
             f"\U0001f4ec BBS final notice: your {count} unread message(s) are deleted "
             f"after {self.max_message_age_days} days. Send 'bbs r' now."
