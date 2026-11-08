@@ -175,3 +175,5 @@ Voir la [validation locale du 8 novembre](validation/baliz-bbs-assistant-2026110
 
 
 Pendant la saisie BBS, une fois le destinataire choisi, la réponse entière devient le texte du message, sans passage dans le LLM. Écrire `annule` permet de quitter cette saisie. Voir la [correction de priorité du texte BBS](validation/baliz-bbs-body-fix-20261108.md).
+
+Pour déposer en une seule demande, séparer explicitement le contenu : `Laisse un message à Alpha : rendez-vous à midi.` Sans texte séparé, Baliz demande quoi transmettre après le choix du destinataire. Répondre par un nom ou un numéro ne peut pas servir de contenu. Voir la [validation de cette séparation](validation/baliz-bbs-payload-fix-20261108.md).

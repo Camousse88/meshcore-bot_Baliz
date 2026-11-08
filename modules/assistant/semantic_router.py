@@ -62,7 +62,7 @@ class SemanticRouter:
                         if bbs_context['awaiting'] == 'text':
                             args['properties']['selection']['const'] = ''
                             args['properties']['text']['const'] = question
-                        elif bbs_context.get('text_already_provided'):
+                        else:
                             args['properties']['text']['const'] = ''
                 if route == 'weather':
                     args = {'type': 'object', 'properties': {'location': {'type': 'string'},

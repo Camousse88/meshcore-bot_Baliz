@@ -325,3 +325,59 @@ async def test_queued_body_cannot_become_another_command_or_use_another_session(
     ask.dispatcher.semantic_router.decide.assert_not_awaited()
     other.should_execute.assert_not_called()
     assert 'a expiré ou a changé' in bot.command_manager.send_response.call_args.args[1]
+
+
+@pytest.mark.parametrize('question,recipient,model_text', [
+    ('Laisse un message à Kam','Kam','message'),
+    ('Laisse un message à Fr29-Mr One','Fr29-Mr One','un message'),
+    ('Dis à Alpha bonjour','Alpha','bonjour'),
+])
+def test_instruction_words_or_unseparated_text_require_body_prompt(question,recipient,model_text):
+    result=parse_plan(json.dumps({'route':'bbs','operation':'send',
+        'args':{'recipient':recipient,'text':model_text}}),question,set(CATALOG))
+    assert result.args['text']==''
+
+
+@pytest.mark.parametrize('question,expected', [
+    ('Dis à Alpha : Bonjour !','Bonjour !'),
+    ('Dis à Alpha : « Bonjour ! »','Bonjour !'),
+    ('Dis à Alpha « Bonjour ! »','Bonjour !'),
+    ('Dis à Alpha "message"','message'),
+    ('Dis à Alpha "Heure : midi"','Heure : midi'),
+    ('Dis à Alpha : https://exemple.fr/bonjour','https://exemple.fr/bonjour'),
+    ('Dis à Alpha https://exemple.fr/bonjour',''),
+    ('Dis à Alpha\nBonjour !','Bonjour !'),
+])
+def test_initial_payload_is_a_literal_explicit_block(question,expected):
+    from modules.assistant.bbs_service import explicit_message_text
+    assert explicit_message_text(question,'Alpha')==expected
+
+
+@pytest.mark.parametrize('choice', ['1','Bob Alpha'])
+async def test_contact_choice_cannot_supply_body_even_if_model_returns_it_as_text(environment, choice):
+    service,bbs,_bot=environment
+    await service.execute(plan('send',recipient='Bob',text=''),message())
+    response=await service.execute(plan('continue',selection=choice,text=choice),message(choice))
+    assert 'Quel message' in response
+    assert not bbs._get_pending_messages_by_key(BOB)
+    assert not bbs._get_pending_messages_by_key(BOB2)
+    assert service.context(message())['awaiting']=='text'
+
+
+async def test_actual_reported_flow_separates_contact_choice_from_message_body(environment):
+    _service,bbs,bot=environment
+    ask,manager,_other=real_assistant_manager(bot,bbs)
+    question='Laisse un message à Bob'
+    # Reproduce the real model's wrong extraction of the instruction word.
+    initial=parse_plan(json.dumps({'route':'bbs','operation':'send',
+        'args':{'recipient':'Bob','text':'message'}}),question,set(CATALOG))
+    await ask.dispatcher.bbs.execute(initial,message(question))
+    response=await ask.dispatcher.bbs.execute(plan('continue',selection='2',text='2'),message('2'))
+    assert 'Quel message' in response
+    assert not bbs._get_pending_messages_by_key(BOB)
+    assert not bbs._get_pending_messages_by_key(BOB2)
+    selected=ask.dispatcher.bbs.pending[ask.dispatcher.bbs.session_key(message())].recipient[1]
+    reply=message('Salut c’est un test !')
+    assert manager.check_keywords(reply)==[('ask',None)]
+    await manager.execute_commands(reply)
+    assert bbs._get_pending_messages_by_key(selected)[0][2]=='Salut c’est un test !'

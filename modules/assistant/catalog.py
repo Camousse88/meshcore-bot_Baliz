@@ -23,7 +23,7 @@ CATALOG = {
         'advert': 'Demande explicite que le bot émette une annonce radio, en privé uniquement.',
         'unsupported': 'Mesure réseau précise indisponible. Jamais une demande documentée, sociale ou un simple test.'},
     'bbs': {
-        'send': 'Déposer un message privé pour un compagnon connu. recipient=nom exact demandé ou vide, text=texte exact demandé ou vide. Ne réécris jamais le message.',
+        'send': 'Déposer un message privé pour un compagnon connu. recipient=nom exact demandé ou vide, text=texte exact après deux-points ou entre guillemets, sinon vide : demander le contenu. Jamais le mot message de la consigne. Ne réécris jamais le message.',
         'count': 'Compter mes messages privés BBS en attente.',
         'read': 'Lire les messages de ma boîte aux lettres privée BBS.',
         'continue': 'Réponse à une précision BBS en cours seulement. selection=nom ou numéro copié de la réponse, text=contenu exact si demandé, sinon vide.',

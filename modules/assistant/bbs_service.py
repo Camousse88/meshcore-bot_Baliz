@@ -16,6 +16,31 @@ def argument_schema(operation):
             'required': list(fields), 'additionalProperties': False}
 
 
+def explicit_message_text(question, recipient):
+    """Take a literal payload block, never words from the request's instruction.
+
+    The initial request may supply a body after a colon/newline or in quotes
+    after the recipient. Otherwise the separate body-entry step is required.
+    """
+    start = question.find(recipient) + len(recipient) if recipient else 0
+    tail = question[start:]
+    quoted = tail.strip()
+    for opening, closing in [('"','"'),('«','»'),('“','”')]:
+        if quoted.startswith(opening) and quoted.endswith(closing) and len(quoted) >= 2:
+            return quoted[1:-1].strip()
+    separator = re.search(r'[:：](?=\s|$)|(?<=\s)[:：]|\n', tail)
+    if separator:
+        payload = tail[separator.end():].strip()
+    else:
+        payload = tail.strip()
+        if not payload.startswith(('"', '«', '“')):
+            return ''
+    for opening, closing in [('"','"'),('«','»'),('“','”')]:
+        if payload.startswith(opening) and payload.endswith(closing) and len(payload) >= 2:
+            return payload[1:-1].strip()
+    return payload if separator else ''
+
+
 def validate_bbs_arguments(operation, args, question):
     """Only literal spans of this request may become recipients or message text."""
     from .catalog import validate_arguments
@@ -23,6 +48,8 @@ def validate_bbs_arguments(operation, args, question):
     for name, value in args.items():
         if value and value not in question:
             raise ValueError('BBS argument must be copied exactly: ' + name)
+    if operation == 'send':
+        args['text'] = explicit_message_text(question, args['recipient'])
     text = args.get('text', '')
     if text:
         # A model may omit a terminal ? or . even when it copies every word.
@@ -131,9 +158,12 @@ class BBSAssistant:
             if state is None:
                 return 'Aucun envoi BBS en cours, ou demande expirée. Précise le destinataire et le message.'
             query = args['selection']
-            if state.text and args['text']:
-                return 'Le texte est déjà conservé. Précise seulement le destinataire, ou annule l’envoi.'
-            state.text = state.text or args['text']
+            # Recipient selection cannot also invent/supply a body. Preserve
+            # only an explicit initial body, or text entered after our body prompt.
+            if state.recipient is not None:
+                if state.text and args['text']:
+                    return 'Le texte est déjà conservé. Précise seulement le destinataire, ou annule l’envoi.'
+                state.text = state.text or args['text']
         if state.recipient is None and query:
             if state.candidates:
                 # A follow-up can select only a contact from this user's shortlist.
