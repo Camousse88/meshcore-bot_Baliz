@@ -58,6 +58,11 @@ class BBSAssistant:
         now = time.monotonic()
         self.pending = {key: value for key, value in self.pending.items() if value.expires > now}
 
+    def body_session(self, message):
+        self._prune()
+        state = self.pending.get(self.session_key(message))
+        return state.expires if state and state.recipient and not state.text else None
+
     def context(self, message):
         self._prune()
         state = self.pending.get(self.session_key(message))
@@ -145,14 +150,25 @@ class BBSAssistant:
                 if not self._remember(key, state):
                     return 'Destinataire introuvable. Précise son nom et le message dans une seule demande.'
                 return 'Je ne trouve pas ce destinataire. Quel compagnon veux-tu contacter ?'
-            state.candidates = matches
             if len(matches) == 1:
                 state.recipient = matches[0]
+            else:
+                state.candidates = matches
+        if state.recipient:
+            recipient_name, recipient_key = state.recipient
+            sender_key = command._sender_key(message).casefold()
+            recipient_key = recipient_key.casefold()
+            if recipient_key == sender_key or recipient_key.startswith(sender_key) or sender_key.startswith(recipient_key):
+                state.recipient = None
+                if len(state.candidates) == 1:
+                    state.candidates = []
+                self._remember(key, state)
+                return f'{recipient_name} est ton propre nœud. Choisis un autre destinataire.'
         if state.recipient is None or not state.text:
             if not self._remember(key, state):
                 return 'Je ne peux pas conserver ce choix sans identifier ton nœud. Précise le destinataire et le message ensemble.'
             if state.recipient:
-                return f'Quel message veux-tu laisser à {state.recipient[0]} ?'
+                return f'Quel message veux-tu laisser à {state.recipient[0]} ? Ta réponse sera envoyée telle quelle. Pour quitter : annule.'
             if state.candidates:
                 choices = '\n'.join(f'{i}. {name} [{pubkey[:4]}]' for i, (name, pubkey) in enumerate(state.candidates, 1))
                 prompt = choices + '\nLequel ? Réponds par son nom ou son numéro.'

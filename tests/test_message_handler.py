@@ -2939,3 +2939,17 @@ class TestChannelCorrelationWait:
                 None, "", {"channel_idx": 0, "text": "hi"}, scope_eligible_only=True, extended_timeout=30.0
             )
         sleep.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_requested_bbs_body_skips_advert_and_randomline_shortcuts(handler, bot):
+    bot.command_manager.commands = {'ask': Mock(claim_bbs_text=Mock(return_value=True))}
+    bot.command_manager.handle_advert_command = AsyncMock()
+    bot.command_manager.check_keywords.return_value = [('ask',None)]
+    bot.command_manager.match_randomline = Mock(side_effect=AssertionError('Payload must not reach randomline'))
+    bot.command_manager.execute_commands = AsyncMock()
+    handler.should_process_message = Mock(return_value=True)
+    await handler.process_message(make_message('advert',is_dm=True))
+    bot.command_manager.handle_advert_command.assert_not_awaited()
+    bot.command_manager.match_randomline.assert_not_called()
+    bot.command_manager.execute_commands.assert_awaited_once()

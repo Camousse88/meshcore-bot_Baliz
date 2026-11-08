@@ -41,7 +41,18 @@ class AssistantDispatcher:
         if not question.strip():
             return HELP
         context = self.bbs.context(message) if hasattr(self, "bbs") else None
-        if context:
+        body_session = getattr(message, 'bbs_body_session', None)
+        if body_session is not None and self.bbs.body_session(message) != body_session:
+            return 'Cet envoi BBS a expiré ou a changé. Précise à nouveau le destinataire et le message.'
+        if context and context['awaiting'] == 'text':
+            # The user is filling an explicitly requested message body. It is
+            # literal data, not a new tool request, and never goes to the LLM.
+            from .router import normalize
+            cancel = normalize(question) in {"annule", "annule l'envoi", "bbs cancel"}
+            decision = Decision(Route.BBS, question, 'bbs_body',
+                                'cancel' if cancel else 'continue',
+                                {} if cancel else {'selection': '', 'text': question})
+        elif context:
             decision = await self.semantic_router.decide(question, self.owner.enabled_routes, bbs_context=context)
         else:
             decision = await self.semantic_router.decide(question, self.owner.enabled_routes)

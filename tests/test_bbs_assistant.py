@@ -128,7 +128,7 @@ async def test_disabled_capture_self_send_and_quotas(environment):
     msg = message()
     msg.capture_sink = []
     assert 'échange direct' in await service.execute(plan('read'), msg)
-    assert 'toi-même' in await service.execute(plan('send', recipient='Alice', text='x'), message())
+    assert 'propre nœud' in await service.execute(plan('send', recipient='Alice', text='x'), message())
     bbs.max_messages_per_user = 1
     await service.execute(plan('send', recipient='Bob Alpha', text='x'), message())
     assert 'pleine' in await service.execute(plan('send', recipient='Bob Alpha', text='y'), message())
@@ -216,3 +216,112 @@ def test_pending_body_schema_copies_entire_current_reply():
     schema = next(v['properties']['args'] for v in variants if v['properties']['function']['const'] == 'bbs.continue')
     assert schema['properties']['text']['const'] == body
     assert schema['properties']['selection']['const'] == ''
+
+
+async def test_own_node_is_rejected_before_asking_for_body(environment):
+    service, bbs, bot = environment
+    response = await service.execute(plan('send', recipient='Alice', text=''), message())
+    assert 'propre nœud' in response
+    assert service.context(message())['awaiting'] == 'recipient'
+    assert not bbs._get_pending_messages_by_key(ALICE)
+    assert 'Quel message' in await service.execute(plan('continue', selection='Bob Alpha', text=''), message())
+    bot.command_manager.send_dm.assert_not_awaited()
+
+
+def real_assistant_manager(bot, bbs):
+    from modules.command_manager import CommandManager
+    if not bot.config.has_section('Ask_Command'):
+        bot.config.add_section('Ask_Command')
+    bot.config.set('Ask_Command', 'aliases', 'Baliz')
+    ask = AskCommand(bot)
+    ask.dispatcher.semantic_router.decide = AsyncMock(side_effect=AssertionError('A message body must not reach the LLM'))
+    manager = object.__new__(CommandManager)
+    other = SimpleNamespace(should_execute=Mock(side_effect=AssertionError('Must not execute a payload command')), keywords=['test'])
+    manager.commands = {'test':other,'bbs':bbs,'ask':ask}
+    manager.keywords = {'help':'help text'}
+    manager.monitor_channels = ['general']
+    manager.logger = Mock()
+    manager.record_command_stat = Mock()
+    manager._viewer_bridge = lambda: None
+    manager.bot = bot
+    manager.normalize_command_content = lambda value: value
+    manager._should_queue_command = lambda *args: (False,0)
+    manager._is_channel_trigger_allowed = lambda *args: True
+    manager.send_response = bot.command_manager.send_response
+    manager.send_dm = bot.command_manager.send_dm
+    bot.command_manager = manager
+    return ask, manager, other
+
+
+@pytest.mark.parametrize('body', [
+    'Salut c’est un test !', 'test', 'advert', 'help', 'météo Brest ?',
+    'Baliz bonjour', 'bbs r', 'Salut @[Cam] !  À demain.',
+])
+async def test_requested_message_body_bypasses_llm_and_other_commands(environment, body):
+    _service, bbs, bot = environment
+    ask, manager, other = real_assistant_manager(bot, bbs)
+    await ask.dispatcher.bbs.execute(plan('send', recipient='Bob Alpha', text=''), message())
+    reply = message(body)
+    assert manager.check_keywords(reply) == [('ask',None)]
+    await manager.execute_commands(reply)
+    assert bbs._get_pending_messages_by_key(BOB)[0][2] == body
+    ask.dispatcher.semantic_router.decide.assert_not_awaited()
+    other.should_execute.assert_not_called()
+
+
+@pytest.mark.parametrize('body', ['annule','Annule l’envoi','bbs cancel'])
+async def test_requested_body_has_explicit_cancel_commands(environment, body):
+    _service, bbs, bot = environment
+    ask, manager, _other = real_assistant_manager(bot, bbs)
+    await ask.dispatcher.bbs.execute(plan('send', recipient='Bob Alpha', text=''), message())
+    reply = message(body)
+    assert manager.check_keywords(reply) == [('ask',None)]
+    await manager.execute_commands(reply)
+    assert not bbs._get_pending_messages_by_key(BOB)
+    assert not ask.dispatcher.bbs.pending
+    ask.dispatcher.semantic_router.decide.assert_not_awaited()
+
+
+async def test_body_capture_keeps_channel_activation_and_sender_isolation(environment):
+    _service, bbs, bot = environment
+    ask, _manager, _other = real_assistant_manager(bot, bbs)
+    msg = message(dm=False,channel='general')
+    await ask.dispatcher.bbs.execute(plan('send',recipient='Bob Alpha',text=''),msg)
+    assert not ask.bbs_text_pending(message('test',dm=False,channel='general'))
+    assert ask.bbs_text_pending(message('Baliz test',dm=False,channel='general'))
+    assert not ask.bbs_text_pending(message('Baliz test',key=BOB2,dm=False,channel='general'))
+    assert not ask.bbs_text_pending(message('Baliz test',dm=False,channel='other'))
+
+
+async def test_selecting_own_number_keeps_other_choices(environment):
+    service, bbs, _bot = environment
+    msg = message(key=BOB)
+    await service.execute(plan('send',recipient='Bob',text=''),msg)
+    choices = service.pending[service.session_key(msg)].candidates
+    own_number = str(next(i for i,(_name,key) in enumerate(choices,1) if key == BOB))
+    other_number = str(next(i for i,(_name,key) in enumerate(choices,1) if key == BOB2))
+    response = await service.execute(plan('continue',selection=own_number,text=''),msg)
+    assert 'propre nœud' in response
+    assert service.context(msg)['awaiting'] == 'recipient'
+    assert 'Quel message' in await service.execute(plan('continue',selection=other_number,text=''),msg)
+    assert not bbs._get_pending_messages_by_key(BOB)
+
+
+
+@pytest.mark.parametrize('replace_session',[False,True])
+async def test_queued_body_cannot_become_another_command_or_use_another_session(environment, replace_session):
+    _service,bbs,bot = environment
+    ask,manager,other = real_assistant_manager(bot,bbs)
+    await ask.dispatcher.bbs.execute(plan('send',recipient='Bob Alpha',text=''),message())
+    reply = message('test')
+    assert manager.check_keywords(reply) == [('ask',None)]
+    if replace_session:
+        await ask.dispatcher.bbs.execute(plan('send',recipient='Bob Bravo',text=''),message())
+    else:
+        ask.dispatcher.bbs.pending[ask.dispatcher.bbs.session_key(reply)].expires = time.monotonic()-1
+    await manager.execute_commands(reply)
+    assert not bbs._get_pending_messages_by_key(BOB)
+    assert not bbs._get_pending_messages_by_key(BOB2)
+    ask.dispatcher.semantic_router.decide.assert_not_awaited()
+    other.should_execute.assert_not_called()
+    assert 'a expiré ou a changé' in bot.command_manager.send_response.call_args.args[1]

@@ -68,6 +68,29 @@ class AskCommand(BaseCommand):
             return True
         return super().matches_keyword(message)
 
+    def bbs_text_pending(self, message: MeshMessage, content: str | None = None) -> bool:
+        """Claim only the explicitly requested body in this sender's BBS session."""
+        if not getattr(self, 'ask_enabled', False) or 'bbs' not in getattr(self, 'enabled_routes', ()):
+            return False
+        service = getattr(getattr(self, 'dispatcher', None), 'bbs', None)
+        context = service.context(message) if service is not None else None
+        if not context or context['awaiting'] != 'text':
+            return False
+        if message.is_dm:
+            return True
+        # A BBS session never makes the bot listen to unaddressed channel text.
+        body = message.content if content is None else content
+        trigger, _ = self.split_trigger_and_args(body)
+        return trigger is not None or self.mentioned_question(message, body) is not None
+
+    def claim_bbs_text(self, message: MeshMessage, content: str | None = None) -> bool:
+        if message.bbs_body_session is not None:
+            return True
+        if not self.bbs_text_pending(message, content):
+            return False
+        message.bbs_body_session = self.dispatcher.bbs.body_session(message)
+        return message.bbs_body_session is not None
+
     async def execute(self, message: MeshMessage) -> bool:
         if not sender_may_use_llm(self.bot, message):
             return False
@@ -80,7 +103,10 @@ class AskCommand(BaseCommand):
             trigger, _ = self.split_trigger_and_args(source)
             if not message.is_dm and trigger is None:
                 source = re.sub(r'\s*' + re.escape('@[' + name + ']') + r'\s*$', '', source, count=1, flags=re.I)
-        _, question = self.split_trigger_and_args(source)
+        if message.is_dm and self.bbs_text_pending(message):
+            question = message.original_content or message.content
+        else:
+            _, question = self.split_trigger_and_args(source)
         text = await self.dispatcher.answer(question, message)
         if text is None:  # BBS has already sent the reply and committed delivery.
             return True
