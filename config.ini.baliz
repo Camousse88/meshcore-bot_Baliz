@@ -460,7 +460,7 @@ enabled = true
 enabled = false
 
 [Test_Command]
-enabled = true
+enabled = false
 require_path_bytes_greater_or_equal_to = 0
 require_path_bytes_failure_response = 
 
@@ -664,7 +664,7 @@ enabled = false
 [Ask_Command]
 enabled = true
 aliases = baliz
-enabled_routes = test,path,mesh,wiki,weather,llm
+enabled_routes = test,path,mesh,wiki,weather,llm,bbs,info
 route_timeout_seconds = 120
 semantic_timeout_seconds = 300
 max_pages = 1
