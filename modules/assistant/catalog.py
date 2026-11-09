@@ -7,7 +7,8 @@ from .router import Decision, Route, normalize
 
 CATALOG = {
     'test': {'receive': 'Réception du message actuel : test, ping, tu me reçois, SNR, RSSI. Pas un test actif distant.'},
-    'path': {'message': 'Chemin et relais traversés par le message actuel.'},
+    'path': {'message': 'Chemin et noms des relais traversés par le message actuel.',
+             'hops': 'Nombre de sauts du message actuel jusqu’à Baliz : combien de sauts jusqu’à toi, entre nous, combien de relais pour te joindre. Mesure reçue ; ne demande pas de précision.'},
     'mesh': {
         'summary': 'Résumé du réseau : nœuds connus, actifs, relais et messages sur 24h.',
         'hfcond': 'Bulletin de propagation HF. Aussi conditions radio générales et tropo ; aucune prévision tropo locale.',
@@ -61,6 +62,8 @@ ROUTING_DIALOG_EXAMPLES = CLARIFICATION_EXAMPLES[:1] + [
     ('nombre de nœuds actifs', {'route': 'mesh', 'operation': 'count_nodes', 'args': {'hours': 24, 'country': ''}}),
     ('les relais autour de moi', {'route': 'mesh', 'operation': 'near', 'args': {'limit': 5, 'role': 'repeater', 'target': ''}}),
     ('Par quels relais passe mon message ?', {'route': 'path', 'operation': 'message', 'args': {}}),
+    ('Combien de sauts jusqu’à toi ?', {'route': 'path', 'operation': 'hops', 'args': {}}),
+    ('À combien de relais suis-je de toi ?', {'route': 'path', 'operation': 'hops', 'args': {}}),
     ('météo à Quimper', {'route': 'weather', 'operation': 'forecast', 'args': {'location': 'Quimper', 'period': 'today'}}),
     ('quel temps demain à Rennes ?', {'route': 'weather', 'operation': 'forecast', 'args': {'location': 'Rennes', 'period': 'tomorrow'}}),
     ('Laisse un message à Alpha : rendez-vous à midi', {'route': 'bbs', 'operation': 'send', 'args': {'recipient': 'Alpha', 'text': 'rendez-vous à midi'}}),

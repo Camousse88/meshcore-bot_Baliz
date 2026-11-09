@@ -8,7 +8,7 @@ LABELS = {
     'mesh.hfcond': 'Conditions radio HF',
     'weather.forecast': 'Météo', 'wiki.lookup': 'Documentation',
     'llm.chat': 'Conversation', 'test.receive': 'Test de réception',
-    'path.message': 'Chemin radio', 'mesh.count_nodes': 'Nombre de nœuds',
+    'path.message': 'Chemin radio', 'path.hops': 'Nombre de sauts reçu', 'mesh.count_nodes': 'Nombre de nœuds',
     'mesh.count_repeaters': 'Nombre de relais', 'mesh.list_repeaters': 'Liste des relais',
     'mesh.onebyte': 'Routage à un octet', 'mesh.relay_connectivity': 'Classement des relais',
     'mesh.near': 'Nœuds proches', 'mesh.neighbors': 'Voisins directs',

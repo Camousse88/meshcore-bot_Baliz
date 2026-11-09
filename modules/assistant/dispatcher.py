@@ -77,6 +77,14 @@ class AssistantDispatcher:
             return f"La fonction {route.value} est désactivée."
         if route is Route.BBS:
             return await self.bbs.execute(decision, message)
+        if route is Route.PATH and decision.operation == 'hops':
+            command = self._command('path')
+            if not self._allowed(command, message, service=True):
+                return 'Le nombre de sauts est indisponible ou non autorisé ici.'
+            from .message_hops import hops_reply
+            self.record_function('path.hops')
+            command.record_execution(message.sender_id or None)
+            return hops_reply(message)
         if route in {Route.TEST, Route.PATH}:
             return await self._rf_tool(route.value, decision.question, message)
         if route is Route.WEATHER:

@@ -379,6 +379,7 @@ class MessageHandler(MeshGraphRecorderMixin, ContactEventsMixin, RfCorrelationMi
                 rssi=rssi,
                 elapsed=elapsed_str,
                 hops=path_len if path_len != 255 else 0,
+                received_path_len=path_len,
                 path=path_info,
             )
 
@@ -866,6 +867,7 @@ class MessageHandler(MeshGraphRecorderMixin, ContactEventsMixin, RfCorrelationMi
                 snr=snr,
                 rssi=rssi,
                 hops=hops,
+                received_path_len=payload.get("path_len", 255),
                 path=path_string,  # Use the path information extracted from RF data
                 elapsed=_elapsed,
                 is_dm=False,
