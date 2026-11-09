@@ -88,6 +88,14 @@ class AssistantDispatcher:
         if route in {Route.TEST, Route.PATH}:
             return await self._rf_tool(route.value, decision.question, message)
         if route is Route.WEATHER:
+            if decision.operation == 'provider':
+                from ..commands.wx_command import WxCommand
+                command = self._command('wx')
+                if type(command) is not WxCommand or not self._allowed(command, message, service=True):
+                    return 'Je ne peux pas consulter la source météo pour le moment.'
+                self.record_function('weather.provider')
+                command.record_execution(message.sender_id or None)
+                return command.provider_description()
             return await self._weather_tool(decision.question, message, decision.args)
         if route is Route.MESH:
             from .network_tools import answer_network

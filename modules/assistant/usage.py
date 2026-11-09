@@ -6,7 +6,7 @@ LABELS = {
     'bbs.read': 'BBS : lecture', 'bbs.continue': 'BBS : précision', 'bbs.cancel': 'BBS : annulation',
     'mesh.summary': 'Résumé du réseau',
     'mesh.hfcond': 'Conditions radio HF',
-    'weather.forecast': 'Météo', 'wiki.lookup': 'Documentation',
+    'weather.forecast': 'Météo', 'weather.provider': 'Fournisseur météo', 'wiki.lookup': 'Documentation',
     'llm.chat': 'Conversation', 'test.receive': 'Test de réception',
     'path.message': 'Chemin radio', 'path.hops': 'Nombre de sauts reçu', 'mesh.count_nodes': 'Nombre de nœuds',
     'mesh.count_repeaters': 'Nombre de relais', 'mesh.list_repeaters': 'Liste des relais',

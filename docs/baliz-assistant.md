@@ -179,3 +179,5 @@ Pendant la saisie BBS, une fois le destinataire choisi, la réponse entière dev
 Pour déposer en une seule demande, séparer explicitement le contenu : `Laisse un message à Alpha : rendez-vous à midi.` Sans texte séparé, Baliz demande quoi transmettre après le choix du destinataire. Répondre par un nom ou un numéro ne peut pas servir de contenu. Voir la [validation de cette séparation](validation/baliz-bbs-payload-fix-20261108.md).
 
 Le catalogue expose `path.hops` pour le nombre de sauts du message actuel. Cette réponse passive utilise les métadonnées reçues, sans reformulation. Si le DM ne contient pas ce compteur, Baliz l’indique au lieu de déduire zéro de son ancien libellé « Direct ». Voir la [validation du compteur reçu](validation/baliz-message-hops-20261109.md).
+
+`weather.provider` répond aux questions sur le fournisseur principal des prévisions météo de Baliz. Cette réponse vient du backend WX initialisé, sans appel météo ni génération de faits par le LLM. Les questions de prévision continuent à utiliser `weather.forecast`. Voir la [validation du fournisseur météo](validation/baliz-weather-provider-20261109.md).

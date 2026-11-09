@@ -29,7 +29,8 @@ CATALOG = {
         'read': 'Lire les messages de ma boîte aux lettres privée BBS.',
         'continue': 'Réponse à une précision BBS en cours seulement. selection=nom ou numéro copié de la réponse, text=contenu exact si demandé, sinon vide.',
         'cancel': 'Annuler un envoi BBS en cours.'},
-    'weather': {'forecast': 'Météo : température, pluie et vent. location=lieu exact demandé ou vide ; period=today/tomorrow.'},
+    'weather': {'forecast': 'Prévisions météo : température, pluie et vent. location=lieu exact demandé ou vide ; period=today/tomorrow.',
+                'provider': 'Fournisseur ou source des prévisions météo utilisés par Baliz : qui te fournit la météo, où prends-tu tes prévisions. Réglage connu, pas une mesure de télémétrie ni une prévision ; aucun argument.'},
     'wiki': {'lookup': 'Documentation MeshCore : configuration, régions/scopes, région par défaut sur compagnon, routage, canaux à rejoindre.'},
     'llm': {'clarify': 'Donnée essentielle manquante ; meilleur relais sans critère, télémétrie sans mesure précisée.',
             'chat': 'Conversation, salutation, remerciement, reproche ; pas les questions de documentation MeshCore.'},
@@ -64,6 +65,7 @@ ROUTING_DIALOG_EXAMPLES = CLARIFICATION_EXAMPLES[:1] + [
     ('Par quels relais passe mon message ?', {'route': 'path', 'operation': 'message', 'args': {}}),
     ('Combien de sauts jusqu’à toi ?', {'route': 'path', 'operation': 'hops', 'args': {}}),
     ('À combien de relais suis-je de toi ?', {'route': 'path', 'operation': 'hops', 'args': {}}),
+    ('Quel fournisseur te fournit la météo ?', {'route': 'weather', 'operation': 'provider', 'args': {}}),
     ('météo à Quimper', {'route': 'weather', 'operation': 'forecast', 'args': {'location': 'Quimper', 'period': 'today'}}),
     ('quel temps demain à Rennes ?', {'route': 'weather', 'operation': 'forecast', 'args': {'location': 'Rennes', 'period': 'tomorrow'}}),
     ('Laisse un message à Alpha : rendez-vous à midi', {'route': 'bbs', 'operation': 'send', 'args': {'recipient': 'Alpha', 'text': 'rendez-vous à midi'}}),
@@ -146,7 +148,7 @@ def parse_plan(text, question, enabled):
         raise ValueError('Route not enabled')
     if not isinstance(operation, str) or operation not in CATALOG[route] or not isinstance(args, dict):
         raise ValueError('Unknown operation')
-    if route == 'weather':
+    if route == 'weather' and operation == 'forecast':
         if set(args) != {'location', 'period'} or args['period'] not in ('today', 'tomorrow'):
             raise ValueError('Invalid forecast parameters')
         location = args['location']
