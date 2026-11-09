@@ -12,11 +12,18 @@ Les réglages publics de fonctionnement ont été alignés sur le LXC103 le
 Airtime et département de vigilance. Les prompts, clés et autres données privées
 du fichier actif ne sont pas recopiés par cet alignement.
 
+Le 9 novembre, le profil reprend les routes `bbs` et `info`, le fournisseur
+Open-Meteo et les libellés de lieu Bretagne utilisés en production. Le scope
+de démarrage des canaux reste `fr-bre`, l'effort de raisonnement est `none`,
+`path` est activé en accès direct et `test` désactivé. Ces valeurs publiques
+ont été comparées au LXC103 ; aucun réglage du serveur n'est modifié.
+
 ## Présentation publique de Baliz
 
 Baliz est un assistant accessible par radio sur le réseau MeshCore en Bretagne.
-Les utilisateurs posent leurs questions en langage naturel en commençant par
-**Baliz**, en message privé ou sur un canal surveillé par le bot.
+En message privé, les utilisateurs posent directement leurs questions en
+langage naturel. Sur un canal surveillé, ils commencent par **Baliz** ou
+mentionnent le bot.
 
 Son intelligence artificielle interprète la demande, sélectionne une fonction
 disponible, puis formule une réponse à partir des données obtenues : météo,
@@ -27,6 +34,17 @@ Exemples :
 - « Baliz, quelle météo demain à Brest ? »
 - « Baliz, tu me reçois ? »
 - « Baliz, comment ajouter les régions à un répéteur ? »
+- En privé : « Laisse un message à Alpha : rendez-vous à midi. »
+
+La BBS demande le destinataire ou le contenu s'il manque. Le choix d'un nom ou
+d'un numéro reste distinct du texte à déposer. Une fois le destinataire choisi,
+le contenu est transmis tel quel, sans passage dans le LLM. Les commandes BBS
+habituelles restent disponibles.
+
+Baliz explique l'origine de ses données lorsqu'on le lui demande, par exemple
+« D'où viennent tes statistiques ? ». Cette provenance n'est pas ajoutée aux
+autres réponses. Les questions sur le fournisseur météo utilisent le service
+effectivement initialisé, sans inventer de source.
 
 Les statistiques reflètent ce que Baliz observe depuis sa position, pas
 l’ensemble du réseau. Le projet s’appuie sur le bot de Tigro et dispose de sa
@@ -119,7 +137,7 @@ change ; seules les nouvelles observations utilisent l'heure courante du systèm
 `[Ask_Command]` active `ask` avec l'alias `baliz`, une page maximum par réponse
 et un délai global de 120 secondes. Le routage sémantique dispose de 300 secondes,
 comme les autres appels au LLM. Les routes actives sont
-`test,path,mesh,wiki,weather,llm`.
+`test,path,mesh,wiki,weather,llm,bbs,info`.
 `[Mesh_Command]` active l'interrogation réseau/SQL et son accès direct.
 L'accès direct `llm` reste disponible (`public_enabled = true`).
 
