@@ -304,6 +304,14 @@ class WxCommand(WeatherCommandMixin, BaseCommand):
     # formatters would turn into dropped fields).
     MIN_BODY_BUDGET = 40
 
+    def provider_description(self) -> str:
+        """Describe the initialized forecast backend without exposing configuration."""
+        if self.delegate_command is not None:
+            return 'Mon fournisseur principal pour les prévisions météo est Open-Meteo.'
+        if self._openmeteo is not None:
+            return 'J’utilise NOAA/NWS, avec Open-Meteo en complément hors de leur zone de couverture.'
+        return 'Mon fournisseur principal pour les prévisions météo est NOAA / National Weather Service.'
+
     def __init__(self, bot):
         super().__init__(bot)
         self.wx_enabled = self.get_config_value('Wx_Command', 'enabled', fallback=True, value_type='bool')

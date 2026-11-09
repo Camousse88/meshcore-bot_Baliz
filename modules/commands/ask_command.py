@@ -19,7 +19,7 @@ class AskCommand(BaseCommand):
     examples = ["ask comment tu me reçois ?", "ask combien de répéteurs actifs ?"]
     settings_schema = [
         {"key": "enabled_routes", "label": "Enabled routes", "type": "list",
-         "default": "test,path,mesh,wiki,weather,llm", "help": "Allowed capabilities: test,path,mesh,wiki,weather,llm."},
+         "default": "test,path,mesh,wiki,weather,llm,bbs,info", "help": "Allowed capabilities: test,path,mesh,wiki,weather,llm,bbs,info."},
         {"key": "route_timeout_seconds", "label": "Processing timeout", "type": "int",
          "default": 120, "min": 1, "max": 300, "unit": "seconds"},
         {"key": "semantic_timeout_seconds", "label": "Classification timeout", "type": "int",
@@ -34,9 +34,9 @@ class AskCommand(BaseCommand):
         super().__init__(bot)
         self.ask_enabled = self.get_config_value("Ask_Command", "enabled", fallback=True, value_type="bool")
         self.enabled_routes = {r.strip().lower() for r in self.get_config_value(
-            "Ask_Command", "enabled_routes", fallback="test,path,mesh,wiki,weather,llm", value_type="str"
+            "Ask_Command", "enabled_routes", fallback="test,path,mesh,wiki,weather,llm,bbs,info", value_type="str"
         ).split(",") if r.strip()}
-        unknown = self.enabled_routes - {"test", "path", "mesh", "wiki", "weather", "llm"}
+        unknown = self.enabled_routes - {"test", "path", "mesh", "wiki", "weather", "llm", "bbs", "info"}
         if unknown:
             raise ValueError(f"Unknown assistant routes: {sorted(unknown)}")
         self.route_timeout_seconds = max(1, min(300, self.get_config_value(
@@ -68,9 +68,46 @@ class AskCommand(BaseCommand):
             return True
         return super().matches_keyword(message)
 
+    def bbs_text_pending(self, message: MeshMessage, content: str | None = None) -> bool:
+        """Claim only the explicitly requested body in this sender's BBS session."""
+        if not getattr(self, 'ask_enabled', False) or 'bbs' not in getattr(self, 'enabled_routes', ()):
+            return False
+        service = getattr(getattr(self, 'dispatcher', None), 'bbs', None)
+        context = service.context(message) if service is not None else None
+        if not context or context['awaiting'] != 'text':
+            return False
+        if message.is_dm:
+            return True
+        # A BBS session never makes the bot listen to unaddressed channel text.
+        body = message.content if content is None else content
+        trigger, _ = self.split_trigger_and_args(body)
+        return trigger is not None or self.mentioned_question(message, body) is not None
+
+    def claim_bbs_text(self, message: MeshMessage, content: str | None = None) -> bool:
+        if message.bbs_body_session is not None:
+            return True
+        if not self.bbs_text_pending(message, content):
+            return False
+        message.bbs_body_session = self.dispatcher.bbs.body_session(message)
+        return message.bbs_body_session is not None
+
     async def execute(self, message: MeshMessage) -> bool:
         if not sender_may_use_llm(self.bot, message):
             return False
-        _, question = self.split_trigger_and_args(self._strip_mentions(message.content))
+        # Matching may strip mentions or collapse spaces. Read the immutable
+        # on-air body so a BBS message retains mentions and original spacing.
+        source = message.original_content or message.content
+        name = self._get_bot_name()
+        if isinstance(name, str) and name:
+            source = re.sub(r'^\s*' + re.escape('@[' + name + ']') + r'\s*', '', source, count=1, flags=re.I)
+            trigger, _ = self.split_trigger_and_args(source)
+            if not message.is_dm and trigger is None:
+                source = re.sub(r'\s*' + re.escape('@[' + name + ']') + r'\s*$', '', source, count=1, flags=re.I)
+        if message.is_dm and self.bbs_text_pending(message):
+            question = message.original_content or message.content
+        else:
+            _, question = self.split_trigger_and_args(source)
         text = await self.dispatcher.answer(question, message)
+        if text is None:  # BBS has already sent the reply and committed delivery.
+            return True
         return await send_answer(self, message, text, max_pages=self.max_pages)

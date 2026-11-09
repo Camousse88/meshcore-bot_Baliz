@@ -2,11 +2,18 @@
 import time
 
 LABELS = {
+    'info.provenance.overview': 'Origine des données',
+    'info.provenance.network': 'Source : statistiques réseau', 'info.provenance.position': 'Source : positions',
+    'info.provenance.paths': 'Source : chemins', 'info.provenance.clock': 'Source : horloges',
+    'info.provenance.wiki': 'Source : documentation', 'info.provenance.airtime': 'Source : airtime',
+    'info.provenance.bbs': 'Source : BBS', 'info.provenance.assistant': 'Source : conversation IA',
+    'bbs.send': 'BBS : dépôt', 'bbs.count': 'BBS : boîte en attente',
+    'bbs.read': 'BBS : lecture', 'bbs.continue': 'BBS : précision', 'bbs.cancel': 'BBS : annulation',
     'mesh.summary': 'Résumé du réseau',
     'mesh.hfcond': 'Conditions radio HF',
-    'weather.forecast': 'Météo', 'wiki.lookup': 'Documentation',
+    'weather.forecast': 'Météo', 'weather.provider': 'Fournisseur météo', 'wiki.lookup': 'Documentation',
     'llm.chat': 'Conversation', 'test.receive': 'Test de réception',
-    'path.message': 'Chemin radio', 'mesh.count_nodes': 'Nombre de nœuds',
+    'path.message': 'Chemin radio', 'path.hops': 'Nombre de sauts reçu', 'mesh.count_nodes': 'Nombre de nœuds',
     'mesh.count_repeaters': 'Nombre de relais', 'mesh.list_repeaters': 'Liste des relais',
     'mesh.onebyte': 'Routage à un octet', 'mesh.relay_connectivity': 'Classement des relais',
     'mesh.near': 'Nœuds proches', 'mesh.neighbors': 'Voisins directs',

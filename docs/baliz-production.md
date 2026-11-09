@@ -10,9 +10,33 @@
 | `sync/production-20261105` | Publication des changements déjà déployés le 5 novembre 2026, puis intégration dans `baliz`. |
 | `sync/tigro-20261106` | Intégration de `Tigro14/meshcore-bot:main` après fusion de la PR #80. |
 | `sync/lxc103-production-20261107` | Publication de la source réellement déployée dans le LXC103, avec ses correctifs et ses réglages publics. |
+| `sync/lxc103-production-20261109` | Publication des ajouts BBS et assistant effectivement déployés les 8 et 9 novembre. |
 | `feat/*`, `fix/*`, `sync/tigro-*` | Développements et intégrations isolés, à relire avant intégration dans `baliz`. |
 
 Les mises à jour de Tigro sont intégrées dans Baliz en conservant ses particularités. Publier une version de production ne remplace pas `main`, ne réécrit pas l'historique et ne supprime pas les branches de travail existantes.
+
+## Alignement avec le LXC103 — 9 novembre 2026
+
+La source déployée est `933731dcce070658ea44289cff585c8a96139a15`,
+repérée par le tag `baliz-production-2026-11-09`. Les 300 fichiers applicatifs
+ont été comparés au serveur : aucune différence ni fichier applicatif
+supplémentaire. Le schéma reste à 36.
+
+Les six commits de production depuis `42503744` sont conservés avec leur
+historique : BBS en langage naturel, saisie littérale et choix du destinataire,
+compteur de sauts reçu, fournisseur météo et provenance sur demande. Les
+messages BBS restent traités par le service existant. Les autres réponses de
+l'assistant ne reçoivent aucun ajout de provenance.
+
+Le profil public active `bbs` et `info` et conserve `test` désactivé en accès
+direct, comme sur le serveur. Le délai sémantique de 300 secondes est explicité
+dans le profil ; en production, il est hérité du délai LLM. L'identité publique
+est actualisée séparément dans `config/baliz-identity`.
+
+Cette publication ne modifie ni ne redémarre le LXC103. Elle conserve `main`
+au commit `d3ba88887b19f123dd9a8905a31857da4472f4a9`. Les secrets, prompts
+privés, messages, cibles Clock Sync et préférences de canaux ne sont pas copiés.
+Voir la [validation de l'alignement](validation/baliz-production-sync-20261109.md).
 
 ## Intégration de Tigro main — 7 novembre 2026
 

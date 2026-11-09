@@ -12,6 +12,12 @@ Les réglages publics de fonctionnement ont été alignés sur le LXC103 le
 Airtime et département de vigilance. Les prompts, clés et autres données privées
 du fichier actif ne sont pas recopiés par cet alignement.
 
+Le 9 novembre, les routes `bbs` et `info` rejoignent le profil, comme en
+production. La BBS accepte les demandes en langage naturel ; la provenance
+des données est donnée uniquement sur demande explicite. Aucun ajout de source
+n'est fait aux autres réponses. La commande directe `test` reste désactivée,
+tandis que sa fonction interne reste accessible à l'assistant.
+
 ## Vigilance météo
 
 Le département par défaut de Baliz est le **Finistère (29)** : `vigi` sans
@@ -47,7 +53,7 @@ UTC ; le calcul de dérive convertit les dates de réception avant comparaison.
 `[Ask_Command]` active `ask` avec l'alias `baliz`, une page maximum par réponse
 et un délai global de 120 secondes. Le routage sémantique dispose de 300 secondes,
 comme les autres appels au LLM. Les routes actives sont
-`test,path,mesh,wiki,weather,llm`.
+`test,path,mesh,wiki,weather,llm,bbs,info`.
 `[Mesh_Command]` active l'interrogation réseau/SQL et son accès direct.
 L'accès direct `llm` reste disponible (`public_enabled = true`).
 

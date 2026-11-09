@@ -1,12 +1,14 @@
 """Closed assistant capabilities and strict model-output validation."""
 import json
 import re
+
+from .network_plan import ACTIVE, infer_operation
 from .router import Decision, Route, normalize
-from .network_plan import infer_operation, ACTIVE
 
 CATALOG = {
     'test': {'receive': 'Réception du message actuel : test, ping, tu me reçois, SNR, RSSI. Pas un test actif distant.'},
-    'path': {'message': 'Chemin et relais traversés par le message actuel.'},
+    'path': {'message': 'Chemin et noms des relais traversés par le message actuel.',
+             'hops': 'Nombre de sauts du message actuel jusqu’à Baliz : combien de sauts jusqu’à toi, entre nous, combien de relais pour te joindre. Mesure reçue ; ne demande pas de précision.'},
     'mesh': {
         'summary': 'Résumé du réseau : nœuds connus, actifs, relais et messages sur 24h.',
         'hfcond': 'Bulletin de propagation HF. Aussi conditions radio générales et tropo ; aucune prévision tropo locale.',
@@ -21,7 +23,15 @@ CATALOG = {
         'trace': 'Test actif de trajet radio vers une cible ou un chemin explicite.',
         'advert': 'Demande explicite que le bot émette une annonce radio, en privé uniquement.',
         'unsupported': 'Mesure réseau précise indisponible. Jamais une demande documentée, sociale ou un simple test.'},
-    'weather': {'forecast': 'Météo : température, pluie et vent. location=lieu exact demandé ou vide ; period=today/tomorrow.'},
+    'info': {'provenance': 'Expliquer d’où Baliz obtient ses données et comment ses mesures sont calculées. topic=position pour l’origine des coordonnées, clock pour le calcul de dérive, overview sans catégorie. Autres catégories : network/paths/wiki/airtime/bbs/assistant. Fournisseur météo : weather.provider. Seulement sur demande explicite, jamais pour donner une mesure ou un résumé.'},
+    'bbs': {
+        'send': 'Déposer un message privé pour un compagnon connu. recipient=nom exact demandé ou vide, text=texte exact après deux-points ou entre guillemets, sinon vide : demander le contenu. Jamais le mot message de la consigne. Ne réécris jamais le message.',
+        'count': 'Compter mes messages privés BBS en attente.',
+        'read': 'Lire les messages de ma boîte aux lettres privée BBS.',
+        'continue': 'Réponse à une précision BBS en cours seulement. selection=nom ou numéro copié de la réponse, text=contenu exact si demandé, sinon vide.',
+        'cancel': 'Annuler un envoi BBS en cours.'},
+    'weather': {'forecast': 'Prévisions météo : température, pluie et vent. location=lieu exact demandé ou vide ; period=today/tomorrow.',
+                'provider': 'Fournisseur ou source des prévisions météo utilisés par Baliz : qui te fournit la météo, où prends-tu tes prévisions. Réglage connu, pas une mesure de télémétrie ni une prévision ; aucun argument.'},
     'wiki': {'lookup': 'Documentation MeshCore : configuration, régions/scopes, région par défaut sur compagnon, routage, canaux à rejoindre.'},
     'llm': {'clarify': 'Donnée essentielle manquante ; meilleur relais sans critère, télémétrie sans mesure précisée.',
             'chat': 'Conversation, salutation, remerciement, reproche ; pas les questions de documentation MeshCore.'},
@@ -54,8 +64,21 @@ ROUTING_DIALOG_EXAMPLES = CLARIFICATION_EXAMPLES[:1] + [
     ('nombre de nœuds actifs', {'route': 'mesh', 'operation': 'count_nodes', 'args': {'hours': 24, 'country': ''}}),
     ('les relais autour de moi', {'route': 'mesh', 'operation': 'near', 'args': {'limit': 5, 'role': 'repeater', 'target': ''}}),
     ('Par quels relais passe mon message ?', {'route': 'path', 'operation': 'message', 'args': {}}),
+    ('Combien de sauts jusqu’à toi ?', {'route': 'path', 'operation': 'hops', 'args': {}}),
+    ('À combien de relais suis-je de toi ?', {'route': 'path', 'operation': 'hops', 'args': {}}),
+    ('D’où viennent tes informations ?', {'route': 'info', 'operation': 'provenance', 'args': {'topic': 'overview'}}),
+    ('Quelle est la source de tes statistiques réseau ?', {'route': 'info', 'operation': 'provenance', 'args': {'topic': 'network'}}),
+    ('D’où proviennent les positions des nœuds ?', {'route': 'info', 'operation': 'provenance', 'args': {'topic': 'position'}}),
+    ('D’où vient la mesure de dérive d’horloge ?', {'route': 'info', 'operation': 'provenance', 'args': {'topic': 'clock'}}),
+    ('Comment calcules-tu l’occupation radio ?', {'route': 'info', 'operation': 'provenance', 'args': {'topic': 'airtime'}}),
+    ('Laisse un message à Alpha : d’où viennent les coordonnées ?', {'route': 'bbs', 'operation': 'send', 'args': {'recipient': 'Alpha', 'text': 'd’où viennent les coordonnées ?'}}),
+    ('Quel fournisseur te fournit la météo ?', {'route': 'weather', 'operation': 'provider', 'args': {}}),
     ('météo à Quimper', {'route': 'weather', 'operation': 'forecast', 'args': {'location': 'Quimper', 'period': 'today'}}),
     ('quel temps demain à Rennes ?', {'route': 'weather', 'operation': 'forecast', 'args': {'location': 'Rennes', 'period': 'tomorrow'}}),
+    ('Laisse un message à Alpha : rendez-vous à midi', {'route': 'bbs', 'operation': 'send', 'args': {'recipient': 'Alpha', 'text': 'rendez-vous à midi'}}),
+    ('Laisse un message à Camille', {'route': 'bbs', 'operation': 'send', 'args': {'recipient': 'Camille', 'text': ''}}),
+    ('J’ai des messages ?', {'route': 'bbs', 'operation': 'count', 'args': {}}),
+    ('Lis mes messages', {'route': 'bbs', 'operation': 'read', 'args': {}}),
     ('merci', {'route': 'llm', 'operation': 'chat', 'args': {}}),
     ('qui utilise le plus Baliz ?', {'route': 'mesh', 'operation': 'stats', 'args': {'topic': 'messages', 'hashes': False}}),
     ('statistique des canaux', {'route': 'mesh', 'operation': 'stats', 'args': {'topic': 'channels', 'hashes': False}}),
@@ -132,7 +155,7 @@ def parse_plan(text, question, enabled):
         raise ValueError('Route not enabled')
     if not isinstance(operation, str) or operation not in CATALOG[route] or not isinstance(args, dict):
         raise ValueError('Unknown operation')
-    if route == 'weather':
+    if route == 'weather' and operation == 'forecast':
         if set(args) != {'location', 'period'} or args['period'] not in ('today', 'tomorrow'):
             raise ValueError('Invalid forecast parameters')
         location = args['location']
@@ -143,6 +166,12 @@ def parse_plan(text, question, enabled):
         expected_period = 'tomorrow' if re.search(r'\b(demain|tomorrow)\b', normalize(question)) else 'today'
         if args['period'] != expected_period:
             raise ValueError('Wrong forecast date')
+    elif route == 'info':
+        from .provenance import argument_schema
+        validate_arguments(args, argument_schema())
+    elif route == 'bbs':
+        from .bbs_service import validate_bbs_arguments
+        validate_bbs_arguments(operation, args, question)
     elif route == 'mesh':
         if operation in ACTIVE and infer_operation(question) != operation:
             raise ValueError('Active radio action requires explicit user intent')

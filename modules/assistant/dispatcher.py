@@ -11,7 +11,7 @@ from .router import Decision, Route
 from .semantic_router import SemanticRouter
 from .sender_policy import sender_may_use_llm
 
-HELP = "ask <question> — réseau, Wiki, météo, réception ou chemin. Routes explicites : mesh, wiki, test, path, weather, llm."
+HELP = "ask <question> — réseau, Wiki, météo, réception ou chemin. Boîte aux lettres : laisse un message, lis mes messages."
 
 
 class AssistantDispatcher:
@@ -19,6 +19,8 @@ class AssistantDispatcher:
         self.owner = owner
         self.semantic_router = SemanticRouter(owner)
         self._rf_lock = asyncio.Lock()
+        from .bbs_service import BBSAssistant
+        self.bbs = BBSAssistant(self)
 
     def record_function(self, function: str) -> None:
         from .usage import record
@@ -33,12 +35,27 @@ class AssistantDispatcher:
         check = command.can_use_service if service else command.can_execute
         return bool(check(message))
 
-    async def answer(self, question: str, message: MeshMessage) -> str:
+    async def answer(self, question: str, message: MeshMessage) -> str | None:
         if not sender_may_use_llm(self.owner.bot, message):
             return ""
         if not question.strip():
             return HELP
-        decision = await self.semantic_router.decide(question, self.owner.enabled_routes)
+        context = self.bbs.context(message) if hasattr(self, "bbs") else None
+        body_session = getattr(message, 'bbs_body_session', None)
+        if body_session is not None and self.bbs.body_session(message) != body_session:
+            return 'Cet envoi BBS a expiré ou a changé. Précise à nouveau le destinataire et le message.'
+        if context and context['awaiting'] == 'text':
+            # The user is filling an explicitly requested message body. It is
+            # literal data, not a new tool request, and never goes to the LLM.
+            from .router import normalize
+            cancel = normalize(question) in {"annule", "annule l'envoi", "bbs cancel"}
+            decision = Decision(Route.BBS, question, 'bbs_body',
+                                'cancel' if cancel else 'continue',
+                                {} if cancel else {'selection': '', 'text': question})
+        elif context:
+            decision = await self.semantic_router.decide(question, self.owner.enabled_routes, bbs_context=context)
+        else:
+            decision = await self.semantic_router.decide(question, self.owner.enabled_routes)
         if decision is None:
             return "Le service d’interprétation est momentanément indisponible. Réessaie plus tard."
         self.owner.logger.info("Assistant route=%s operation=%s reason=%s", decision.route.value, decision.operation, decision.reason)
@@ -54,13 +71,29 @@ class AssistantDispatcher:
             self.owner.logger.exception("Assistant capability failed: %s", decision.route.value)
             return "Ce traitement est momentanément indisponible."
 
-    async def _dispatch(self, decision: Decision, message: MeshMessage) -> str:
+    async def _dispatch(self, decision: Decision, message: MeshMessage) -> str | None:
         route = decision.route
         if route.value not in self.owner.enabled_routes:
             return f"La fonction {route.value} est désactivée."
+        if route is Route.INFO:
+            from .provenance import answer_source
+            return answer_source(self, decision.args['topic'], message)
+        if route is Route.BBS:
+            return await self.bbs.execute(decision, message)
+        if route is Route.PATH and decision.operation == 'hops':
+            command = self._command('path')
+            if not self._allowed(command, message, service=True):
+                return 'Le nombre de sauts est indisponible ou non autorisé ici.'
+            from .message_hops import hops_reply
+            self.record_function('path.hops')
+            command.record_execution(message.sender_id or None)
+            return hops_reply(message)
         if route in {Route.TEST, Route.PATH}:
             return await self._rf_tool(route.value, decision.question, message)
         if route is Route.WEATHER:
+            if decision.operation == 'provider':
+                from .provenance import answer_source
+                return answer_source(self, 'weather', message, function='weather.provider')
             return await self._weather_tool(decision.question, message, decision.args)
         if route is Route.MESH:
             from .network_tools import answer_network

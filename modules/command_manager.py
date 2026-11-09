@@ -883,6 +883,19 @@ class CommandManager:
                 question = mentioned_question(message, content)
                 if isinstance(question, str):
                     content = 'ask ' + question
+        # A requested BBS body is data even if it starts with "test", "help"
+        # or another command. Keep normal priorities outside this exact session.
+        pending_body = getattr(assistant, 'claim_bbs_text', None)
+        if getattr(message, 'bbs_body_session', None) is not None or (callable(pending_body) and pending_body(message, content) is True):
+            message.content = content
+            message.content_lower = content.lower()
+            message.prefix_normalized = True
+            should_queue, remaining = self._should_queue_command(assistant, message)
+            if allow_queue and should_queue and self._queue_command(assistant, message, remaining):
+                return []
+            if not assistant.can_execute(message) or not self._is_channel_trigger_allowed('ask', message):
+                return []
+            return [('ask', None)]
         content_lower = content.lower()
 
         # Persist the normalized (prefix-stripped) content to the shared message once,
@@ -2341,8 +2354,12 @@ class CommandManager:
             message.content_lower = content
             message.prefix_normalized = True
 
-        # Check each command to see if it should execute
-        for command_name, command in self.commands.items():
+        assistant = self.commands.get('ask')
+        pending_body = getattr(assistant, 'claim_bbs_text', None)
+        bbs_body = getattr(message, 'bbs_body_session', None) is not None or (callable(pending_body) and pending_body(message) is True)
+        commands = [('ask', assistant)] if bbs_body else self.commands.items()
+        # A requested BBS body has one owner; still apply normal access checks.
+        for command_name, command in commands:
             # Skip commands not allowed in this channel (silent - no stats, no error)
             # This mirrors the check_keywords() path which calls can_execute() before matching.
             # Messages may reach execute_commands() via a per-command channel override (e.g.
@@ -2350,7 +2367,7 @@ class CommandManager:
             if not command.is_channel_allowed(message):
                 continue
 
-            if command.should_execute(message):
+            if bbs_body or command.should_execute(message):
                 # Only execute commands that don't have a response format (they handle their own responses)
                 response_format = command.get_response_format()
                 if response_format is not None:

@@ -379,6 +379,7 @@ class MessageHandler(MeshGraphRecorderMixin, ContactEventsMixin, RfCorrelationMi
                 rssi=rssi,
                 elapsed=elapsed_str,
                 hops=path_len if path_len != 255 else 0,
+                received_path_len=path_len,
                 path=path_info,
             )
 
@@ -866,6 +867,7 @@ class MessageHandler(MeshGraphRecorderMixin, ContactEventsMixin, RfCorrelationMi
                 snr=snr,
                 rssi=rssi,
                 hops=hops,
+                received_path_len=payload.get("path_len", 255),
                 path=path_string,  # Use the path information extracted from RF data
                 elapsed=_elapsed,
                 is_dm=False,
@@ -1094,8 +1096,12 @@ class MessageHandler(MeshGraphRecorderMixin, ContactEventsMixin, RfCorrelationMi
                 except Exception as e:
                     self.logger.error(f"Error checking BBS inbox notification: {e}", exc_info=True)
 
+        # The requested BBS body must not trigger even the direct advert shortcut.
+        assistant = self.bot.command_manager.commands.get('ask')
+        pending_body = getattr(assistant, 'claim_bbs_text', None)
+        bbs_body = callable(pending_body) and pending_body(message) is True
         # Check for advert command (DM only)
-        if message.is_dm and message.content.strip().lower() == "advert":
+        if message.is_dm and not bbs_body and message.content.strip().lower() == "advert":
             await self.bot.command_manager.handle_advert_command(message)
             return
 
@@ -1168,7 +1174,7 @@ class MessageHandler(MeshGraphRecorderMixin, ContactEventsMixin, RfCorrelationMi
         # Plugin commands without responses (response is None) should still be executed
         if not help_response_sent and not plugin_command_with_response_matched:
             # After keyword handling, try RandomLine
-            randomline_match = self.bot.command_manager.match_randomline(message)
+            randomline_match = None if bbs_body else self.bot.command_manager.match_randomline(message)
             if randomline_match:
                 key, response = randomline_match
                 plugin_command_with_response_matched = True

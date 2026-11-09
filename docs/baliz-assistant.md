@@ -166,3 +166,26 @@ Les rapports sont conservés dans `/var/lib/baliz-test/reports/assistant-*`.
 Le conteneur 103 n'a pas été modifié et aucun service radio n'a été démarré.
 Une recette RF réelle et la validation humaine des formulations du modèle
 restent nécessaires avant le passage en production.
+
+## Boîte aux lettres en langage naturel
+
+La route optionnelle `bbs` permet de déposer, compter et lire ses messages BBS sans syntaxe de commande. Un contact ambigu ou un texte manquant donne lieu à un échange limité à cinq minutes, lié à l’expéditeur et au canal ou DM. Les contenus lus restent gérés directement par la BBS, sans passage par le LLM. La lecture et le comptage restent réservés aux DM ; les commandes `bbs s`, `bbs list` et `bbs r` restent disponibles.
+
+Voir la [validation locale du 8 novembre](validation/baliz-bbs-assistant-20261108.md).
+
+
+Pendant la saisie BBS, une fois le destinataire choisi, la réponse entière devient le texte du message, sans passage dans le LLM. Écrire `annule` permet de quitter cette saisie. Voir la [correction de priorité du texte BBS](validation/baliz-bbs-body-fix-20261108.md).
+
+Pour déposer en une seule demande, séparer explicitement le contenu : `Laisse un message à Alpha : rendez-vous à midi.` Sans texte séparé, Baliz demande quoi transmettre après le choix du destinataire. Répondre par un nom ou un numéro ne peut pas servir de contenu. Voir la [validation de cette séparation](validation/baliz-bbs-payload-fix-20261108.md).
+
+Le catalogue expose `path.hops` pour le nombre de sauts du message actuel. Cette réponse passive utilise les métadonnées reçues, sans reformulation. Si le DM ne contient pas ce compteur, Baliz l’indique au lieu de déduire zéro de son ancien libellé « Direct ». Voir la [validation du compteur reçu](validation/baliz-message-hops-20261109.md).
+
+`weather.provider` répond aux questions sur le fournisseur principal des prévisions météo de Baliz. Cette réponse vient du backend WX initialisé, sans appel météo ni génération de faits par le LLM. Les questions de prévision continuent à utiliser `weather.forecast`. Voir la [validation du fournisseur météo](validation/baliz-weather-provider-20261109.md).
+
+## Provenance sur demande
+
+La route optionnelle `info` expose `info.provenance` pour les demandes explicites sur l’origine ou la méthode des données : réseau, positions, chemins, horloge, documents, airtime, BBS et conversation. La source météo reste accessible par `weather.provider`, qui décrit le service WX effectivement initialisé.
+
+Les descriptions proviennent d’un registre fermé et sont envoyées directement, sans génération ni reformulation. Elles ne sont ni ajoutées aux réponses ordinaires, ni injectées dans les appels LLM qui produisent ces réponses. Le routeur connaît seulement la fonction et ses catégories pour reconnaître une demande de provenance. Les restrictions du service concerné restent appliquées.
+
+Cette première version décrit les sources par fonction ; elle ne prétend pas retrouver le document ou l’observation précise d’une réponse antérieure. Sans catégorie indiquée, elle demande laquelle préciser. Voir la [validation du 9 novembre](validation/baliz-provenance-20261109.md).

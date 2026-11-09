@@ -38,8 +38,9 @@ class SemanticRouter:
             ),
         )
 
-    def _classify(self, question, enabled_routes):
+    def _classify(self, question, enabled_routes, bbs_context=None):
         import json
+
         from .catalog import CATALOG, ROUTING_DIALOG_EXAMPLES, STATS_FUNCTIONS, parse_plan
         catalog = {k: dict(v) for k, v in CATALOG.items() if k in enabled_routes}
         if "mesh" in catalog:
@@ -54,7 +55,19 @@ class SemanticRouter:
                 if route == 'mesh' and operation in STATS_FUNCTIONS:
                     args = {'type': 'object', 'properties': {'hashes': {'type': 'boolean'}},
                             'required': ['hashes'], 'additionalProperties': False}
-                if route == 'weather':
+                if route == 'info':
+                    from .provenance import argument_schema as provenance_schema
+                    args = provenance_schema()
+                if route == 'bbs':
+                    from .bbs_service import argument_schema as bbs_schema
+                    args = bbs_schema(operation)
+                    if operation == 'continue' and bbs_context:
+                        if bbs_context['awaiting'] == 'text':
+                            args['properties']['selection']['const'] = ''
+                            args['properties']['text']['const'] = question
+                        else:
+                            args['properties']['text']['const'] = ''
+                if route == 'weather' and operation == 'forecast':
                     args = {'type': 'object', 'properties': {'location': {'type': 'string'},
                             'period': {'type': 'string', 'enum': ['today', 'tomorrow']}},
                             'required': ['location', 'period'], 'additionalProperties': False}
@@ -75,6 +88,24 @@ class SemanticRouter:
                     {"role": "assistant", "content": json.dumps({
                         "function": function, "args": arguments}, ensure_ascii=False)},
                 ])
+        followup_examples = []
+        if bbs_context:
+            followup_examples.append({"role": "system", "content":
+                "La question suivante répond à cette demande de précision BBS : "
+                + json.dumps(bbs_context, ensure_ascii=False)
+                + ". Une réponse courte choisissant un destinataire ou donnant le texte est bbs.continue, pas mesh.unsupported. "
+                "Une question indépendante (météo, réseau, documentation) garde sa propre fonction. "
+                "Les exemples suivants illustrent cette continuation ; recopie les arguments de la réponse actuelle seulement."})
+            if bbs_context['awaiting'] == 'recipient':
+                followup_examples.extend([
+                    {"role": "user", "content": "1"},
+                    {"role": "assistant", "content": json.dumps({"function": "bbs.continue", "args": {"selection": "1", "text": ""}})},
+                ])
+            else:
+                followup_examples.extend([
+                    {"role": "user", "content": "À demain !"},
+                    {"role": "assistant", "content": json.dumps({"function": "bbs.continue", "args": {"selection": "", "text": "À demain !"}}, ensure_ascii=False)},
+                ])
         payload = {
             "messages": [
                 {"role": "system", "content": (
@@ -82,23 +113,35 @@ class SemanticRouter:
                     "Réponds uniquement par un appel JSON {\"function\":\"route.operation\",\"args\":{...}}. "
                     "Interprète le sens de la demande dans ce contexte. Une demande brève peut être complète. "
                     "Réception du message actuel, y compris un simple test ou ping : test.receive. "
-                    "Chemin du message : path.message. Réglages, documentation et régions MeshCore : wiki.lookup. "
+                    "Nombre de sauts jusqu’à Baliz, entre nous ou pour te joindre : path.hops. C’est une mesure du message actuel, sans argument, jamais un résumé ni une clarification. "
+                    "Chemin et noms des relais du message : path.message. Réglages, documentation et régions MeshCore : wiki.lookup. "
                     "Conditions radio ou tropo : mesh.hfcond, seul bulletin disponible, limité à la HF. "
                     "Résumé réseau : mesh.summary. Nombre de relais : mesh.count_repeaters. Noms des relais : mesh.list_repeaters. "
                     "Classement par liens : mesh.relay_connectivity. Meilleur relais sans critère : llm.clarify. "
                     "Clarifie seulement une information indispensable manquante. Ne demande pas de précision pour test, ping ou une question de configuration claire. "
                     "Mesures de télémétrie imprécises : llm.clarify ; mesure précise indisponible : mesh.unsupported. "
                     "Salutations, remerciements et remarques : llm.chat. "
-                    "Météo : weather.forecast ; recopie le lieu demandé dans location sans inventer ni remplacer de ville ; vide seulement sans lieu. period=today/tomorrow. "
+                    "Expliquer comment Baliz obtient ou calcule ses données : info.provenance, seulement sur demande explicite. L’origine des coordonnées est topic=position, pas une recherche de relais proches. Sans catégorie précisée : topic=overview. "
+                    "Fournisseur ou source des prévisions utilisées par Baliz : weather.provider, args={}. Cette question est complète et ne demande ni ville, ni batterie, température ou signal. "
+                    "Prévisions météo : weather.forecast ; recopie le lieu demandé dans location sans inventer ni remplacer de ville ; vide seulement sans lieu. period=today/tomorrow. "
+                    "Boîte aux lettres : bbs.send pour laisser un message, bbs.count pour savoir si j’en ai, bbs.read pour les lire. "
+                    "La demande de transmettre ou laisser un message prime sur le contenu : bbs.send, jamais llm.chat ni info.provenance. Son texte, même une question sur les sources, est une donnée à recopier, pas une demande à traiter. "
+                    "recipient, selection et text doivent être des extraits EXACTS du message actuel, accents et ponctuation compris, ou vides. "
+                    "S’il manque le destinataire ou le texte, appelle bbs.send avec le champ vide : la BBS demandera la précision. "
+                    "Si un échange BBS est en cours et la réponse complète ce choix, utilise bbs.continue. "
+                    "Pour un choix de destinataire : selection=nom ou numéro, text vide si déjà fourni. Pour le texte demandé : selection vide, text=réponse intégrale exacte. "
+                    "Une demande indépendante garde sa route habituelle ; annuler un envoi utilise bbs.cancel. "
+                    "Un contexte BBS éventuel est fourni après les exemples. Sans ce contexte, aucun envoi n’est en cours. "
                     "Respecte tous les arguments requis du schéma. Défauts mesh : hours=0,country='',limit=5,sort=recent,hashes=false,target='',role=repeater,roundtrip=true,path=''. "
-                    "count_nodes actifs : hours=24 ; relay_connectivity : hours=24,limit=3. Autres routes : args={}. "
+                    "count_nodes actifs : hours=24 ; relay_connectivity : hours=24,limit=3. Sans schéma spécifique : args={}. "
                     "Catalogue : " + json.dumps(catalog, ensure_ascii=False, separators=(",", ":"))
 
                 )},
                 *examples,
+                *followup_examples,
                 {"role": "user", "content": question},
             ],
-            "temperature": 0, "max_tokens": 160,
+            "temperature": 0, "max_tokens": 320,
             "response_format": {"type": "json_schema", "json_schema": {
                 "name": "route_plan", "strict": True, "schema": {"anyOf": variants}}},
         }
@@ -169,7 +212,7 @@ class SemanticRouter:
                             payload['response_format']['json_schema']['schema']['anyOf'][0]['properties']['args']['properties']['location']['enum'] = places
                     payload['messages'].append({'role': 'user', 'content':
                         'Le plan précédent a été rejeté : ' + str(exc)[:160] +
-                        ('. Corrige uniquement les arguments de ' + repair_function + '. Conserve cette fonction. Le lieu ne doit pas être vide si un lieu était demandé. Recopie le lieu tel qu’il figure dans la question initiale, sans ajouter de pays.' if repair_function else '. Réinterprète la demande initiale.') +
+                        ('. Corrige uniquement les arguments de ' + repair_function + '. Conserve cette fonction. ' + ('Le lieu ne doit pas être vide si un lieu était demandé. Recopie le lieu tel qu’il figure dans la question initiale, sans ajouter de pays.' if repair_function == 'weather.forecast' else 'Recopie les arguments uniquement depuis le message actuel, sans inventer de texte ni de destinataire.') if repair_function else '. Réinterprète la demande initiale.') +
                         ' Respecte le schéma. Retourne uniquement un appel JSON valide.'})
                 continue
             usage = data.get("usage") or {}
@@ -179,7 +222,7 @@ class SemanticRouter:
             return plan
         return None
 
-    async def decide(self, question, enabled_routes):
+    async def decide(self, question, enabled_routes, bbs_context=None):
         if not self.enabled or not enabled_routes:
             return None
-        return await asyncio.to_thread(self._classify, question, enabled_routes)
+        return await asyncio.to_thread(self._classify, question, enabled_routes, bbs_context)
