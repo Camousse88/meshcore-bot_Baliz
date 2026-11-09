@@ -13,6 +13,7 @@ class Route(str, Enum):
     WEATHER = "weather"
     LLM = "llm"
     BBS = "bbs"
+    INFO = "info"
     HELP = "help"
 
 

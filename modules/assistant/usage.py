@@ -2,6 +2,11 @@
 import time
 
 LABELS = {
+    'info.provenance.overview': 'Origine des données',
+    'info.provenance.network': 'Source : statistiques réseau', 'info.provenance.position': 'Source : positions',
+    'info.provenance.paths': 'Source : chemins', 'info.provenance.clock': 'Source : horloges',
+    'info.provenance.wiki': 'Source : documentation', 'info.provenance.airtime': 'Source : airtime',
+    'info.provenance.bbs': 'Source : BBS', 'info.provenance.assistant': 'Source : conversation IA',
     'bbs.send': 'BBS : dépôt', 'bbs.count': 'BBS : boîte en attente',
     'bbs.read': 'BBS : lecture', 'bbs.continue': 'BBS : précision', 'bbs.cancel': 'BBS : annulation',
     'mesh.summary': 'Résumé du réseau',

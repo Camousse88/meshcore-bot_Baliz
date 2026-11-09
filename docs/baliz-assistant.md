@@ -181,3 +181,11 @@ Pour déposer en une seule demande, séparer explicitement le contenu : `Laisse 
 Le catalogue expose `path.hops` pour le nombre de sauts du message actuel. Cette réponse passive utilise les métadonnées reçues, sans reformulation. Si le DM ne contient pas ce compteur, Baliz l’indique au lieu de déduire zéro de son ancien libellé « Direct ». Voir la [validation du compteur reçu](validation/baliz-message-hops-20261109.md).
 
 `weather.provider` répond aux questions sur le fournisseur principal des prévisions météo de Baliz. Cette réponse vient du backend WX initialisé, sans appel météo ni génération de faits par le LLM. Les questions de prévision continuent à utiliser `weather.forecast`. Voir la [validation du fournisseur météo](validation/baliz-weather-provider-20261109.md).
+
+## Provenance sur demande
+
+La route optionnelle `info` expose `info.provenance` pour les demandes explicites sur l’origine ou la méthode des données : réseau, positions, chemins, horloge, documents, airtime, BBS et conversation. La source météo reste accessible par `weather.provider`, qui décrit le service WX effectivement initialisé.
+
+Les descriptions proviennent d’un registre fermé et sont envoyées directement, sans génération ni reformulation. Elles ne sont ni ajoutées aux réponses ordinaires, ni injectées dans les appels LLM qui produisent ces réponses. Le routeur connaît seulement la fonction et ses catégories pour reconnaître une demande de provenance. Les restrictions du service concerné restent appliquées.
+
+Cette première version décrit les sources par fonction ; elle ne prétend pas retrouver le document ou l’observation précise d’une réponse antérieure. Sans catégorie indiquée, elle demande laquelle préciser. Voir la [validation du 9 novembre](validation/baliz-provenance-20261109.md).

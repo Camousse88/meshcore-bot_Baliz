@@ -23,6 +23,7 @@ CATALOG = {
         'trace': 'Test actif de trajet radio vers une cible ou un chemin explicite.',
         'advert': 'Demande explicite que le bot émette une annonce radio, en privé uniquement.',
         'unsupported': 'Mesure réseau précise indisponible. Jamais une demande documentée, sociale ou un simple test.'},
+    'info': {'provenance': 'Expliquer d’où Baliz obtient ses données et comment ses mesures sont calculées. topic=position pour l’origine des coordonnées, clock pour le calcul de dérive, overview sans catégorie. Autres catégories : network/paths/wiki/airtime/bbs/assistant. Fournisseur météo : weather.provider. Seulement sur demande explicite, jamais pour donner une mesure ou un résumé.'},
     'bbs': {
         'send': 'Déposer un message privé pour un compagnon connu. recipient=nom exact demandé ou vide, text=texte exact après deux-points ou entre guillemets, sinon vide : demander le contenu. Jamais le mot message de la consigne. Ne réécris jamais le message.',
         'count': 'Compter mes messages privés BBS en attente.',
@@ -65,6 +66,12 @@ ROUTING_DIALOG_EXAMPLES = CLARIFICATION_EXAMPLES[:1] + [
     ('Par quels relais passe mon message ?', {'route': 'path', 'operation': 'message', 'args': {}}),
     ('Combien de sauts jusqu’à toi ?', {'route': 'path', 'operation': 'hops', 'args': {}}),
     ('À combien de relais suis-je de toi ?', {'route': 'path', 'operation': 'hops', 'args': {}}),
+    ('D’où viennent tes informations ?', {'route': 'info', 'operation': 'provenance', 'args': {'topic': 'overview'}}),
+    ('Quelle est la source de tes statistiques réseau ?', {'route': 'info', 'operation': 'provenance', 'args': {'topic': 'network'}}),
+    ('D’où proviennent les positions des nœuds ?', {'route': 'info', 'operation': 'provenance', 'args': {'topic': 'position'}}),
+    ('D’où vient la mesure de dérive d’horloge ?', {'route': 'info', 'operation': 'provenance', 'args': {'topic': 'clock'}}),
+    ('Comment calcules-tu l’occupation radio ?', {'route': 'info', 'operation': 'provenance', 'args': {'topic': 'airtime'}}),
+    ('Laisse un message à Alpha : d’où viennent les coordonnées ?', {'route': 'bbs', 'operation': 'send', 'args': {'recipient': 'Alpha', 'text': 'd’où viennent les coordonnées ?'}}),
     ('Quel fournisseur te fournit la météo ?', {'route': 'weather', 'operation': 'provider', 'args': {}}),
     ('météo à Quimper', {'route': 'weather', 'operation': 'forecast', 'args': {'location': 'Quimper', 'period': 'today'}}),
     ('quel temps demain à Rennes ?', {'route': 'weather', 'operation': 'forecast', 'args': {'location': 'Rennes', 'period': 'tomorrow'}}),
@@ -159,6 +166,9 @@ def parse_plan(text, question, enabled):
         expected_period = 'tomorrow' if re.search(r'\b(demain|tomorrow)\b', normalize(question)) else 'today'
         if args['period'] != expected_period:
             raise ValueError('Wrong forecast date')
+    elif route == 'info':
+        from .provenance import argument_schema
+        validate_arguments(args, argument_schema())
     elif route == 'bbs':
         from .bbs_service import validate_bbs_arguments
         validate_bbs_arguments(operation, args, question)

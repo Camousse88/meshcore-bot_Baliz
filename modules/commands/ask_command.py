@@ -19,7 +19,7 @@ class AskCommand(BaseCommand):
     examples = ["ask comment tu me reçois ?", "ask combien de répéteurs actifs ?"]
     settings_schema = [
         {"key": "enabled_routes", "label": "Enabled routes", "type": "list",
-         "default": "test,path,mesh,wiki,weather,llm,bbs", "help": "Allowed capabilities: test,path,mesh,wiki,weather,llm,bbs."},
+         "default": "test,path,mesh,wiki,weather,llm,bbs,info", "help": "Allowed capabilities: test,path,mesh,wiki,weather,llm,bbs,info."},
         {"key": "route_timeout_seconds", "label": "Processing timeout", "type": "int",
          "default": 120, "min": 1, "max": 300, "unit": "seconds"},
         {"key": "semantic_timeout_seconds", "label": "Classification timeout", "type": "int",
@@ -34,9 +34,9 @@ class AskCommand(BaseCommand):
         super().__init__(bot)
         self.ask_enabled = self.get_config_value("Ask_Command", "enabled", fallback=True, value_type="bool")
         self.enabled_routes = {r.strip().lower() for r in self.get_config_value(
-            "Ask_Command", "enabled_routes", fallback="test,path,mesh,wiki,weather,llm,bbs", value_type="str"
+            "Ask_Command", "enabled_routes", fallback="test,path,mesh,wiki,weather,llm,bbs,info", value_type="str"
         ).split(",") if r.strip()}
-        unknown = self.enabled_routes - {"test", "path", "mesh", "wiki", "weather", "llm", "bbs"}
+        unknown = self.enabled_routes - {"test", "path", "mesh", "wiki", "weather", "llm", "bbs", "info"}
         if unknown:
             raise ValueError(f"Unknown assistant routes: {sorted(unknown)}")
         self.route_timeout_seconds = max(1, min(300, self.get_config_value(

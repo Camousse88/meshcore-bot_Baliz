@@ -75,6 +75,9 @@ class AssistantDispatcher:
         route = decision.route
         if route.value not in self.owner.enabled_routes:
             return f"La fonction {route.value} est désactivée."
+        if route is Route.INFO:
+            from .provenance import answer_source
+            return answer_source(self, decision.args['topic'], message)
         if route is Route.BBS:
             return await self.bbs.execute(decision, message)
         if route is Route.PATH and decision.operation == 'hops':
@@ -89,13 +92,8 @@ class AssistantDispatcher:
             return await self._rf_tool(route.value, decision.question, message)
         if route is Route.WEATHER:
             if decision.operation == 'provider':
-                from ..commands.wx_command import WxCommand
-                command = self._command('wx')
-                if type(command) is not WxCommand or not self._allowed(command, message, service=True):
-                    return 'Je ne peux pas consulter la source météo pour le moment.'
-                self.record_function('weather.provider')
-                command.record_execution(message.sender_id or None)
-                return command.provider_description()
+                from .provenance import answer_source
+                return answer_source(self, 'weather', message, function='weather.provider')
             return await self._weather_tool(decision.question, message, decision.args)
         if route is Route.MESH:
             from .network_tools import answer_network
