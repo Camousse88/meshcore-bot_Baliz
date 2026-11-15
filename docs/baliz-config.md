@@ -123,11 +123,13 @@ Le profil active la surveillance horaire des départements `29,22,35,56` dans
 changement. Le retour au vert est annoncé une fois après une vigilance diffusée.
 Le code du service et ses tests sont publiés sur la branche `baliz`.
 
-Le regroupement des alertes conserve une date et un niveau par message. Chaque
-phénomène nomme ses départements et ses créneaux ; les horaires communs sont
-regroupés et les niveaux différents restent explicites. Le format respecte la
-taille radio disponible. Le déplacement temporaire des alertes vers `#meteo`
-le 15 novembre reste un réglage local ; le profil public conserve `#bretagne`.
+`group_similar_alerts = true` regroupe les départements dont les vigilances et
+horaires correspondent. Avec `false`, les alertes sont séparées par département :
+nom et numéro en en-tête, journées dues réunies si la taille radio le permet,
+une ligne par phénomène avec ses horaires, sans ligne vide entre les journées.
+Les différences de niveau restent explicites et aucun créneau n’est tronqué.
+La destination temporaire `#meteo` reste locale ; le profil public conserve
+`#bretagne`.
 
 ## Relevé des batteries
 
