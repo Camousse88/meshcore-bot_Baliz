@@ -100,15 +100,41 @@ actuelle de production.
 Le profil active `[Channel_Occupancy] enabled = true` avec les paramètres du
 LXC103. La modulation annoncée par la radio prévaut sur les valeurs de secours.
 
+La page Airtime présente l’occupation moyenne du canal, son pic sur cinq
+minutes, les paquets/minute et leur taille moyenne sur la période sélectionnée.
+Le duty cycle des répéteurs est estimé sur la dernière heure à partir des
+réceptions et chemins observés. Le graphique adapte ses intervalles au zoom ;
+les périodes sans données restent distinctes du silence confirmé. Ces mesures
+restent partielles et ne démontrent pas une conformité réglementaire.
+
 ## Vigilance météo
 
-Le département par défaut de Baliz est le **Finistère (29)** : `vigi` sans
-argument demande la vigilance du Finistère. Un autre département peut toujours
-être précisé, par exemple `vigi 22`.
+`vigi` sans argument vérifie les **quatre départements bretons (22, 29, 35, 56)**.
+Les niveaux et phénomènes identiques sont regroupés dans la réponse. Un département
+peut toujours être demandé séparément, par exemple `vigi 29` ou `vigi 22`.
+`include_tomorrow = true` distingue les bulletins d'aujourd'hui et de demain, avec
+leurs dates et les horaires officiels disponibles. L'échec d'un département ou
+d'une journée laisse les autres s'actualiser. Les caches et alertes restent séparés
+par date ; un retour au vert aujourd'hui ne clôt pas une alerte de demain.
 
-Le profil public conserve ce choix dans `[Vigilance_Service]` avec
-`department = 29` et `enabled = false`. Les alertes automatiques restent
-désactivées ; la consultation ponctuelle avec `vigi` reste disponible.
+Le profil active la surveillance horaire des départements `29,22,35,56` dans
+`[Vigilance_Service]`. Les niveaux jaune, orange et rouge sont publiés dans
+`#bretagne` à leur apparition ou évolution, puis rappelés après 24 heures sans
+changement. Le retour au vert est annoncé une fois après une vigilance diffusée.
+Le code du service et ses tests sont publiés sur la branche `baliz`.
+
+Le regroupement des alertes conserve une date et un niveau par message. Chaque
+phénomène nomme ses départements et ses créneaux ; les horaires communs sont
+regroupés et les niveaux différents restent explicites. Le format respecte la
+taille radio disponible. Le déplacement temporaire des alertes vers `#meteo`
+le 15 novembre reste un réglage local ; le profil public conserve `#bretagne`.
+
+## Relevé des batteries
+
+`[Battery_Monitor] enabled = true` et `schedule = 0 3 * * *` activent un relevé
+par jour à 03:00, heure de Paris. Le service reprend les cibles Clock Sync déjà
+autorisées, sans publier leur liste. Contacts et Time affichent les valeurs et
+leur historique de tension.
 
 ## Identité et fonctionnement conservés
 
