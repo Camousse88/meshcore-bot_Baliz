@@ -110,6 +110,10 @@ restent partielles et ne démontrent pas une conformité réglementaire.
 Le 17 novembre, le profil reprend les réponses sur canal limitées à `#bretagne`
 et les alertes de vigilance séparées par département.
 
+L’intégration de Tigro du 17 novembre retire l’option supprimée
+`RepeaterPrefixCollision_Service.include_prefix_free_hint`. Le service de
+collision reste désactivé et les autres valeurs du profil sont conservées.
+
 ## Vigilance météo
 
 `vigi` sans argument vérifie les **quatre départements bretons (22, 29, 35, 56)**.
