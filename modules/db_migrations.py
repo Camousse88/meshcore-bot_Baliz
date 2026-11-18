@@ -1181,6 +1181,11 @@ def _m0039_airtime_capture_intervals(cursor: sqlite3.Cursor) -> None:
     create_tables(cursor)
 
 
+def _m0040_repeater_departments(cursor: sqlite3.Cursor) -> None:
+    from modules.repeater_geography import create_department_cache
+    create_department_cache(cursor)
+
+
 MIGRATIONS: list[MigrationEntry] = [
     (1, "initial schema", _m0001_initial_schema),
     (2, "feed_subscriptions: output_format, message_send_interval_seconds", _m0002_feed_subscriptions_output_format),
@@ -1221,6 +1226,7 @@ MIGRATIONS: list[MigrationEntry] = [
     (37, "metadata-only passive airtime attribution", _m0037_airtime_attribution),
     (38, "opaque flood scope context for airtime forwarding scenarios", _m0038_airtime_scope_context),
     (39, "local airtime capture continuity intervals", _m0039_airtime_capture_intervals),
+    (40, "department cache for repeater coordinates", _m0040_repeater_departments),
 ]
 
 

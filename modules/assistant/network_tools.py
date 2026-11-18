@@ -1,9 +1,11 @@
 """Explicit Tigro adapters and parameterized observation queries."""
+import asyncio
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+
+from ..multibyte_detection import find_onebyte_repeaters
 from .router import normalize
 from .usage import record
-from ..multibyte_detection import find_onebyte_repeaters
 
 
 def countries(conn, requested):
@@ -88,18 +90,29 @@ def trace_content(conn, args):
 
 
 async def answer_network(dispatcher, decision, message):
+    from ..commands.advert_command import AdvertCommand
     from ..commands.hfcond_command import HfcondCommand
     from ..commands.near_command import NearCommand
-    from ..commands.stats_command import StatsCommand
     from ..commands.neighbors_command import NeighborsCommand
+    from ..commands.stats_command import StatsCommand
     from ..commands.trace_command import TraceCommand
-    from ..commands.advert_command import AdvertCommand
     parent=dispatcher._command('mesh')
     if not dispatcher._allowed(parent,message,service=True):
         return 'La fonction mesh est indisponible ou non autorisée ici.'
     op=decision.operation;args=decision.args
     if op=='unsupported': return args.get('error',"Cette demande réseau n'est pas encore prise en charge par les fonctions disponibles.")
     try:
+        if op == 'repeater_geography':
+            from ..repeater_geography import geography_reply, repeater_geography
+
+            def calculate():
+                with dispatcher.owner.bot.db_manager.connection() as conn:
+                    return repeater_geography(conn)
+
+            record(dispatcher.owner.bot, 'mesh.repeater_geography')
+            parent.record_execution(message.sender_id or None)
+            report = await asyncio.to_thread(calculate)
+            return geography_reply(report, dispatcher.owner.get_max_message_length(message))
         if op == 'relay_connectivity':
             from .relay_connectivity import connectivity
             record(dispatcher.owner.bot, "mesh." + op)
