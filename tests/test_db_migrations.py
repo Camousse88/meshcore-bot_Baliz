@@ -647,6 +647,45 @@ class TestBbsInboxNotificationStages:
             "SELECT COUNT(*) FROM schema_version WHERE version = 36"
         ).fetchone()[0]
         assert applied == 1
+
+
+def test_tigro_airtime_ledgers_upgrade_existing_baliz_database(conn, runner, monkeypatch):
+    with monkeypatch.context() as previous:
+        previous.setattr("modules.db_migrations.MIGRATIONS", [m for m in MIGRATIONS if m[0] <= 40])
+        runner.run()
+
+    conn.execute(
+        "INSERT INTO complete_contact_tracking (public_key, name, role, latitude, longitude) "
+        "VALUES ('key', 'Brest', 'repeater', 48.3904, -4.4861)"
+    )
+    contact_id = conn.execute("SELECT id FROM complete_contact_tracking WHERE public_key='key'").fetchone()[0]
+    conn.execute(
+        "INSERT INTO repeater_departments VALUES (?, 48.3904, -4.4861, '29')", (contact_id,)
+    )
+    conn.execute(
+        "INSERT INTO occupancy_samples (bucket_ts, sample_seconds, rx_ms, tx_ms, packets) "
+        "VALUES (1000, 60, 5000, 0, 10)"
+    )
+    conn.execute(
+        "INSERT INTO occupancy_senders (sender, airtime_ms, packets, first_seen, last_seen) "
+        "VALUES ('key', 5000, 10, 1000, 1000)"
+    )
+    conn.commit()
+    original = conn.execute("SELECT version, description FROM schema_version ORDER BY version").fetchall()
+
+    runner.run()
+
+    assert conn.execute("SELECT version, description FROM schema_version WHERE version <= 40 ORDER BY version").fetchall() == original
+    assert conn.execute("SELECT rx_ms, packets, rx_hashed_ms, rx_copy_ms FROM occupancy_samples").fetchone() == (
+        5000, 10, None, None
+    )
+    assert conn.execute("SELECT airtime_ms, advert_ms FROM occupancy_senders").fetchone() == (5000, None)
+    assert conn.execute("SELECT department_code FROM repeater_departments").fetchone() == ("29",)
+    for table in ("occupancy_emitters", "occupancy_sender_days", "occupancy_emitter_days",
+                  "occupancy_relays", "occupancy_relay_days"):
+        assert _table_exists(conn.cursor(), table)
+
+
 class TestMigrationAtomicity:
     """A failing migration must roll back every migration in the same run."""
 

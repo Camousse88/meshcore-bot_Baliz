@@ -1,10 +1,10 @@
 """Tests for the /airtime page.
 
-The page is the reader for [Channel_Occupancy]; before it existed the feature had
-two API routes and no screen, so a percentage could only be read with curl. What
-these tests protect is the honesty of the rendering: modelled airtime is stated as
-modelled, rx is never merged with tx, and an absent bucket is a gap rather than a
-zero.
+The page reads the passive analysis ([airtime_analysis]): it drives the curve, the
+duty estimates and the modal detail tables, and the modal's role tabs are where the
+station rankings live. What these tests protect is the honesty of the rendering:
+modelled airtime is stated as modelled, an unknown is N/D rather than a zero, the
+read models are never summed, and the numbers keep one rounding across the page.
 """
 
 from __future__ import annotations
@@ -55,11 +55,14 @@ class TestAirtimePage:
         body = response.data.decode()
         main, details = body.split('<div class="modal fade" id="airtime-details"', 1)
         assert main.count('<canvas') == 1
-        assert '<table' not in main
+        # Nothing on the page body is a table: every ranking of stations lives in
+        # the modal, over the analysis read model.
+        assert main.count('<table') == 0
         assert 'Occupation moyenne du canal' in main
         assert 'Paquets reçus par minute' in main
         assert 'Duty cycle estimé' in main
         assert 'airtime-duty-list' in main and 'airtime-source-list' in main
+        assert 'Registres par airtime' not in main
         assert details.count('<table') == 3
         assert 'airtime-search' in details
         assert 'Profil radio' in body
@@ -93,6 +96,36 @@ class TestAirtimePage:
         assert 'Enregistrement désactivé. Les données affichées sont historiques.' in body
         assert 'État de l’enregistrement indisponible.' in body
         assert 'Les données précédentes ne sont pas à jour.' in body
+
+    def test_the_page_states_modelled_airtime_and_unknown_never_zero(self, viewer):
+        """The adopted design may not quietly drop the page's honesty contract."""
+        body = viewer.app.test_client().get('/airtime').data.decode()
+        assert 'L’airtime montré ici est modélisé à partir de la modulation, pas mesuré sur la porteuse.' in body
+        assert 'N/D : valeur inconnue, jamais une mesure à zéro.' in body
+
+    def test_the_by_airtime_ledger_card_left_the_page(self, viewer):
+        """The three registers were a second ranking of the same stations under a second
+        read model. The modal's role tabs answer the same question over one model, so the
+        card is gone rather than kept side by side with its tables to reconcile."""
+        body = viewer.app.test_client().get('/airtime').data.decode()
+        for orphan in ('airtime-ledger-title', 'airtime-ledger-role', 'airtime-ledger-rows',
+                       'airtime-totals-row', 'renderLedgers', 'ledgerTotalsRow'):
+            assert orphan not in body
+
+    def test_the_recording_banner_still_reads_the_recorder_not_the_analysis(self, viewer):
+        """The analysis read model does not know whether this process records: the banner
+        has to ask the recorder, and a historical page must say so rather than look live."""
+        body = viewer.app.test_client().get('/airtime').data.decode()
+        assert "/api/telemetry/occupancy?limit=1" in body
+        assert 'renderRecording(' in body
+
+    def test_the_page_rounds_everything_to_two_decimals(self, viewer):
+        """Mixed rounding across cards reads as two different measurements of one fact,
+        and a third decimal claims precision the modelled sums do not carry."""
+        body = viewer.app.test_client().get('/airtime').data.decode()
+        assert "maximumFractionDigits: 2" in body
+        assert 'maximumFractionDigits: 1' not in body
+        assert 'maximumFractionDigits: 3' not in body
 
 
 class TestPassiveAirtimeAPI:

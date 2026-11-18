@@ -42,7 +42,10 @@ test('only five rows appear in each main list; full names are escaped in all det
     assert.match(elements.get('airtime-relay-details').innerHTML,/&lt;script&gt;/);
     assert.doesNotMatch(elements.get('airtime-source-details').innerHTML,/<img/);
     assert.match(elements.get('airtime-source-details').innerHTML,/Auteur non identifiable/);
-    assert.match(elements.get('airtime-source-note').textContent,/33,333 %/);
+    // Two decimals, like everything else on the page: a third would claim a
+    // precision the counts behind it cannot carry (1 of 3 packets).
+    assert.match(elements.get('airtime-source-note').textContent,/33,33 %/);
+    assert.doesNotMatch(elements.get('airtime-source-note').textContent,/33,333/);
 });
 test('duty always uses the current hour independently of the selected activity period',()=>{
     const {instance,elements}=viewer();instance.render(data,hourly);
@@ -95,7 +98,7 @@ test('packet line shares bin centres with bars and its tooltip shows units and m
     const callbacks=instance.chart.options.plugins.tooltip.callbacks;
     assert.equal(callbacks.label({dataset:bars,parsed:{y:2}}),'Occupation : 2 %');
     assert.equal(callbacks.label({dataset:line,parsed:{y:.4}}),'Paquets/min : 0,4');
-    assert.equal(callbacks.afterBody([{raw:line.data[0]}]),'Taille moyenne : 63,8 octets');
+    assert.equal(callbacks.afterBody([{raw:line.data[0]}]),'Taille moyenne : 63,75 octets');
     assert.equal(callbacks.afterBody([{raw:line.data[2]}]),'');
     assert.equal(instance.chart.options.scales.packets.position,'right');
     assert.equal(instance.chart.options.plugins.legend.display,false);
@@ -297,7 +300,7 @@ test('occupation and packet averages follow the selected period while duty stays
     assert.equal(elements.get('airtime-rx').textContent,'0,2 %');
     assert.equal(elements.get('airtime-rx-note').textContent,'Moyenne sur 7 jours');
     assert.equal(elements.get('airtime-packet-rate').textContent,'0,8');
-    assert.equal(elements.get('airtime-packet-size').textContent,'Taille moyenne : 63,8 octets');
+    assert.equal(elements.get('airtime-packet-size').textContent,'Taille moyenne : 63,75 octets');
     assert.equal(elements.get('airtime-duty').textContent,'0,1 %');
     assert.equal(elements.get('airtime-peak').textContent,'4 %');
     assert.equal(elements.get('airtime-peak-note').textContent,'5 min se terminant le 13/11 à 09:34');
@@ -315,8 +318,10 @@ test('occupation and packet averages follow the selected period while duty stays
     instance.render({...data,coverage:{available_seconds:10},local:{...data.local,rx_packets_per_minute:6}},hourly);
     assert.equal(elements.get('airtime-rx').textContent,'N/D');
     assert.equal(elements.get('airtime-packet-rate').textContent,'N/D');
+    // A non-zero average that would round to 0 at the page's 2 decimals is shown
+    // as below the floor, not as 0: a 0 would read as a measured quiet channel.
     instance.render({...data,local:{...data.local,rx_packets_per_minute:.000099}},hourly);
-    assert.equal(elements.get('airtime-packet-rate').textContent,'< 0,001');
+    assert.equal(elements.get('airtime-packet-rate').textContent,'< 0,005');
 });
 
 test('source ranking uses reconstructed radio cost rather than message or received-copy counts',()=>{
