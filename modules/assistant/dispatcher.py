@@ -1,5 +1,6 @@
 """Capability invocation, retaining caller identity and command restrictions."""
 import asyncio
+import math
 import re
 import unicodedata
 from copy import deepcopy
@@ -88,6 +89,13 @@ class AssistantDispatcher:
             self.record_function('path.hops')
             command.record_execution(message.sender_id or None)
             return hops_reply(message)
+        if route is Route.TEST and decision.operation == 'measurement':
+            command = self._command('test')
+            if not self._allowed(command, message, service=True):
+                return 'La mesure radio est indisponible ou non autorisée ici.'
+            self.record_function('test.receive')
+            command.record_execution(message.sender_id or None)
+            return self._measurement_reply(message, decision.args['metrics'])
         if route in {Route.TEST, Route.PATH}:
             return await self._rf_tool(route.value, decision.question, message)
         if route is Route.WEATHER:
@@ -179,6 +187,25 @@ class AssistantDispatcher:
             if name == "path":
                 return "Ce message ne contient pas de chemin radio exploitable."
             return "Ce message ne contient pas de mesure radio exploitable."
+
+    @staticmethod
+    def _measurement_reply(message: MeshMessage, metrics: tuple[str, ...]) -> str:
+        from .message_hops import observed_hops
+
+        values = {'snr': (message.snr, 'dB'), 'rssi': (message.rssi, 'dBm')}
+        measurements = []
+        measured = False
+        for metric in metrics:
+            value, unit = values[metric]
+            if value is None or not math.isfinite(value):
+                measurements.append(f'{metric.upper()} indisponible')
+                continue
+            measured = True
+            formatted = f'{value:g}'.replace('.', ',')
+            measurements.append(f'{metric.upper()} : {formatted} {unit}')
+        hops = observed_hops(message)
+        suffix = ' (dernier relais → Baliz)' if measured and hops is not None and hops > 0 else ''
+        return 'À la réception : ' + ' · '.join(measurements) + suffix + '.'
 
     @staticmethod
     def _reception_measurements(message: MeshMessage, fallback: str) -> str:

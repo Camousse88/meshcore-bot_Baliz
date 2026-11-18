@@ -31,6 +31,36 @@ def normalize(text: str) -> str:
                             if not unicodedata.combining(c)).replace("’", "'").replace("œ", "oe").split())
 
 
+def requested_reception_metrics(question: str) -> tuple[str, ...]:
+    """Recognize explicit requests about this packet, not remote telemetry."""
+    q = normalize(question).strip(" ?!.")
+    metrics = r"((?:snr|rssi)(?:\s*(?:et|and|/)\s*(?:(?:le|the) )?(?:snr|rssi))?)"
+    match = re.fullmatch(
+        r"(?:(?:quel est|quels sont|donne(?:-moi)?|indique(?:-moi)?|affiche|"
+        r"what is|what's|what are|show(?: me)?|give me) )?"
+        r"(?:(?:le|les|the) )?" + metrics +
+        r" (?:(?:de (?:mon|ce)) (?:message|paquet)|of (?:my|this) (?:message|packet))",
+        q,
+    ) or re.fullmatch(
+        r"(?:(?:quel est|donne(?:-moi)?|what is|what's|show me) )?(?:mon|my) " + metrics, q,
+    )
+    if not match:
+        return ()
+    return tuple(dict.fromkeys(re.findall(r"\b(?:snr|rssi)\b", match[1])))
+
+
+def requests_repeater_geography(question: str) -> bool:
+    """Resolve an explicit geographic count without model interpretation."""
+    return bool(re.fullmatch(
+        r"(?:(?:donne(?:-moi)?|montre(?:-moi)?|quel est|quelle est) )?"
+        r"(?:(?:le )?nombre de|combien de|(?:la )?repartition des|(?:les )?)"
+        r"\s*(?:noeuds?|repeteurs?|relais)(?: (?:actifs?|entendus?|observes?|connus?))?"
+        r" par (?:departements?(?: et (?:par )?pays)?|pays et (?:par )?departements?)"
+        r"(?: (?:sur|depuis) .+)?",
+        normalize(question).strip(" ?!."),
+    ))
+
+
 class AssistantRouter:
     """Conservative French/English intents plus explicit routes for ambiguity.
 

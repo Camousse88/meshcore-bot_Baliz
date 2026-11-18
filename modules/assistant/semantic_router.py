@@ -7,6 +7,7 @@ from typing import Any
 import requests
 
 from .llm_client import post_chat
+from .router import Decision, Route, requested_reception_metrics, requests_repeater_geography
 
 
 class SemanticRouter:
@@ -224,6 +225,13 @@ class SemanticRouter:
         return None
 
     async def decide(self, question, enabled_routes, bbs_context=None):
+        if not (bbs_context and bbs_context['awaiting'] == 'text'):
+            if 'mesh' in enabled_routes and requests_repeater_geography(question):
+                return Decision(Route.MESH, question, 'geographic_repeater_count', 'repeater_geography')
+            if 'test' in enabled_routes:
+                metrics = requested_reception_metrics(question)
+                if metrics:
+                    return Decision(Route.TEST, question, 'current_packet_metrics', 'measurement', {'metrics': metrics})
         if not self.enabled or not enabled_routes:
             return None
         return await asyncio.to_thread(self._classify, question, enabled_routes, bbs_context)

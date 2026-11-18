@@ -15,6 +15,7 @@ CATALOG = {
         'relay_connectivity': 'Classement des relais par nombre de liens observés. hours=24,limit=3.',
         'count_nodes': 'Nombre de nœuds tous rôles. Actifs : hours=24 ; connus : hours=0.',
         'count_repeaters': 'Nombre de répéteurs. hours=0 par défaut. Aucun classement.',
+        'repeater_geography': 'Répartition de nœuds ou répéteurs entendus par département français ou par pays étranger. Compte les répéteurs observés sur 24 h. Sans argument.',
         'list_repeaters': 'Noms des répéteurs connus, sort=recent par défaut. Jamais les relais traversés par un message : path.message. activity seulement sur demande de classement par annonces.',
         'onebyte': 'Relais utilisant un routage de 1 octet, selon les observations.',
         'near': 'Relais proches géographiquement ; utilise GPS ou premier relais comme repère. Gère la position absente.',
