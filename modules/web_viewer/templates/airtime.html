@@ -98,9 +98,11 @@
             </div>
         </div></section>
     </div>
-    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 small text-muted mb-4">
-        <span id="airtime-model-note"></span><button class="btn btn-outline-secondary btn-sm" data-airtime-detail="model">Détails de la modélisation</button>
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 small text-muted mb-2">
+        <span id="airtime-model-note"></span>
+        <button class="btn btn-outline-secondary btn-sm" data-airtime-detail="model">Détails de la modélisation</button>
     </div>
+    <p class="small text-muted mb-4">L’airtime montré ici est modélisé à partir de la modulation, pas mesuré sur la porteuse. N/D : valeur inconnue, jamais une mesure à zéro.</p>
 </div>
 <div class="modal fade" id="airtime-details" tabindex="-1" aria-labelledby="airtime-details-title" aria-hidden="true">
     <div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
@@ -144,7 +146,10 @@
     'use strict';
     const el = id => document.getElementById(id);
     const known = value => typeof value === 'number' && Number.isFinite(value);
-    const number = value => Number(value).toLocaleString('fr-FR', {maximumFractionDigits: 3});
+    // Two decimals everywhere on the page: a third one claims precision the
+    // modelled sums do not carry, and mixed rounding across cards reads as
+    // different measurements of the same fact.
+    const number = value => Number(value).toLocaleString('fr-FR', {maximumFractionDigits: 2});
     const pct = value => known(value) ? number(value) + ' %' : 'N/D';
     const packetShare = new Intl.NumberFormat('fr-FR', {style: 'percent', minimumFractionDigits: 2, maximumFractionDigits: 2});
     const radioTime = value => known(value) ? number(value / 1000) + ' s' : 'N/D';
@@ -201,13 +206,15 @@
                 const selectedRequest = this.request('/api/telemetry/occupancy/analysis?window=' + encodeURIComponent(period), this.controller.signal);
                 const results = await Promise.allSettled([selectedRequest,
                     period === '1h' ? selectedRequest : this.request('/api/telemetry/occupancy/analysis?window=1h', this.controller.signal),
-                    this.request('/api/telemetry/occupancy', this.controller.signal)]);
+                    // Recording state only: the analysis read model does not know whether
+                    // the channel recorder in this process is on, and a historical page
+                    // has to say so rather than look like a live one.
+                    this.request('/api/telemetry/occupancy?limit=1', this.controller.signal)]);
                 if (sequence !== this.sequence) return;
                 if (results[0].status !== 'fulfilled') throw new Error('analysis unavailable');
                 const hourly = results[1].status === 'fulfilled' ? results[1].value : null;
                 this.render(results[0].value, hourly);
-                const live = results[2].status === 'fulfilled' ? results[2].value : null;
-                this.renderRecording(live);
+                this.renderRecording(results[2].status === 'fulfilled' ? results[2].value : null);
                 el('airtime-status').textContent = hourly
                     ? 'Actualisé à ' + new Date().toLocaleTimeString('fr-FR', {hour: '2-digit', minute: '2-digit'})
                     : 'Activité actualisée · Duty cycle indisponible.';
@@ -260,10 +267,10 @@
                 : 'Pic sur 5 minutes indisponible';
             const packetRate = enoughHistory ? data.local.rx_packets_per_minute : null;
             el('airtime-packet-rate').textContent = known(packetRate)
-                ? (packetRate > 0 && packetRate < .001 ? '< 0,001' : number(packetRate)) : 'N/D';
+                ? (packetRate > 0 && packetRate < .005 ? '< 0,005' : number(packetRate)) : 'N/D';
             const meanSize = data.local.rx_mean_frame_bytes;
             el('airtime-packet-size').textContent = 'Taille moyenne : ' + (known(meanSize)
-                ? meanSize.toLocaleString('fr-FR', {maximumFractionDigits: 1}) + ' octets' : 'N/D');
+                ? meanSize.toLocaleString('fr-FR', {maximumFractionDigits: 2}) + ' octets' : 'N/D');
             this.renderDuty();
             const receptions = data.receptions;
             el('airtime-volume').textContent = number(data.traffic.distinct_packets) + ' paquets distincts'
@@ -411,7 +418,7 @@
                         const point = items[0]?.raw;
                         const lines = [];
                         if (known(point?.meanSize)) lines.push('Taille moyenne : '
-                            + point.meanSize.toLocaleString('fr-FR', {maximumFractionDigits: 1}) + ' octets');
+                            + point.meanSize.toLocaleString('fr-FR', {maximumFractionDigits: 2}) + ' octets');
                         if (known(point?.distinct)) lines.push('Paquets distincts : ' + number(point.distinct));
                         if (known(point?.additionalShare)) lines.push('Airtime en copies supplémentaires : ' + pct(point.additionalShare));
                         return lines.join('\n');

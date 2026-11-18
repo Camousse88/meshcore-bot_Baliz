@@ -159,7 +159,9 @@ class TestAllowedTables:
             'channel_operations', 'channels', 'feed_message_queue',
             'bbs_messages', 'bbs_inbox', 'daily_rollup',
             'dashboard_snapshot',
-            'occupancy_samples', 'occupancy_senders',
+            'assistant_function_usage',
+            'occupancy_samples', 'occupancy_senders', 'occupancy_emitters',
+            'occupancy_sender_days', 'occupancy_emitter_days',
         }
         assert expected_tables == BotDataViewer.ALLOWED_TABLES
 
