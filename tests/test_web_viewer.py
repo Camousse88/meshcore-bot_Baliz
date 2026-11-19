@@ -526,6 +526,39 @@ class TestRadioRoutes:
         )
         assert resp.status_code == 400
 
+    def test_radio_connect_refused_while_bot_initializing(self, client, viewer):
+        viewer.db_manager.set_metadata("bot.initializing", "true")
+        try:
+            before = viewer.db_manager.execute_query(
+                "SELECT COALESCE(MAX(id), 0) AS id FROM channel_operations"
+            )[0]["id"]
+            resp = client.post(
+                "/api/radio/connect",
+                json={"action": "connect"},
+                content_type="application/json",
+            )
+            assert resp.status_code == 409
+            assert "still connecting to the radio at startup" in resp.get_json()["error"]
+            after = viewer.db_manager.execute_query(
+                "SELECT COALESCE(MAX(id), 0) AS id FROM channel_operations"
+            )[0]["id"]
+            assert after == before
+        finally:
+            viewer.db_manager.set_metadata("bot.initializing", "false")
+
+    def test_radio_connect_allowed_after_initializing(self, client, viewer):
+        viewer.db_manager.set_metadata("bot.initializing", "false")
+        resp = client.post(
+            "/api/radio/connect",
+            json={"action": "connect"},
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["success"] is True
+        assert data["pending"] is True
+        assert data["operation_id"] is not None
+
 
 # ===========================================================================
 # Contact routes
@@ -537,10 +570,10 @@ class TestContactRoutes:
         from datetime import datetime, timedelta
         now = datetime.now()
         keys = ['fac1' * 16, 'fac2' * 16, 'fac3' * 16]
-        for key, name in zip(keys, ['AdvertWindow Alpha', 'AdvertWindow Beta', 'AdvertWindow Old']):
+        for key, name in zip(keys, ['AdvertWindow Alpha', 'AdvertWindow Beta', 'AdvertWindow Old'], strict=True):
             _insert_contact(viewer, key, name)
         with closing(sqlite3.connect(viewer.db_path)) as conn:
-            for key, total, age in zip(keys, [100, 20, 50], [1, 1, 72]):
+            for key, total, age in zip(keys, [100, 20, 50], [1, 1, 72], strict=True):
                 conn.execute(
                     'UPDATE complete_contact_tracking SET advert_count=?, last_heard=? WHERE public_key=?',
                     (total, (now-timedelta(hours=age)).isoformat(' '), key))
@@ -1603,6 +1636,17 @@ class TestRoleBasedAccess:
             assert 'data-live-socket="false"' in html
         auth_client.post("/login", data={"password": "secret123"})
         assert 'data-is-admin="true"' in auth_client.get("/contacts").get_data(as_text=True)
+
+    def test_multibyte_page_and_data_are_public(self, auth_viewer, auth_client):
+        """Multibyte rollout is mesh-visible data, so anonymous visitors get the page, its data and the nav link."""
+        auth_viewer.multibyte_monitor_enabled = True
+        assert auth_client.get("/multibyte-rollout").status_code == 200
+        resp = auth_client.get("/api/multibyte-rollout")
+        assert resp.status_code == 200
+        blob = str(resp.get_json()).lower()
+        for needle in ("smtp_password", "channel_key", "key_hex", "private_key", "web_viewer_password"):
+            assert needle not in blob
+        assert 'href="/multibyte-rollout"' in auth_client.get("/").get_data(as_text=True)
 
     def test_admin_pages_require_auth(self, auth_client):
         admin_pages = ["/logs", "/config", "/plugins", "/radio", "/greeter", "/feeds", "/schedule", "/time/admin"]

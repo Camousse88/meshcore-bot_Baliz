@@ -114,6 +114,16 @@ def _written_monitor_channels(tmp_path):
     return parser.get("Channels", "monitor_channels", fallback=None)
 
 
+def _write_channel_config(viewer, values):
+    """Edit [Channels] keys in config.ini on disk, the way hand-editing does."""
+    parser = configparser.ConfigParser()
+    parser.read(viewer.config_path, encoding="utf-8")
+    for key, value in values.items():
+        parser.set("Channels", key, value)
+    with open(viewer.config_path, "w", encoding="utf-8") as handle:
+        parser.write(handle)
+
+
 def _post_settings(viewer, channels):
     return _client(viewer).post(
         "/api/channels/settings",
@@ -195,6 +205,40 @@ class TestChannelsViewFeed:
         data = _client(gated_viewer).get("/api/channels/view").get_json()
         assert data["channels"] == []
         assert data["monitor_channels"] == ["#fr-idf"]
+
+    def test_the_bots_region_for_the_channel_travels_in_the_qr(self, gated_viewer):
+        """A join from the QR lands the app on the region the bot posts here at."""
+        _seed_channels(gated_viewer, [(0, "#fr-idf", "hashtag", hashtag_secret("#fr-idf"))])
+        _write_channel_config(gated_viewer, {
+            "flood_scope.fr-idf": "#idf",
+            "outgoing_flood_scope_override": "#west",
+        })
+        entry = _client(gated_viewer).get("/api/channels/view").get_json()["channels"][0]
+        assert entry["qr"]["uri"].endswith("&region_scope=idf")
+
+    def test_the_override_scopes_every_channel_without_its_own_entry(self, gated_viewer):
+        _seed_channels(gated_viewer, [(0, "#fr-idf", "hashtag", hashtag_secret("#fr-idf"))])
+        _write_channel_config(gated_viewer, {"outgoing_flood_scope_override": "#west"})
+        entry = _client(gated_viewer).get("/api/channels/view").get_json()["channels"][0]
+        assert entry["qr"]["uri"].endswith("&region_scope=west")
+
+    def test_no_region_configured_and_the_qr_stays_plain(self, gated_viewer):
+        _seed_channels(gated_viewer, [(0, "#fr-idf", "hashtag", hashtag_secret("#fr-idf"))])
+        entry = _client(gated_viewer).get("/api/channels/view").get_json()["channels"][0]
+        assert "region_scope" not in entry["qr"]["uri"]
+
+    def test_public_region_qr_keeps_the_same_publication_boundary(self, gated_viewer):
+        shared_key = hashtag_secret("#fr-idf")
+        _seed_channels(gated_viewer, [
+            (0, "#fr-idf", "hashtag", shared_key),
+            (1, "secreto", "custom", PRIVATE_CUSTOM_KEY),
+        ])
+        _publish(gated_viewer, "#fr-idf", shared_key)
+        _write_channel_config(gated_viewer, {"flood_scope.fr-idf": "#idf"})
+        data = _login(gated_viewer).get("/api/channels/published").get_json()
+        assert data["is_admin"] is False
+        assert [channel["name"] for channel in data["channels"]] == ["#fr-idf"]
+        assert data["channels"][0]["qr"]["uri"].endswith("&region_scope=idf")
 
     def test_the_public_channel_is_never_in_the_anonymous_feed(self, gated_viewer):
         _seed_channels(gated_viewer, [(2, "Public", "custom", "11" * 16)])
@@ -283,8 +327,13 @@ class TestListedDecodeOnlyChannels:
         settings = _login(gated_viewer).get("/api/channels/settings").get_json()
         assert settings["monitor_channels"] == ["#fr-idf"]
 
-    def test_an_extra_decoder_name_without_a_slot_is_not_displayed(self, gated_viewer):
-        gated_viewer.config.set("Web_Viewer", "decode_hashtag_channels", "#decode-only")
+    def test_an_extra_decoder_name_without_a_slot_is_not_displayed(self, gated_viewer, tmp_path):
+        config_path = tmp_path / "config.ini"
+        config = configparser.ConfigParser()
+        config.read(config_path, encoding="utf-8")
+        config.set("Web_Viewer", "decode_hashtag_channels", "#decode-only")
+        with config_path.open("w", encoding="utf-8") as handle:
+            config.write(handle)
         assert "#decode-only" not in self._feed(_login(gated_viewer))
         assert "#decode-only" in {c["name"] for c in gated_viewer._get_channels()}
 

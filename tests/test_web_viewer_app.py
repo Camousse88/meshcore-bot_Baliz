@@ -1100,6 +1100,13 @@ def test_mesh_refresh_coordinator_handles_bursts_visibility_and_failures():
     let meshLiveRefreshRunning = false;
     let meshLiveRefreshRetryCount = 0;
     let meshLiveRefreshActiveReloadsNodes = false;
+    // refreshData's airtime-cache preamble touches these; the coordinator
+    // harness keeps the heat layer off so it stays a no-op here.
+    let airtimeOn = false;
+    let airtimeWeights = null;
+    let airtimeWeightsWindow = null;
+    async function ensureAirtimeWeights() {{}}
+    function renderAirtimeHeatmap() {{}}
     const MESH_LIVE_REFRESH_MS = 10;
     const MESH_LIVE_REFRESH_RETRY_MS = 10;
     const MESH_LIVE_REFRESH_MAX_RETRIES = 2;
@@ -3047,7 +3054,7 @@ def test_mesh_entry_points_api_and_page(viewer_with_db):
     assert client.get('/api/mesh/entry-points?unscoped=1').get_json()['unscoped_only'] is True
     assert client.get('/api/mesh/entry-points?unscoped=bad').status_code == 400
     assert client.get('/mesh-entry-points').status_code == 200
-    assert b'/mesh-entry-points' in client.get('/mesh').data
+    assert b'id="btn-entry-mode"' in client.get('/mesh').data
 
 
 class TestWebViewerTestDmRoute:

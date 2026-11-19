@@ -8,14 +8,17 @@ const start = html.indexOf('    async function loadChannelData()');
 const end = html.indexOf('    async function load()', start);
 assert.ok(start >= 0 && end > start);
 
-async function load(responses) {
+async function load(responses, root = '') {
     const calls = [];
-    const context = vm.createContext({ fetch: async (path, options) => {
-        calls.push({path, options});
-        const response = responses.shift();
-        if (response instanceof Error) throw response;
-        return response;
-    }});
+    const context = vm.createContext({
+        appUrl: path => root + path,
+        fetch: async (path, options) => {
+            calls.push({path, options});
+            const response = responses.shift();
+            if (response instanceof Error) throw response;
+            return response;
+        },
+    });
     vm.runInContext(html.slice(start, end), context);
     return { data: await context.loadChannelData(), calls };
 }
@@ -54,4 +57,13 @@ test('empty published feed stays empty', async () => {
 
 test('failure of both feeds reports unavailable rather than using stale private data', async () => {
     await assert.rejects(load([{ok: false, status: 401}, {ok: false, status: 503}]), /Channels unavailable/);
+});
+
+
+test('both feeds stay under the viewer prefix', async () => {
+    const result = await load([{ok: false, status: 401}, response(['published'])], '/local');
+    assert.deepEqual(result.calls.map(call => call.path), [
+        '/local/channels/settings/view',
+        '/local/api/channels/published',
+    ]);
 });
