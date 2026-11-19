@@ -8,7 +8,7 @@ A web-based interface for viewing and analyzing data from your MeshCore Bot.
 - **Repeater Contacts**: View active repeater contacts with location and status information
 - **Contact Tracking**: Complete history of all heard contacts with signal strength and routing data
 - **Config panel**: Structured settings with categorized topics and database tools
-- **Plugins page**: Toggle every command and service on/off and edit their settings from the browser. Changes are validated, written to `config.ini` with comments preserved and a timestamped backup, and the bot hot-reloads command settings within a few seconds (service on/off still needs a restart). Template fields (test reply, path reply prefix, greeter messages, multitest result, MQTT weather template) have a `{ }` button that lists the placeholders they take; every one previews the template as you type against sample data, showing what the bot would send (or that it would send nothing) when the template has a mistake; the test reply and path prefix, which take filters, also list them and preview against a 2-byte, a 1-byte and a direct sample message
+- **Plugins page**: Toggle every command and service on/off and edit their settings from the browser. Changes are validated, written to `config.ini` with comments preserved and a timestamped backup, and the bot hot-reloads command settings within a few seconds (service on/off still needs a restart). Template fields (test reply, path reply prefix, greeter messages, multitest result and its CoreScope acknowledgement, MQTT weather template) have a `{ }` button that lists the placeholders they take; every one previews the template as you type against sample data, showing what the bot would send (or that it would send nothing) when the template has a mistake; the test reply and path prefix, which take filters, also list them and preview against a 2-byte, a 1-byte and a direct sample message. A blank multitest result previews the default for the mode you have saved: the path list when the bot listens, the count and map link when CoreScope answers
 - **Purging Log**: Audit trail of contact purging operations
 - **BBS Mailbox**: Statistics page for the BBS store-and-forward mailbox: pending totals,
   the per-recipient pending list, top senders, message ages and 14-day activity
@@ -435,6 +435,14 @@ next hourly tick.
 - The monitored channels (`[Channels] monitor_channels`) as a card grid, each with the
   MeshCore "Add Channel" QR code a visitor can scan from the MeshCore mobile app
   (`meshcore://channel/add?name=…&secret=…`), plus a button to copy the URI
+- When the bot has a region for the channel, the QR also carries MeshCore's optional
+  `region_scope` parameter (MeshCore app v1.47.0+), resolved with the bot's own send
+  precedence — `flood_scope.<channel>`, then `outgoing_flood_scope_override`, then
+  `startup_flood_scope` — so a device that scans posts on that channel at the same region
+  the bot does. A per-channel global marker (`flood_scope.<channel> = *`), no configured
+  region, or a name the radio could not store leaves the parameter off. The region is
+  public by nature: every scoped message on the channel already broadcasts its transport
+  code, so it leaks nothing the mesh does not carry
 - The page opens without a login dialog. Anonymous visitors see only radio channels
   marked published on the Radio page, including for hashtag channels. Published custom
   keys are shared only through this explicit publication setting.

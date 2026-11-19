@@ -247,7 +247,10 @@
                     Ouvrez l'application MeshCore, ajoutez un <strong>code de région</strong> à
                     votre nœud, et c'est réglé &mdash; vos messages ne submergeront plus tout le
                     mesh et le bot cessera de vous envoyer l'avertissement.
-                    Vous trouverez plus d'infos sur <a href="https://wiki.meshcore.bzh">le WIKI</a>
+                    {% if not auth_enabled or is_admin %}
+                    Les exclusions se règlent dans <a href="{{ url_for('region_warnings_page') }}">Paramètres région</a>.
+                    {% endif %}
+                    Vous trouverez plus d'infos sur <a href="https://wiki.meshcore.bzh">le Wiki Bretagne</a>.
                 </p>
             </div>
         </div>
@@ -329,6 +332,9 @@ region save</code></pre>
                     Open the MeshCore app, add a <strong>region code</strong> to your node, and you
                     are done &mdash; your messages will stop flooding the whole mesh and the bot will
                     stop sending you the warning.
+                    {% if not auth_enabled or is_admin %}
+                    Manage exceptions under <a href="{{ url_for('region_warnings_page') }}">Region Settings</a>.
+                    {% endif %}
                 </p>
             </div>
         </div>
